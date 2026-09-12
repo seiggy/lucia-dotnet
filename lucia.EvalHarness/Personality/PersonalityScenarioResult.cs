@@ -1,3 +1,5 @@
+using lucia.EvalHarness.Evaluation;
+
 namespace lucia.EvalHarness.Personality;
 
 /// <summary>
@@ -42,4 +44,5 @@ public sealed class PersonalityScenarioResult
     /// exceeded its configured deadline, as opposed to an ordinary failure.
     /// </summary>
     public bool TimedOut { get; init; }
+    public InferenceCostSummary Cost { get; init; } = InferenceCostSummary.Untracked;
 }

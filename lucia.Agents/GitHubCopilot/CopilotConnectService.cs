@@ -1,4 +1,4 @@
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using lucia.Agents.GitHubCopilot.Models;
 using Microsoft.Extensions.Logging;
 
@@ -25,7 +25,6 @@ public sealed class CopilotConnectService
     /// <param name="ct">Cancellation token.</param>
     public async Task<CopilotConnectResult> ConnectAndListModelsAsync(string? githubToken, CancellationToken ct)
     {
-        CopilotClient? client = null;
         try
         {
             var options = new CopilotClientOptions();
@@ -35,7 +34,7 @@ public sealed class CopilotConnectService
                 options.GitHubToken = githubToken;
             }
 
-            client = new CopilotClient(options);
+            await using var client = new CopilotClient(options);
             await client.StartAsync(ct).ConfigureAwait(false);
 
             _logger.LogInformation("Copilot CLI started, listing models...");
@@ -53,7 +52,7 @@ public sealed class CopilotConnectService
                 PolicyState: m.Policy?.State,
                 PolicyTerms: m.Policy?.Terms,
                 BillingMultiplier: m.Billing?.Multiplier ?? 1.0,
-                SupportedReasoningEfforts: m.SupportedReasoningEfforts ?? [],
+                SupportedReasoningEfforts: m.SupportedReasoningEfforts?.ToList() ?? [],
                 DefaultReasoningEffort: m.DefaultReasoningEffort
             )).ToList();
 
@@ -64,14 +63,6 @@ public sealed class CopilotConnectService
         {
             _logger.LogError(ex, "Failed to connect to GitHub Copilot CLI");
             return new CopilotConnectResult(false, $"Failed to connect: {ex.Message}", []);
-        }
-        finally
-        {
-            if (client is not null)
-            {
-                try { await client.StopAsync().ConfigureAwait(false); }
-                catch { /* best-effort cleanup */ }
-            }
         }
     }
 

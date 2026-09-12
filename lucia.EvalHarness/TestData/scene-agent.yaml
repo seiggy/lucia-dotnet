@@ -1,45 +1,121 @@
-# Scene Agent Evaluation Dataset
-# Tests scene activation and discovery
+# Scene Agent Evaluation Scenarios
+# Scenes are seeded per scenario because the HA snapshot contains no scene entities.
 
-data:
+scenarios:
   - id: activate_movie
-    input: "Activate the movie scene"
-    expected: "movie"
-    expected_tools:
-      - SceneControlSkill
-    criteria:
-      - "Finds the movie scene"
-      - "Activates it by entity ID"
+    description: "Discover and activate the movie scene by its entity ID"
+    category: control
+    device_area: "Living Room"
+    initial_state:
+      scene.movie_mode:
+        area: "Living Room"
+        state: "unknown"
+        attributes:
+          friendly_name: "Movie Mode"
+      scene.romantic:
+        area: "Bedroom"
+        state: "unknown"
+        attributes:
+          friendly_name: "Romantic"
+    user_prompt: "Activate the movie scene"
+    expected_tool_calls:
+      - tool: ListScenes
+        alternatives:
+          - tool: FindScenesByArea
+            arguments:
+              areaName: "contains:living room"
+      - tool: ActivateScene
+        arguments:
+          entityId: "scene.movie_mode"
+    response_must_contain:
+      - "movie"
 
   - id: activate_by_area
-    input: "Turn on the romantic scene in the bedroom"
-    expected: "bedroom"
-    expected_tools:
-      - SceneControlSkill
-    criteria:
-      - "Searches for scenes in the bedroom area"
-      - "Activates the romantic scene"
+    description: "Find the bedroom's romantic scene and activate it"
+    category: control
+    device_area: "Living Room"
+    initial_state:
+      scene.movie_mode:
+        area: "Living Room"
+        state: "unknown"
+        attributes:
+          friendly_name: "Movie Mode"
+      scene.romantic:
+        area: "Bedroom"
+        state: "unknown"
+        attributes:
+          friendly_name: "Romantic"
+    user_prompt: "Turn on the romantic scene in the bedroom"
+    expected_tool_calls:
+      - tool: FindScenesByArea
+        arguments:
+          areaName: "contains:bedroom"
+      - tool: ActivateScene
+        arguments:
+          entityId: "scene.romantic"
+    response_must_contain:
+      - "romantic"
 
   - id: list_scenes
-    input: "What scenes are available?"
-    expected: "scene"
-    expected_tools:
-      - SceneControlSkill
-    criteria:
-      - "Lists all available scenes"
+    description: "List all three available scenes"
+    category: query
+    initial_state:
+      scene.movie_mode:
+        area: "Living Room"
+        state: "unknown"
+        attributes:
+          friendly_name: "Movie Mode"
+      scene.romantic:
+        area: "Bedroom"
+        state: "unknown"
+        attributes:
+          friendly_name: "Romantic"
+      scene.goodnight:
+        area: "Bedroom"
+        state: "unknown"
+        attributes:
+          friendly_name: "Goodnight"
+    user_prompt: "What scenes are available?"
+    expected_tool_calls:
+      - tool: ListScenes
+    response_must_contain:
+      - "movie"
+      - "romantic"
+      - "goodnight"
 
   - id: activate_goodnight
-    input: "Goodnight scene please"
-    expected: "goodnight"
-    expected_tools:
-      - SceneControlSkill
-    criteria:
-      - "Finds and activates goodnight/bedtime scene"
+    description: "Discover and activate the goodnight scene"
+    category: control
+    device_area: "Bedroom"
+    initial_state:
+      scene.goodnight:
+        area: "Bedroom"
+        state: "unknown"
+        attributes:
+          friendly_name: "Goodnight"
+    user_prompt: "Goodnight scene please"
+    expected_tool_calls:
+      - tool: ListScenes
+        alternatives:
+          - tool: FindScenesByArea
+            arguments:
+              areaName: "contains:bedroom"
+      - tool: ActivateScene
+        arguments:
+          entityId: "scene.goodnight"
+    response_must_contain:
+      - "goodnight"
 
   - id: out_of_domain
-    input: "Set the thermostat to 72"
-    expected_tools: []
-    criteria:
-      - "Recognizes this is not a scene request"
-    metadata:
-      category: out-of-domain
+    description: "Reject a thermostat request without activating a scene"
+    category: out-of-domain
+    initial_state:
+      scene.movie_mode:
+        area: "Living Room"
+        state: "unknown"
+        attributes:
+          friendly_name: "Movie Mode"
+    user_prompt: "Set the thermostat to 72"
+    expected_tool_calls: []
+    response_must_not_contain:
+      - "activated"

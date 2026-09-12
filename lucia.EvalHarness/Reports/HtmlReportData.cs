@@ -12,6 +12,12 @@ namespace lucia.EvalHarness.Reports;
 /// </summary>
 public sealed class HtmlReportData
 {
+    [JsonPropertyName("recommendations")]
+    public IReadOnlyList<ModelRecommendation> Recommendations { get; init; } = [];
+
+    [JsonPropertyName("costNote")]
+    public string CostNote => CostReportFormatting.EstimateNote;
+
     [JsonPropertyName("runId")]
     public required string RunId { get; init; }
 
@@ -75,9 +81,13 @@ public sealed class HtmlReportData
                                 .Where(result => result.Performance.RunCount > 0)
                                 .ToList();
                             var scoredCount = results.Sum(result => result.ScoredTestCaseCount);
+                            var costs = InferenceCostSummary.Aggregate(results.Select(result => result.Cost));
+                            var testCount = results.Sum(result => result.TestCaseResults.Count);
                             return new HtmlProfileScore
                             {
                                 ProfileName = pg.Key,
+                                Cost = costs,
+                                MeanTestCostUsd = testCount > 0 ? costs.EstimatedUsd / testCount : null,
                                 Parameters = new HtmlParameterData
                                 {
                                     Name = pg.Key,
@@ -99,6 +109,8 @@ public sealed class HtmlReportData
                             };
                         })
                         .OrderByDescending(p => p.AvgOverall)
+                        .ThenBy(p => p.MeanTestCostUsd ?? decimal.MaxValue)
+                        .ThenBy(p => p.ProfileName, StringComparer.Ordinal)
                         .ToList()
                 })
                 .ToList();
@@ -107,6 +119,7 @@ public sealed class HtmlReportData
         return new HtmlReportData
         {
             RunId = result.RunId,
+            Recommendations = ModelRecommendation.Rank(result),
             StartedAt = result.StartedAt.ToString("o"),
             CompletedAt = result.CompletedAt.ToString("o"),
             DurationSeconds = (result.CompletedAt - result.StartedAt).TotalSeconds,
@@ -122,6 +135,7 @@ public sealed class HtmlReportData
                 Models = a.ModelResults.Select(m => new HtmlModelData
                 {
                     ModelName = m.ModelName,
+                    Cost = m.Cost,
                     OverallScore = m.OverallScore,
                     OverallScoreStatus = m.OverallScoreStatus,
                     OverallScoreReason = m.OverallScoreReason,
@@ -157,6 +171,7 @@ public sealed class HtmlReportData
                     TestCases = m.TestCaseResults.Select(tc => new HtmlTestCaseData
                     {
                         Id = tc.TestCaseId,
+                        Cost = tc.Cost,
                         Passed = tc.Passed,
                         TimedOut = tc.TimedOut,
                         Score = tc.Score,

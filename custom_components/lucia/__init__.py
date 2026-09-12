@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 
 import httpx
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -13,8 +12,8 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
-    CONF_API_KEY,
     CONF_AGENT_ID,
+    CONF_API_KEY,
     CONF_PROMPT,
     CONF_REPOSITORY,
     CONF_VERIFY_SSL,
@@ -105,7 +104,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as err:
             # Non-fatal — OPTIONS may not be implemented, that's fine
             _LOGGER.debug(
-                "Health probe to %s failed (%s) — continuing anyway", health_url, err
+                "Health probe to %s failed (%s) — continuing anyway",
+                health_url,
+                err,
+                exc_info=True,
             )
 
         hass.data[DOMAIN][entry.entry_id] = {
@@ -180,6 +182,7 @@ async def _validate_lucia_connection(
             "Could not validate Lucia connectivity (%s) — "
             "this is non-fatal, plugin will still function",
             err,
+            exc_info=True,
         )
 
 

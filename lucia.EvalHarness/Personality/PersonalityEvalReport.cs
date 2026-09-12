@@ -1,3 +1,5 @@
+using lucia.EvalHarness.Evaluation;
+
 namespace lucia.EvalHarness.Personality;
 
 /// <summary>
@@ -13,6 +15,8 @@ public sealed class PersonalityEvalReport
     public required DateTimeOffset CompletedAt { get; init; }
 
     public int TotalCombinations => Results.Count;
+    public InferenceCostSummary Cost => InferenceCostSummary.Aggregate(Results.Select(result => result.Cost));
+    public decimal? MeanTestCostUsd => Results.Count > 0 ? Cost.EstimatedUsd / Results.Count : null;
 
     /// <summary>
     /// Average combined score across all successfully judged results (1-5 scale).

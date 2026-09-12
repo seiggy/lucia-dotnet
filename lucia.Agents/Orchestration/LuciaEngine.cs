@@ -3,6 +3,7 @@ using A2A;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
+using lucia.Agents.Services;
 using lucia.Agents.Training.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -60,6 +61,7 @@ public class LuciaEngine
         string? originalUserText = null,
         CancellationToken cancellationToken = default)
     {
+        using var memoryScope = UserMemoryScope.Begin(speakerContext?.EnrolledProfileId);
         using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.AddBaggage(nameof(userRequest), userRequest);
         _logger.LogInformation("Processing user request: {Request} (TaskId: {TaskId}, SessionId: {SessionId})",

@@ -25,7 +25,9 @@ public static class PersonalityEvalDisplay
         TimeSpan agentTimeout,
         TimeSpan judgeTimeout,
         TimeProvider? timeProvider = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<string, IChatClient>? chatClientFactory = null,
+        string? backendName = null)
     {
         var runner = new PersonalityEvalRunner(agentTimeout, judgeTimeout, timeProvider);
         var reports = new List<PersonalityEvalReport>();
@@ -44,15 +46,18 @@ public static class PersonalityEvalDisplay
             {
                 foreach (var model in selectedModels)
                 {
+                    var displayModel = backendName is null ? model : $"{model}@{backendName}";
                     var task = ctx.AddTask(
-                        $"[bold]{Markup.Escape(model)}[/]",
+                        $"[bold]{Markup.Escape(displayModel)}[/]",
                         maxValue: totalCombinations);
 
-                    var chatClient = new OllamaApiClient(new Uri(ollamaEndpoint), model);
+                    using var chatClient = chatClientFactory is null
+                        ? new OllamaApiClient(new Uri(ollamaEndpoint), model)
+                        : chatClientFactory(model);
 
                     var report = await runner.RunAsync(
                         chatClient,
-                        model,
+                        displayModel,
                         judgeChatClient,
                         judgeModelName,
                         scenarios,

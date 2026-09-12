@@ -58,6 +58,7 @@ public static class SweepRunAggregator
     /// Selects the winning entry from a list of sweep entries.
     /// Primary criterion: highest mean score across N runs.
     /// Tie-breaker: lower score variance (more stable combination wins).
+    /// Remaining ties prefer the lowest known mean test cost.
     /// </summary>
     public static SweepEntry? SelectWinner(IReadOnlyList<SweepEntry> entries) =>
         entries
@@ -74,6 +75,8 @@ public static class SweepRunAggregator
             })
             .OrderByDescending(e => e.MeanScore)
             .ThenBy(e => e.ScoreVariance ?? double.MaxValue)
+            .ThenBy(e => e.MeanTestCostUsd ?? decimal.MaxValue)
+            .ThenBy(e => e.Profile.ToSummary(), StringComparer.Ordinal)
             .FirstOrDefault();
 
     /// <summary>

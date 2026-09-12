@@ -99,7 +99,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
 
         // Faked dependencies (same pattern as EvalTestFixture)
         _definitionRepo = A.Fake<IAgentDefinitionRepository>();
-        _deviceCache = CreateNullDeviceCache();
+        _deviceCache = NullDeviceCache.Create();
         _tracingFactory = new TracingChatClientFactory(
             A.Fake<lucia.Agents.Training.ITraceRepository>(), _loggerFactory);
     }
@@ -420,14 +420,6 @@ public sealed class RealAgentFactory : IAsyncDisposable
         A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
             .Returns(Task.FromResult<AIAgent?>(null));
         return (resolver, tracer, chatClient);
-    }
-
-    private static IDeviceCacheService CreateNullDeviceCache()
-    {
-        var fake = A.Fake<IDeviceCacheService>();
-        A.CallTo(() => fake.GetCachedLightsAsync(A<CancellationToken>._))
-            .Returns(Task.FromResult<List<LightEntity>?>(null));
-        return fake;
     }
 
     private static IOptionsMonitor<T> CreateOptionsMonitor<T>() where T : class, new()

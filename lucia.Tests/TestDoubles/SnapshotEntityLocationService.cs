@@ -268,16 +268,19 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
     /// </summary>
     public void RegisterEntity(string entityId, string? friendlyName = null, string? areaId = null)
     {
-        // Avoid duplicates
-        if (_entities.Any(e => string.Equals(e.EntityId, entityId, StringComparison.OrdinalIgnoreCase)))
-            return;
-
-        _entities.Add(new HomeAssistantEntity
+        var index = _entities.FindIndex(e => string.Equals(e.EntityId, entityId, StringComparison.OrdinalIgnoreCase));
+        var existing = index >= 0 ? _entities[index] : null;
+        areaId ??= existing?.AreaId;
+        var entity = new HomeAssistantEntity
         {
             EntityId = entityId,
-            FriendlyName = friendlyName ?? entityId,
+            FriendlyName = friendlyName ?? existing?.FriendlyName ?? entityId,
             AreaId = areaId
-        });
+        };
+        if (index >= 0)
+            _entities[index] = entity;
+        else
+            _entities.Add(entity);
 
         if (areaId is not null)
             _entityToArea[entityId] = areaId;
@@ -296,12 +299,12 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
             .ToList();
 
         // Get entities from matched areas
-        var areaEntityIds = matchedAreas
-            .SelectMany(a => a.EntityIds ?? [])
+        var matchedAreaIds = matchedAreas
+            .Select(a => a.AreaId)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var areaEntities = _entities
-            .Where(e => areaEntityIds.Contains(e.EntityId))
+            .Where(e => e.AreaId is not null && matchedAreaIds.Contains(e.AreaId))
             .Where(e => domainFilter is null || domainFilter.Count == 0 || domainFilter.Contains(e.Domain))
             .ToList();
 
@@ -310,6 +313,16 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
             .Where(e => MatchesQuery(e.FriendlyName, query) || MatchesQuery(e.EntityId, query))
             .Where(e => domainFilter is null || domainFilter.Count == 0 || domainFilter.Contains(e.Domain))
             .ToList();
+
+        var exactMatches = directMatches.Where(e =>
+            string.Equals(e.EntityId, query.Trim(), StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(e.FriendlyName, query.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        if (exactMatches.Count > 0 && ExactMatchArea(query) is null)
+        {
+            matchedAreas.Clear();
+            areaEntities.Clear();
+            directMatches = exactMatches;
+        }
 
         // Combine, deduplicate
         var resolved = areaEntities

@@ -22,12 +22,16 @@ public sealed class VoiceOnboardingService : BackgroundService
 
     private readonly ConcurrentDictionary<string, OnboardingSession> _sessions = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
+    private readonly TaskCompletionSource _initialRecoveryCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IDiarizationEngine _diarization;
     private readonly ISpeakerProfileStore _profileStore;
     private readonly AudioQualityAnalyzer _qualityAnalyzer;
     private readonly AudioClipService _audioClipService;
     private readonly VoiceProfileOptions _options;
     private readonly ILogger<VoiceOnboardingService> _logger;
+
+    /// <summary>Completes after the initial recovery attempt, including any logged deferred failure.</summary>
+    internal Task InitialRecoveryCompletion => _initialRecoveryCompletion.Task;
 
     public VoiceOnboardingService(
         IDiarizationEngine diarization,
@@ -68,6 +72,7 @@ public sealed class VoiceOnboardingService : BackgroundService
         string? provisionalProfileId,
         CancellationToken ct)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(speakerName);
         await TryCleanupAbandonedSessionsAsync(ct).ConfigureAwait(false);
 
         if (provisionalProfileId is not null)
@@ -80,6 +85,7 @@ public sealed class VoiceOnboardingService : BackgroundService
         }
 
         var sampleCount = _options.OnboardingSampleCount;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleCount);
         var prompts = SelectPrompts(sampleCount);
 
         var session = new OnboardingSession
@@ -97,9 +103,57 @@ public sealed class VoiceOnboardingService : BackgroundService
         return session;
     }
 
+    public async Task<OnboardingSession> StartVoiceOnboardingAsync(
+        string speakerName,
+        ReadOnlyMemory<float> audioSamples,
+        int sampleRate,
+        CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(speakerName);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+        ct.ThrowIfCancellationRequested();
+        if (audioSamples.IsEmpty)
+        {
+            throw new ArgumentException("Voice enrollment requires captured audio.", nameof(audioSamples));
+        }
+
+        string? provisionalId = null;
+        var provisionals = await _profileStore.GetProvisionalProfilesAsync(ct).ConfigureAwait(false);
+        if (provisionals.Count > 0)
+        {
+            var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
+            if (embedding.Vector.Length == 0 || embedding.Vector.Any(value => !float.IsFinite(value)) ||
+                !(embedding.CosineSimilarity(embedding) > 0))
+            {
+                throw new InvalidOperationException("Could not match a voice profile from this recording. Please repeat.");
+            }
+
+            var candidates = provisionals.Where(profile =>
+                profile.IsProvisional &&
+                profile.AverageEmbedding.Length == embedding.Vector.Length &&
+                profile.AverageEmbedding.All(float.IsFinite)).ToList();
+            var match = _diarization.IdentifySpeaker(embedding, candidates, _options.ProvisionalMatchThreshold);
+            if (match is not null && float.IsFinite(match.Similarity) &&
+                match.Similarity >= _options.ProvisionalMatchThreshold &&
+                candidates.Any(profile => profile.Id == match.ProfileId))
+            {
+                provisionalId = match.ProfileId;
+            }
+        }
+
+        return await StartOnboardingAsync(speakerName, provisionalId, ct).ConfigureAwait(false);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await TryRecoverOnboardingClipsAsync(stoppingToken).ConfigureAwait(false);
+        try
+        {
+            await TryRecoverOnboardingClipsAsync(stoppingToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _initialRecoveryCompletion.TrySetResult();
+        }
         using var timer = new PeriodicTimer(CleanupInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {
@@ -125,6 +179,7 @@ public sealed class VoiceOnboardingService : BackgroundService
         int sampleRate,
         CancellationToken ct)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
         var sessionLock = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
         await sessionLock.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -145,6 +200,13 @@ public sealed class VoiceOnboardingService : BackgroundService
                 return await CompleteEnrollmentAsync(session, ct).ConfigureAwait(false);
             }
 
+            foreach (var sample in audioSamples.Span)
+            {
+                if (!float.IsFinite(sample))
+                {
+                    return OnboardingStepResult.Retry("That recording contained invalid audio. Please try the phrase again.");
+                }
+            }
             var quality = _qualityAnalyzer.Analyze(audioSamples.Span, sampleRate);
             if (!quality.IsAcceptable)
             {
@@ -160,6 +222,23 @@ public sealed class VoiceOnboardingService : BackgroundService
             }
 
             var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
+            if (embedding.Vector.Length == 0 || embedding.Vector.Any(value => !float.IsFinite(value))
+                || !(embedding.CosineSimilarity(embedding) > 0))
+            {
+                return OnboardingStepResult.Retry("I couldn't get a clear voice sample. Please try the phrase again.");
+            }
+            if (session.CollectedEmbeddings.Count > 0)
+            {
+                var reference = new SpeakerEmbedding
+                {
+                    Vector = IDiarizationEngine.ComputeAverageEmbedding(session.CollectedEmbeddings),
+                };
+                if (embedding.Vector.Length != reference.Vector.Length
+                    || !(embedding.CosineSimilarity(reference) >= _options.SpeakerVerificationThreshold))
+                {
+                    return OnboardingStepResult.Retry("Please have the same person say every phrase. That voice didn't match the earlier samples.");
+                }
+            }
             await _audioClipService.SaveOnboardingClipAsync(
                 session.Id,
                 audioSamples,
@@ -180,6 +259,10 @@ public sealed class VoiceOnboardingService : BackgroundService
         finally
         {
             sessionLock.Release();
+            if (!_sessions.ContainsKey(sessionId))
+            {
+                _sessionLocks.TryRemove(sessionId, out _);
+            }
         }
     }
 
@@ -188,6 +271,35 @@ public sealed class VoiceOnboardingService : BackgroundService
         _ = ct;
         _sessions.TryGetValue(sessionId, out var session);
         return Task.FromResult(session);
+    }
+
+    public async Task<bool> CancelOnboardingAsync(string sessionId, CancellationToken ct)
+    {
+        var sessionLock = _sessionLocks.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));
+        await sessionLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (!_sessions.TryGetValue(sessionId, out var session))
+            {
+                return true;
+            }
+            if (session.ProfilePersisted || await GetPersistedEnrollmentAsync(session, ct).ConfigureAwait(false) is not null)
+            {
+                return false;
+            }
+
+            _audioClipService.DeleteOnboardingSessionClips(session.Id);
+            _sessions.TryRemove(sessionId, out _);
+            return true;
+        }
+        finally
+        {
+            sessionLock.Release();
+            if (!_sessions.ContainsKey(sessionId))
+            {
+                _sessionLocks.TryRemove(sessionId, out _);
+            }
+        }
     }
 
     private async Task<SpeakerProfile> FinalizeEnrollmentAsync(OnboardingSession session, CancellationToken ct)

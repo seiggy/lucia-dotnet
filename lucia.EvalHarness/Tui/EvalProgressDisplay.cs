@@ -24,7 +24,8 @@ public static class EvalProgressDisplay
         Func<string, IReadOnlyList<AgentEval.Models.TestCase>> testCaseLoader,
         int? maxCasesPerAgent,
         IReadOnlyList<ModelParameterProfile>? parameterProfiles = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? modelsByBackend = null)
     {
         var profiles = parameterProfiles is { Count: > 0 }
             ? parameterProfiles
@@ -48,7 +49,9 @@ public static class EvalProgressDisplay
             {
                 foreach (var agentName in selectedAgentNames)
                 {
-                    var totalTasks = selectedModels.Count * profiles.Count * backendFactories.Count;
+                    var totalTasks = backendFactories.Sum(pair =>
+                        GetModelsForBackend(pair.Backend.Name, selectedModels, modelsByBackend).Count *
+                        (pair.Backend.Type == InferenceBackendType.AzureFoundry ? 1 : profiles.Count));
                     var agentTask = ctx.AddTask(
                         $"[bold]{Markup.Escape(agentName)}[/]",
                         maxValue: totalTasks);
@@ -60,11 +63,14 @@ public static class EvalProgressDisplay
                         if (!agentFactory.AgentFactories.TryGetValue(agentName, out var createAgent))
                             continue;
 
-                        foreach (var profile in profiles)
+                        var backendProfiles = backend.Type == InferenceBackendType.AzureFoundry
+                            ? profiles.Take(1).ToArray()
+                            : profiles;
+                        foreach (var profile in backendProfiles)
                         {
                             agentFactory.ParameterProfile = profile;
 
-                            foreach (var model in selectedModels)
+                            foreach (var model in GetModelsForBackend(backend.Name, selectedModels, modelsByBackend))
                             {
                                 // Tag model name with backend when comparing multiple backends
                                 var displayModel = multiBackend ? $"{model}@{backend.Name}" : model;
@@ -145,6 +151,16 @@ public static class EvalProgressDisplay
             AgentResults = agentResults
         };
     }
+
+    internal static IReadOnlyList<string> GetModelsForBackend(
+        string backendName,
+        IReadOnlyList<string> selectedModels,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? modelsByBackend) =>
+        modelsByBackend is null
+            ? selectedModels
+            : modelsByBackend.TryGetValue(backendName, out var models)
+                ? models
+                : throw new InvalidOperationException($"No models were selected for backend '{backendName}'.");
 
     /// <summary>
     /// Single-backend overload for backward compatibility.

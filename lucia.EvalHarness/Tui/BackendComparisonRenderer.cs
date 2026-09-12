@@ -74,6 +74,12 @@ public static class BackendComparisonRenderer
             }
             qualityRow.Add(FormatScoreDelta(backendResults));
             table.AddRow(qualityRow.ToArray());
+            table.AddRow(new[] { "Tokens in / out / cached" }
+                .Concat(backendResults.Select(backend => Reports.CostReportFormatting.Tokens(backend.Cost)))
+                .Append("").ToArray());
+            table.AddRow(new[] { "Est. USD" }
+                .Concat(backendResults.Select(backend => Reports.CostReportFormatting.Cost(backend.Cost)))
+                .Append("").ToArray());
 
             AnsiConsole.Write(table);
             AnsiConsole.WriteLine();
@@ -115,6 +121,10 @@ public static class BackendComparisonRenderer
             sb.Append("| **Overall Score** |");
             foreach (var br in backendResults) sb.Append($" {FormatScore(br.AvgOverall)} |");
             sb.AppendLine($" {FormatScoreDeltaPlain(backendResults)} |");
+            sb.AppendLine("| Tokens in / out / cached | " +
+                string.Join(" | ", backendResults.Select(backend => Reports.CostReportFormatting.Tokens(backend.Cost))) + " | |");
+            sb.AppendLine("| Est. USD | " +
+                string.Join(" | ", backendResults.Select(backend => Reports.CostReportFormatting.Cost(backend.Cost))) + " | |");
 
             sb.AppendLine();
         }
@@ -278,6 +288,7 @@ public static class BackendComparisonRenderer
                         return new BackendAggregation
                         {
                             BackendName = backendGroup.Key,
+                            Cost = InferenceCostSummary.Aggregate(results.Select(result => result.Cost)),
                             AvgOverall = Average(results.Select(result => result.OverallScore)),
                             TotalPassed = results.Sum(r => r.PassedCount),
                             TotalTests = results.Sum(r => r.ScoredTestCaseCount),

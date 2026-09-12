@@ -9,6 +9,12 @@ public sealed class HarnessConfiguration
 {
     public OllamaSettings Ollama { get; set; } = new();
     public AzureOpenAIJudgeSettings AzureOpenAI { get; set; } = new();
+    public JudgeProvider JudgeProvider { get; set; } = JudgeProvider.AzureOpenAI;
+    public CopilotJudgeSettings GitHubCopilot { get; set; } = new();
+
+    public string JudgeModelName => JudgeProvider == JudgeProvider.GitHubCopilot
+        ? GitHubCopilot.Model
+        : AzureOpenAI.JudgeDeployment;
 
     /// <summary>
     /// Named inference backends for multi-backend comparison.
@@ -59,6 +65,31 @@ public sealed class HarnessConfiguration
     /// </summary>
     public void Validate()
     {
+        if (!Enum.IsDefined(JudgeProvider))
+        {
+            throw new InvalidOperationException("Harness:JudgeProvider is not supported.");
+        }
+
+        var backends = GetEffectiveBackends();
+        if (backends.Any(backend => string.IsNullOrWhiteSpace(backend.Name)) ||
+            backends.Select(backend => backend.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != backends.Count)
+        {
+            throw new InvalidOperationException("Harness:Backends must have unique, non-empty names.");
+        }
+
+        foreach (var backend in backends)
+        {
+            if (!Enum.IsDefined(backend.Type) ||
+                !Uri.TryCreate(backend.Endpoint, UriKind.Absolute, out var endpoint) ||
+                endpoint.Scheme is not ("http" or "https") ||
+                !string.IsNullOrEmpty(endpoint.UserInfo) ||
+                !string.IsNullOrEmpty(endpoint.Query) ||
+                !string.IsNullOrEmpty(endpoint.Fragment))
+            {
+                throw new InvalidOperationException($"Backend '{backend.Name}' requires a supported type and an HTTP(S) endpoint without credentials, query, or fragment.");
+            }
+        }
+
         if (AgentTimeoutSeconds <= 0)
             throw new InvalidOperationException(
                 $"Harness:AgentTimeoutSeconds must be positive, but was {AgentTimeoutSeconds}.");

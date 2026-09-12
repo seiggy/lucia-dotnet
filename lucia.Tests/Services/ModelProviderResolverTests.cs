@@ -1,3 +1,4 @@
+using GitHub.Copilot;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Providers;
@@ -311,6 +312,23 @@ public sealed class ModelProviderResolverTests
     #endregion
 
     #region GitHub Copilot
+
+    [Fact]
+    public async Task CopilotAdapter_PreservesProviderIdentityWithUpgradedSdk()
+    {
+        using var client = new CopilotClient();
+        var agent = client.AsAIAgent(
+            new SessionConfig { Model = "judge-model" },
+            ownsClient: false,
+            id: "copilot-provider",
+            name: "Copilot provider",
+            description: "Provider description");
+        await using var disposableAgent = Assert.IsAssignableFrom<IAsyncDisposable>(agent);
+
+        Assert.Equal("copilot-provider", agent.Id);
+        Assert.Equal("Copilot provider", agent.Name);
+        Assert.Equal("Provider description", agent.Description);
+    }
 
     [Fact]
     public void CreateClient_GitHubCopilot_ThrowsInvalidOperation()

@@ -91,18 +91,18 @@ public static class SweepReportGenerator
             sb.AppendLine();
 
             // Full results table
-            sb.AppendLine("| # | Temperature | Top-K | Top-P | Repeat | Mean Score | σ | Delta from Baseline | Avg Latency |");
-            sb.AppendLine("|---|-------------|-------|-------|--------|------------|---|---------------------|-------------|");
+            sb.AppendLine("| # | Temperature | Top-K | Top-P | Repeat | Mean Score | σ | Delta from Baseline | Avg Latency | Tokens in / out / cached | Est. USD |");
+            sb.AppendLine("|---|-------------|-------|-------|--------|------------|---|---------------------|-------------|--------------------------|----------|");
 
             var rank = 1;
-            foreach (var entry in entries.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue))
+            foreach (var entry in entries.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue).ThenBy(e => e.MeanTestCostUsd ?? decimal.MaxValue))
             {
                 var delta = FormatDelta(entry.MeanScore, baselineMean);
                 var marker = entry == bestEntry ? " *" : "";
                 sb.AppendLine(
                     $"| {rank++}{marker} | {entry.Profile.Temperature} | {entry.Profile.TopK} | " +
                     $"{entry.Profile.TopP} | {entry.Profile.RepeatPenalty} | " +
-                    $"{FormatScore(entry.MeanScore)} | {FormatNumber(entry.ScoreStdDev)} | {delta} | {FormatLatency(entry.AverageLatencyMs)} |");
+                    $"{FormatScore(entry.MeanScore)} | {FormatNumber(entry.ScoreStdDev)} | {delta} | {FormatLatency(entry.AverageLatencyMs)} | {CostReportFormatting.Tokens(entry.Cost)} | {CostReportFormatting.Cost(entry.Cost)} |");
             }
             sb.AppendLine();
 
@@ -123,6 +123,9 @@ public static class SweepReportGenerator
 
         // Recommendations
         sb.AppendLine("## Recommendations");
+        sb.AppendLine();
+        sb.AppendLine(CostReportFormatting.EstimateNote);
+        sb.AppendLine("Sweep ties keep the lower score variance first, then the lowest known estimated cost per test.");
         sb.AppendLine();
 
         foreach (var (targetModel, entries) in result.TargetResults)
@@ -149,6 +152,7 @@ public static class SweepReportGenerator
     private static object BuildJsonReport(SweepResult result) => new
     {
         runId = result.RunId,
+        costNote = CostReportFormatting.EstimateNote,
         startedAt = result.StartedAt,
         completedAt = result.CompletedAt,
         durationSeconds = (result.CompletedAt - result.StartedAt).TotalSeconds,
@@ -164,7 +168,10 @@ public static class SweepReportGenerator
                 r.AgentName,
                 r.OverallScore,
                 r.OverallScoreStatus,
-                r.OverallScoreReason
+                r.OverallScoreReason,
+                r.Cost,
+                r.MeanTestCostUsd,
+                r.TestCaseResults
             })
         },
         targets = result.TargetResults.Select(kvp => new
@@ -175,7 +182,7 @@ public static class SweepReportGenerator
             bestConfigStatus = SweepRunAggregator.SelectWinner(kvp.Value) is null
                 ? "unavailable"
                 : "available",
-            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue).Select(e => new
+            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue).ThenBy(e => e.MeanTestCostUsd ?? decimal.MaxValue).Select(e => new
             {
                 parameters = new
                 {
@@ -191,7 +198,10 @@ public static class SweepReportGenerator
                 scoreVariance = e.ScoreVariance,
                 scoreStdDev = e.ScoreStdDev,
                 runCount = e.AllRunResults.Count,
-                averageLatencyMs = e.AverageLatencyMs
+                averageLatencyMs = e.AverageLatencyMs,
+                cost = e.Cost,
+                meanTestCostUsd = e.MeanTestCostUsd,
+                runs = e.AllRunResults
             })
         })
     };
@@ -225,7 +235,9 @@ public static class SweepReportGenerator
             minRunMean = w.MinRunMean,
             runCount = w.AllRunResults.Count,
             averageLatencyMs = w.AverageLatencyMs,
-            agents = w.Results.Select(r => new { r.AgentName, r.OverallScore })
+            cost = w.Cost,
+            meanTestCostUsd = w.MeanTestCostUsd,
+            agents = w.Results.Select(r => new { r.AgentName, r.OverallScore, r.Cost })
         };
     }
 

@@ -218,13 +218,17 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
             16_000,
             "orphan");
 
-        var service = CreateService();
+        using var service = CreateService();
         await service.StartAsync(CancellationToken.None);
-
-        Assert.True(SpinWait.SpinUntil(
-            () => !Directory.Exists(GetStagingDirectory("orphan")),
-            TimeSpan.FromSeconds(1)));
-        await service.StopAsync(CancellationToken.None);
+        try
+        {
+            await service.InitialRecoveryCompletion.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(Directory.Exists(GetStagingDirectory("orphan")));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
     }
 
     [Fact]
@@ -249,15 +253,60 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
             "interrupted",
             "profile-1",
             CancellationToken.None);
-        var service = CreateService(store: store);
+        using var service = CreateService(store: store);
 
         await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await service.InitialRecoveryCompletion.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Single(_audioClipService.GetClips("profile-1"));
+            Assert.False(Directory.Exists(GetStagingDirectory("interrupted")));
+        }
+        finally
+        {
+            await service.StopAsync(CancellationToken.None);
+        }
+    }
 
-        Assert.True(SpinWait.SpinUntil(
-            () => _audioClipService.GetClips("profile-1").Count == 1,
-            TimeSpan.FromSeconds(1)));
-        Assert.False(Directory.Exists(GetStagingDirectory("interrupted")));
-        await service.StopAsync(CancellationToken.None);
+    [Fact]
+    public async Task BackgroundService_RecoveryCompletionWaitsForProfileLookupAndClipCleanup()
+    {
+        var store = A.Fake<ISpeakerProfileStore>();
+        var lookupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var profileLookup = new TaskCompletionSource<SpeakerProfile?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var profile = new SpeakerProfile
+        {
+            Id = "profile-1",
+            Name = "Jane",
+            IsProvisional = false,
+            EnrollmentSessionId = "blocked",
+        };
+        A.CallTo(() => store.GetAsync("profile-1", A<CancellationToken>._))
+            .Invokes(() => lookupStarted.TrySetResult())
+            .Returns(profileLookup.Task);
+        await _audioClipService.SaveOnboardingClipAsync(
+            "blocked", Enumerable.Repeat(0.1f, 32_000).ToArray(), 16_000, "accepted");
+        await _audioClipService.SaveOnboardingPromotionMarkerAsync("blocked", "profile-1", CancellationToken.None);
+        using var service = CreateService(store: store);
+
+        await service.StartAsync(CancellationToken.None);
+        try
+        {
+            await lookupStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(service.InitialRecoveryCompletion.IsCompleted);
+            Assert.True(Directory.Exists(GetStagingDirectory("blocked")));
+
+            profileLookup.SetResult(profile);
+            await service.InitialRecoveryCompletion.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Single(_audioClipService.GetClips("profile-1"));
+            Assert.False(Directory.Exists(GetStagingDirectory("blocked")));
+        }
+        finally
+        {
+            profileLookup.TrySetResult(profile);
+            await service.StopAsync(CancellationToken.None);
+        }
     }
 
     [Fact]

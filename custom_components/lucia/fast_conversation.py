@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 import httpx
 
@@ -18,9 +17,9 @@ class ConversationResult:
     """Result from the conversation endpoint."""
 
     text: str
-    response_type: str  # "command" or "llm"
-    conversation_id: Optional[str] = None
-    command_detail: Optional[dict] = field(default=None)
+    response_type: str  # "command", "llm", "onboarding", or "error"
+    conversation_id: str | None = None
+    command_detail: dict | None = field(default=None)
     needs_input: bool = False
 
 
@@ -28,13 +27,13 @@ async def send_conversation(
     client: httpx.AsyncClient,
     base_url: str,
     text: str,
-    conversation_id: Optional[str] = None,
-    device_id: Optional[str] = None,
-    device_area: Optional[str] = None,
-    device_type: Optional[str] = None,
-    user_id: Optional[str] = None,
-    location: Optional[str] = None,
-    prompt_override: Optional[str] = None,
+    conversation_id: str | None = None,
+    device_id: str | None = None,
+    device_area: str | None = None,
+    device_type: str | None = None,
+    user_id: str | None = None,
+    location: str | None = None,
+    prompt_override: str | None = None,
 ) -> ConversationResult:
     """Send a conversation request to the /api/conversation endpoint.
 
@@ -129,8 +128,8 @@ def _parse_json_response(response: httpx.Response) -> ConversationResult:
 def _parse_sse_response(response: httpx.Response) -> ConversationResult:
     """Parse a text/event-stream response, concatenating delta events."""
     collected_text = ""
-    final_text: Optional[str] = None
-    conv_id: Optional[str] = None
+    final_text: str | None = None
+    conv_id: str | None = None
     needs_input = False
 
     current_event_type = ""
@@ -175,7 +174,7 @@ def _parse_sse_response(response: httpx.Response) -> ConversationResult:
             )
 
         # Capture conversationId from any event that carries it
-        if "conversationId" in event and event["conversationId"]:
+        if event.get("conversationId"):
             conv_id = event["conversationId"]
 
     result_text = final_text if final_text is not None else collected_text

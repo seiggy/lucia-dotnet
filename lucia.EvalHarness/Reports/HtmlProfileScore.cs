@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using lucia.EvalHarness.Evaluation;
 
 namespace lucia.EvalHarness.Reports;
 
@@ -7,6 +8,12 @@ namespace lucia.EvalHarness.Reports;
 /// </summary>
 public sealed class HtmlProfileScore
 {
+    [JsonPropertyName("cost")]
+    public InferenceCostSummary Cost { get; init; } = InferenceCostSummary.Untracked;
+
+    [JsonPropertyName("meanTestCostUsd")]
+    public decimal? MeanTestCostUsd { get; init; }
+
     [JsonPropertyName("profileName")]
     public required string ProfileName { get; init; }
 

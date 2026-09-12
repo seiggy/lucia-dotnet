@@ -5,6 +5,10 @@ namespace lucia.Tests.Data;
 public sealed class InMemoryMemoryStoreTests
 {
     [Fact]
+    public Task SearchPersonalAsync_FiltersReservedHistoryBeforeTheLimit() =>
+        PersonalMemorySearchAssertions.VerifyAsync(new InMemoryMemoryStore());
+
+    [Fact]
     public async Task StoreAsync_And_RetrieveAsync_RoundTrips()
     {
         var store = new InMemoryMemoryStore();

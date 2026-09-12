@@ -185,7 +185,9 @@ public static class ReportRenderer
                 .AddColumn("ToolSucc")
                 .AddColumn("ToolEff")
                 .AddColumn("TaskComp")
-                .AddColumn("Avg Latency");
+                .AddColumn("Avg Latency")
+                .AddColumn("Tokens in/out/cache")
+                .AddColumn("Est. USD");
 
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
@@ -211,10 +213,26 @@ public static class ReportRenderer
                     ScoreCell(m.TaskCompletionScore, m.TaskCompletionStatus),
                     FormatMs(m.Performance.RunCount > 0
                         ? m.Performance.MeanLatency.TotalMilliseconds
-                        : null));
+                        : null),
+                    Reports.CostReportFormatting.Tokens(m.Cost),
+                    Reports.CostReportFormatting.Cost(m.Cost));
             }
 
             AnsiConsole.Write(table);
+            var tests = new Table().Border(TableBorder.Simple)
+                .AddColumn("Model / test")
+                .AddColumn("Tokens in/out/cache")
+                .AddColumn("Est. USD");
+            foreach (var model in agentResult.ModelResults)
+            {
+                foreach (var test in model.TestCaseResults)
+                {
+                    tests.AddRow(Markup.Escape($"{model.ModelName} / {test.TestCaseId}"),
+                        Reports.CostReportFormatting.Tokens(test.Cost),
+                        Reports.CostReportFormatting.Cost(test.Cost));
+                }
+            }
+            AnsiConsole.Write(tests);
             AnsiConsole.WriteLine();
         }
     }
@@ -224,49 +242,26 @@ public static class ReportRenderer
         AnsiConsole.Write(new Rule("[bold green]Recommendations[/]").LeftJustified());
         AnsiConsole.WriteLine();
 
-        var allModelScores = result.AgentResults
-            .SelectMany(a => a.ModelResults)
-            .GroupBy(m => m.ModelName)
-            .Select(g => new
-            {
-                ModelName = g.Key,
-                AvgScore = g.Average(m => m.OverallScore),
-                AvgLatencyMs = g
-                    .Where(m => m.Performance.RunCount > 0)
-                    .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds)
-                    .Average(),
-                TotalPassed = g.Sum(m => m.PassedCount),
-                TotalTests = g.Sum(m => m.ScoredTestCaseCount)
-            })
-            .Where(model => model.AvgScore.HasValue)
-            .ToList();
+        var allModelScores = ModelRecommendation.Rank(result);
 
         // Best quality
-        var bestQuality = allModelScores.OrderByDescending(m => m.AvgScore).FirstOrDefault();
+        var bestQuality = allModelScores.FirstOrDefault();
         if (bestQuality is not null)
         {
-            AnsiConsole.MarkupLine($"  [green]\U0001f3c6 Best Quality:[/] [bold]{Markup.Escape(bestQuality.ModelName)}[/] \u2014 {bestQuality.AvgScore:F1} avg score ({bestQuality.TotalPassed}/{bestQuality.TotalTests} passed)");
+            AnsiConsole.MarkupLine($"  [green]Best Quality:[/] [bold]{Markup.Escape(bestQuality.ModelName)}[/], {bestQuality.AverageScore:F1} avg score ({bestQuality.PassedCount}/{bestQuality.ScoredTestCount} passed), {Reports.CostReportFormatting.Usd(bestQuality.MeanTestCostUsd)} estimated per test");
         }
 
         // Fastest
         var fastest = allModelScores
-            .Where(m => m.AvgLatencyMs.HasValue)
-            .OrderBy(m => m.AvgLatencyMs)
+            .Where(m => m.MeanLatencyMs.HasValue)
+            .OrderBy(m => m.MeanLatencyMs)
             .FirstOrDefault();
         if (fastest is not null)
         {
-            AnsiConsole.MarkupLine($"  [blue]\u26a1 Fastest:[/] [bold]{Markup.Escape(fastest.ModelName)}[/] \u2014 {fastest.AvgLatencyMs:F0}ms mean latency");
+            AnsiConsole.MarkupLine($"  [blue]\u26a1 Fastest:[/] [bold]{Markup.Escape(fastest.ModelName)}[/] \u2014 {fastest.MeanLatencyMs:F0}ms mean latency");
         }
 
-        // Best value (quality / latency ratio)
-        var bestValue = allModelScores
-            .Where(m => m.AvgLatencyMs > 0)
-            .OrderByDescending(m => m.AvgScore / m.AvgLatencyMs * 1000)
-            .FirstOrDefault();
-        if (bestValue is not null && bestValue.ModelName != bestQuality?.ModelName)
-        {
-            AnsiConsole.MarkupLine($"  [yellow]\U0001f4b0 Best Value:[/] [bold]{Markup.Escape(bestValue.ModelName)}[/] \u2014 {bestValue.AvgScore:F1} score at {bestValue.AvgLatencyMs:F0}ms");
-        }
+        AnsiConsole.MarkupLine($"[dim]{Reports.CostReportFormatting.EstimateNote}[/]");
 
         AnsiConsole.WriteLine();
     }

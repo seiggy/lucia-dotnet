@@ -18,7 +18,11 @@ public sealed class RealAgentInstance : IAsyncDisposable
 
     public required string AgentName { get; init; }
     public required ILuciaAgent Agent { get; init; }
-    public required string DatasetFile { get; init; }
+    public required string DatasetFile
+    {
+        get;
+        init => field = Path.GetFullPath(value, AppContext.BaseDirectory);
+    }
 
     /// <summary>
     /// When conversation tracing is enabled, captures the full ordered conversation history
@@ -33,6 +37,8 @@ public sealed class RealAgentInstance : IAsyncDisposable
     /// handles owned by the backend client (Ollama, OpenAI, etc.).
     /// </summary>
     internal IChatClient? OwnedChatClient { get; init; }
+    internal InferenceCostScope? BeginCostScope() =>
+        OwnedChatClient?.GetService<InferenceCostChatClient>()?.BeginScope();
 
     /// <inheritdoc/>
     /// <remarks>

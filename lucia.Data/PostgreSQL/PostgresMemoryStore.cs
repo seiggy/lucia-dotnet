@@ -77,7 +77,14 @@ public sealed class PostgresMemoryStore : IMemoryStore
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default)
+    public Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, false, ct);
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<MemoryEntry>> SearchPersonalAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, true, ct);
+
+    private async Task<IReadOnlyList<MemoryEntry>> SearchCoreAsync(string userId, string? query, int limit, bool personalOnly, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
 
@@ -97,6 +104,7 @@ public sealed class PostgresMemoryStore : IMemoryStore
                 FROM user_memories
                 WHERE user_id = @userId
                   AND (expires_at IS NULL OR expires_at > @now)
+                  AND (NOT @personalOnly OR lower(left(ltrim(key, @whitespace), length(@historyPrefix))) <> @historyPrefix)
                 ORDER BY created_at DESC
                 LIMIT @limit;
                 """;
@@ -109,6 +117,7 @@ public sealed class PostgresMemoryStore : IMemoryStore
                 WHERE user_id = @userId
                   AND (expires_at IS NULL OR expires_at > @now)
                   AND (key ILIKE @query OR value ILIKE @query)
+                  AND (NOT @personalOnly OR lower(left(ltrim(key, @whitespace), length(@historyPrefix))) <> @historyPrefix)
                 ORDER BY created_at DESC
                 LIMIT @limit;
                 """;
@@ -118,6 +127,9 @@ public sealed class PostgresMemoryStore : IMemoryStore
         cmd.Parameters.AddWithValue("userId", userId);
         cmd.Parameters.AddWithValue("now", DateTime.UtcNow);
         cmd.Parameters.AddWithValue("limit", limit);
+        cmd.Parameters.AddWithValue("personalOnly", personalOnly);
+        cmd.Parameters.AddWithValue("whitespace", MemoryKeys.LeadingWhitespace);
+        cmd.Parameters.AddWithValue("historyPrefix", MemoryKeys.ChatHistoryPrefix);
 
         return await ReadEntriesAsync(cmd, ct).ConfigureAwait(false);
     }

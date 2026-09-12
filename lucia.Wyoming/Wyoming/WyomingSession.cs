@@ -49,6 +49,7 @@ public sealed partial class WyomingSession : IDisposable
     private int _utteranceSampleRate = 16_000;
     private IDiarizationEngine? _diarizationEngine;
     private ISpeakerProfileStore? _profileStore;
+    private VoiceTurnStore? _voiceTurns;
     private IOptionsMonitor<VoiceProfileOptions>? _voiceProfileOptions;
     private SpeakerVerificationFilter? _speakerFilter;
     private UnknownSpeakerTracker? _unknownTracker;
@@ -1019,6 +1020,7 @@ public sealed partial class WyomingSession : IDisposable
 
         _diarizationEngine = services.GetService<IDiarizationEngine>();
         _profileStore = services.GetService<ISpeakerProfileStore>();
+        _voiceTurns = services.GetService<VoiceTurnStore>();
         _voiceProfileOptions = services.GetService<IOptionsMonitor<VoiceProfileOptions>>();
         _speakerFilter = services.GetService<SpeakerVerificationFilter>();
         _unknownTracker = services.GetService<UnknownSpeakerTracker>();
@@ -1130,7 +1132,12 @@ public sealed partial class WyomingSession : IDisposable
         }
 
         var speakerTag = FormatSpeakerTag(speaker);
-        var taggedTranscript = $"{speakerTag}{transcript}";
+        var verificationAudio = _speechEnhancementOptions?.CurrentValue.UseEnhancedClipForStt != true
+            && _rawUtteranceAudioBuffer.Count > 0
+                ? _rawUtteranceAudioBuffer.ToArray()
+                : utteranceAudio;
+        var taggedTranscript = _voiceTurns?.Capture(transcript, verificationAudio, _utteranceSampleRate, speaker)
+            ?? $"{speakerTag}{transcript}";
 
         // Send transcript to HA via Wyoming protocol
         using (var writeActivity = WyomingActivitySource.StartActivity("wyoming.send_transcript"))

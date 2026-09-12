@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Evaluation;
 using lucia.EvalHarness.Infrastructure;
+using lucia.EvalHarness.Reports;
 
 namespace lucia.EvalHarness.Tui;
 
@@ -50,6 +51,9 @@ public static class ReportExporter
         sb.AppendLine($"| Duration | {duration.TotalSeconds:F1}s |");
         sb.AppendLine($"| GPU | {gpuInfo.GpuLabel} |");
         sb.AppendLine($"| Timestamp | {result.StartedAt:yyyy-MM-dd HH:mm:ss} UTC |");
+        sb.AppendLine();
+
+        sb.AppendLine(CostReportFormatting.EstimateNote);
         sb.AppendLine();
 
         // ── Model Parameters ────────────────────────────────────────
@@ -120,8 +124,8 @@ public static class ReportExporter
         {
             sb.AppendLine($"## {agentResult.AgentName}");
             sb.AppendLine();
-            sb.AppendLine("| Model | Pass Rate | Overall | ToolSel | ToolSucc | ToolEff | TaskComp | Avg Latency |");
-            sb.AppendLine("|-------|-----------|---------|---------|----------|---------|----------|-------------|");
+            sb.AppendLine("| Model | Pass Rate | Overall | ToolSel | ToolSucc | ToolEff | TaskComp | Avg Latency | Tokens in / out / cached | Est. USD |");
+            sb.AppendLine("|-------|-----------|---------|---------|----------|---------|----------|-------------|--------------------------|----------|");
 
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
@@ -129,7 +133,7 @@ public static class ReportExporter
                 var meanLatency = m.Performance.RunCount > 0
                     ? (double?)m.Performance.MeanLatency.TotalMilliseconds
                     : null;
-                sb.AppendLine($"| {m.ModelName} | {FormatPercent(passRate)} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(meanLatency)} |");
+                sb.AppendLine($"| {m.ModelName} | {FormatPercent(passRate)} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(meanLatency)} | {CostReportFormatting.Tokens(m.Cost)} | {CostReportFormatting.Cost(m.Cost)} |");
             }
             sb.AppendLine();
 
@@ -150,30 +154,17 @@ public static class ReportExporter
         sb.AppendLine("## Recommendations");
         sb.AppendLine();
 
-        var allModelScores = result.AgentResults
-            .SelectMany(a => a.ModelResults)
-            .GroupBy(m => m.ModelName)
-            .Select(g => (
-                Name: g.Key,
-                AvgScore: Average(g.Select(model => model.OverallScore)),
-                AvgLatencyMs: Average(g
-                    .Where(m => m.Performance.RunCount > 0)
-                    .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds)),
-                TotalPassed: g.Sum(m => m.PassedCount),
-                TotalTests: g.Sum(m => m.ScoredTestCaseCount)))
-            .Where(model => model.AvgScore.HasValue)
-            .ToList();
-
-        var best = allModelScores.OrderByDescending(m => m.AvgScore).FirstOrDefault();
-        if (best.Name is not null)
-            sb.AppendLine($"- **Best Quality:** {best.Name} — {best.AvgScore:F1} avg score ({best.TotalPassed}/{best.TotalTests} passed)");
+        var allModelScores = ModelRecommendation.Rank(result);
+        var best = allModelScores.FirstOrDefault();
+        if (best is not null)
+            sb.AppendLine($"- **Best Quality:** {best.ModelName}, {best.AverageScore:F1} avg score ({best.PassedCount}/{best.ScoredTestCount} passed), {CostReportFormatting.Usd(best.MeanTestCostUsd)} estimated per test. Cost breaks quality ties.");
 
         var fastest = allModelScores
-            .Where(m => m.AvgLatencyMs.HasValue)
-            .OrderBy(m => m.AvgLatencyMs)
+            .Where(m => m.MeanLatencyMs.HasValue)
+            .OrderBy(m => m.MeanLatencyMs)
             .FirstOrDefault();
-        if (fastest.Name is not null)
-            sb.AppendLine($"- **Fastest:** {fastest.Name} — {fastest.AvgLatencyMs:F0}ms mean latency");
+        if (fastest is not null)
+            sb.AppendLine($"- **Fastest:** {fastest.ModelName}, {fastest.MeanLatencyMs:F0}ms mean latency");
 
         return sb.ToString();
     }
@@ -207,8 +198,8 @@ public static class ReportExporter
         {
             sb.AppendLine($"### {agentResult.AgentName} × {modelResult.ModelName} — Test Cases");
             sb.AppendLine();
-            sb.AppendLine("| # | Scenario | Result | Score | Latency | Failure Reason |");
-            sb.AppendLine("|---|----------|--------|-------|---------|----------------|");
+            sb.AppendLine("| # | Scenario | Result | Score | Latency | Tokens in / out / cached | Est. USD | Failure Reason |");
+            sb.AppendLine("|---|----------|--------|-------|---------|--------------------------|----------|----------------|");
 
             var i = 1;
             foreach (var tc in modelResult.TestCaseResults)
@@ -218,7 +209,7 @@ public static class ReportExporter
                     ? Truncate(tc.FailureReason, 80)
                     : "–";
                 var latency = tc.Score.HasValue ? (double?)tc.Latency.TotalMilliseconds : null;
-                sb.AppendLine($"| {i++} | {tc.TestCaseId} | {result} | {FormatScore(tc.Score, tc.JudgeStatus)} | {FormatMs(latency)} | {failure} |");
+                sb.AppendLine($"| {i++} | {tc.TestCaseId} | {result} | {FormatScore(tc.Score, tc.JudgeStatus)} | {FormatMs(latency)} | {CostReportFormatting.Tokens(tc.Cost)} | {CostReportFormatting.Cost(tc.Cost)} | {failure} |");
             }
             sb.AppendLine();
         }
@@ -247,7 +238,9 @@ public static class ReportExporter
                 continue;
 
             var bestScore = availableResults.Max(model => model.OverallScore!.Value);
-            var bestModel = availableResults.First(model => model.OverallScore == bestScore).ModelName;
+            var bestModel = availableResults.Where(model => model.OverallScore == bestScore)
+                .OrderBy(model => model.MeanTestCostUsd ?? decimal.MaxValue)
+                .ThenBy(model => model.ModelName, StringComparer.Ordinal).First().ModelName;
 
             sb.AppendLine($"### {agentResult.AgentName} (baseline: {bestModel} @ {bestScore:F1})");
             sb.AppendLine();
@@ -277,6 +270,8 @@ public static class ReportExporter
     private static object BuildJsonReport(EvalRunResult result, GpuInfo gpuInfo) => new
     {
         runId = result.RunId,
+        costNote = CostReportFormatting.EstimateNote,
+        recommendations = ModelRecommendation.Rank(result),
         startedAt = result.StartedAt,
         completedAt = result.CompletedAt,
         durationSeconds = (result.CompletedAt - result.StartedAt).TotalSeconds,
@@ -287,6 +282,8 @@ public static class ReportExporter
             models = a.ModelResults.Select(m => new
             {
                 modelName = m.ModelName,
+                cost = m.Cost,
+                meanTestCostUsd = m.MeanTestCostUsd,
                 overallScore = m.OverallScore,
                 toolSelectionScore = m.ToolSelectionScore,
                 toolSuccessScore = m.ToolSuccessScore,
@@ -321,6 +318,7 @@ public static class ReportExporter
                 testCases = m.TestCaseResults.Select(tc => new
                 {
                     id = tc.TestCaseId,
+                    cost = tc.Cost,
                     passed = tc.Passed,
                     timedOut = tc.TimedOut,
                     score = tc.Score,

@@ -1,4 +1,5 @@
 using lucia.AgentHost.Conversation.Models;
+using lucia.Agents.Orchestration.Models;
 
 namespace lucia.AgentHost.Conversation;
 
@@ -25,12 +26,16 @@ public sealed record ProcessingResult
     /// <summary>Conversation ID for session continuity.</summary>
     public string? ConversationId { get; init; }
 
+    public string? EngineSessionId { get; init; }
+
+    public SpeakerContext? SpeakerContext { get; init; }
+
     /// <summary>
     /// The raw user text before any context reconstruction.
     /// </summary>
     public string? OriginalUserText { get; init; }
 
-    /// <summary>Command was parsed and executed; return instant JSON.</summary>
+    /// <summary>Request was handled locally; return instant JSON.</summary>
     public static ProcessingResult CommandHandled(ConversationResponse response) => new()
     {
         Kind = ProcessingKind.CommandHandled,
@@ -59,7 +64,7 @@ public sealed record ProcessingResult
 /// <summary>Discriminator for how the API layer should respond.</summary>
 public enum ProcessingKind
 {
-    /// <summary>Command matched and executed — instant JSON response.</summary>
+    /// <summary>Request handled locally, including onboarding. Return instant JSON.</summary>
     CommandHandled,
 
     /// <summary>LLM completed synchronously — JSON response.</summary>

@@ -36,6 +36,10 @@ public static class OnboardingApi
             {
                 return Results.NotFound(ex.Message);
             }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
 
             CustomWakeWord? wakeWord = null;
             if (!string.IsNullOrEmpty(request.WakeWordPhrase) && wakeWords is not null)

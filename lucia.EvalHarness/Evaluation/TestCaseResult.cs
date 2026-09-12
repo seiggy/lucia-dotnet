@@ -14,4 +14,5 @@ public sealed class TestCaseResult
     public IReadOnlyList<ConversationTurn>? ConversationHistory { get; init; }
     public string? JudgeStatus { get; init; }
     public string? JudgeReason { get; init; }
+    public InferenceCostSummary Cost { get; init; } = InferenceCostSummary.Untracked;
 }

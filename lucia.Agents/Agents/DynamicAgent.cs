@@ -170,6 +170,8 @@ public sealed class DynamicAgent : ILuciaAgent
 
         var agentOptions = new ChatClientAgentOptions
         {
+            AIContextProviders = _tracingFactory.AIContextProviders,
+            ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = definition.Name,
             Name = definition.DisplayName,
             Description = definition.Description ?? "",

@@ -21,4 +21,6 @@ public sealed class ModelEvalResult
     public required ModelPerformanceSummary Performance { get; init; }
     public required IReadOnlyList<TestCaseResult> TestCaseResults { get; init; }
     public ModelParameterProfile? ParameterProfile { get; init; }
+    public InferenceCostSummary Cost => InferenceCostSummary.Aggregate(TestCaseResults.Select(result => result.Cost));
+    public decimal? MeanTestCostUsd => TestCaseResults.Count > 0 ? Cost.EstimatedUsd / TestCaseResults.Count : null;
 }

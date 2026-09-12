@@ -23,6 +23,11 @@ public interface IMemoryStore
     Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default);
 
     /// <summary>
+    /// Searches personal memories, excluding reserved chat-history keys before applying the limit.
+    /// </summary>
+    Task<IReadOnlyList<MemoryEntry>> SearchPersonalAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default);
+
+    /// <summary>
     /// Deletes a memory for a user by key.
     /// </summary>
     Task DeleteAsync(string userId, string key, CancellationToken ct = default);

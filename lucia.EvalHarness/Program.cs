@@ -14,14 +14,42 @@ using Spectre.Console;
 // ─── Load Configuration ──────────────────────────────────────────────
 var configBuilder = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
+    .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "appsettings.json"), optional: true, reloadOnChange: false)
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-    .AddEnvironmentVariables(prefix: "Harness__")
-    .AddUserSecrets<HarnessConfiguration>();
+    .AddUserSecrets<HarnessConfiguration>()
+    .AddEnvironmentVariables();
 
 var configRoot = configBuilder.Build();
 var config = new HarnessConfiguration();
 configRoot.GetSection("Harness").Bind(config);
 config.Validate();
+
+var listModelsOnly = args.Contains("--list-backend-models");
+using var judgeChatClient = listModelsOnly ? null : await JudgeSelector.SelectAsync(
+    config, interactive: !args.Contains("--check-judge"));
+if (args.Contains("--check-judge"))
+{
+    if (judgeChatClient is null)
+    {
+        throw new InvalidOperationException("Configure a judge before running --check-judge.");
+    }
+
+    using var deadline = new CancellationTokenSource(config.JudgeTimeout);
+    var response = await judgeChatClient.GetResponseAsync(
+        [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User,
+            "Evaluate this test: the user requested 'Say hello' and the assistant replied 'Hello!'. " +
+            "Return only JSON with score 100 if the request was completed, and a short reasoning.")],
+        new Microsoft.Extensions.AI.ChatOptions { ResponseFormat = Microsoft.Extensions.AI.ChatResponseFormat.Json },
+        cancellationToken: deadline.Token);
+    using var json = System.Text.Json.JsonDocument.Parse(response.Text);
+    if (json.RootElement.GetProperty("score").GetInt32() != 100)
+    {
+        throw new InvalidOperationException("Judge returned an unexpected smoke-check score.");
+    }
+
+    AnsiConsole.MarkupLine($"[green]Judge connected:[/] {Markup.Escape(config.JudgeModelName)}");
+    return 0;
+}
 
 // ─── Initialize Services ─────────────────────────────────────────────
 using var httpClient = new HttpClient();
@@ -35,96 +63,113 @@ var effectiveBackends = config.GetEffectiveBackends();
 // ─── GPU Detection ───────────────────────────────────────────────────
 var gpuInfo = await gpuEnv.DetectAsync();
 
-// ─── Backend Connectivity Check ──────────────────────────────────────
-var anyBackendAvailable = false;
+// ─── Backend Discovery ───────────────────────────────────────────────
+var availableBackends = new List<InferenceBackend>();
+var discoveredByBackend = new Dictionary<string, IReadOnlyList<OllamaModelInfo>>(StringComparer.OrdinalIgnoreCase);
 foreach (var backend in effectiveBackends)
 {
-    var available = await backendDiscovery.IsAvailableAsync(backend);
-    if (available)
+    if (backend.Type == InferenceBackendType.OpenRouter && string.IsNullOrWhiteSpace(backend.ApiKey))
     {
-        anyBackendAvailable = true;
-        AnsiConsole.MarkupLine($"[green]✓[/] Backend [bold]{Markup.Escape(backend.Name)}[/] ({Markup.Escape(backend.Endpoint)}) — online");
+        AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(backend.Name)} needs an API key before running inference.[/]");
+        continue;
     }
-    else
+
+    try
     {
-        AnsiConsole.MarkupLine($"[red]✗[/] Backend [bold]{Markup.Escape(backend.Name)}[/] ({Markup.Escape(backend.Endpoint)}) — unreachable");
+        var backendModels = await backendDiscovery.ListModelsAsync(backend);
+        foreach (var model in backendModels)
+        {
+            if (model.Pricing is not null)
+            {
+                backend.ModelPricing.TryAdd(model.Name, model.Pricing);
+            }
+        }
+        discoveredByBackend[backend.Name] = backendModels.Select(model => new OllamaModelInfo
+        {
+            Name = model.Name,
+            Size = model.Size,
+            ParameterSize = model.ParameterSize,
+            QuantizationLevel = model.QuantizationLevel
+        }).ToList();
+        if (backendModels.Count == 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]No compatible models on {Markup.Escape(backend.Name)}.[/]");
+            continue;
+        }
+
+        availableBackends.Add(backend);
+        AnsiConsole.MarkupLine($"[green]\u2713[/] {Markup.Escape(backend.Name)}: {backendModels.Count} model(s) ({Markup.Escape(backend.Endpoint)})");
+    }
+    catch (Exception exception) when (exception is HttpRequestException or System.Text.Json.JsonException or
+                                      Azure.Identity.AuthenticationFailedException or OperationCanceledException)
+    {
+        AnsiConsole.MarkupLine($"[red]Backend {Markup.Escape(backend.Name)} unavailable:[/] {Markup.Escape(exception.Message)}");
     }
 }
 
-// Legacy Ollama check for WelcomeScreen compat
-var ollamaAvailable = anyBackendAvailable;
+if (listModelsOnly)
+{
+    foreach (var backend in availableBackends)
+    {
+        foreach (var model in discoveredByBackend[backend.Name])
+        {
+            AnsiConsole.WriteLine($"{backend.Name}: {model.Name}");
+        }
+    }
+
+    return availableBackends.Count > 0 ? 0 : 1;
+}
+
+var anyBackendAvailable = availableBackends.Count > 0;
 
 // ─── Welcome Screen ──────────────────────────────────────────────────
-await WelcomeScreen.RenderAsync(config, gpuInfo, ollamaAvailable);
+await WelcomeScreen.RenderAsync(config, gpuInfo, anyBackendAvailable);
 
-if (!ollamaAvailable)
+if (!anyBackendAvailable)
 {
     return 1;
 }
 
 // ─── Backend Selection ───────────────────────────────────────────────
-var selectedBackends = BackendSelector.Select(effectiveBackends);
+var selectedBackends = BackendSelector.Select(availableBackends);
 if (selectedBackends.Count == 0) return 0;
 
-// ─── Model Discovery (union across all selected backends) ────────────
-var allDiscoveredModels = new Dictionary<string, DiscoveredModel>(StringComparer.OrdinalIgnoreCase);
+// ─── Model Selection Per Backend ────────────────────────────────────
+var modelsByBackend = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
 foreach (var backend in selectedBackends)
 {
-    var backendModels = await backendDiscovery.ListModelsAsync(backend);
-    foreach (var m in backendModels)
+    modelsByBackend[backend.Name] = ModelSelector.Select(discoveredByBackend[backend.Name], backend.Name);
+    if (backend.Type is InferenceBackendType.AzureFoundry or InferenceBackendType.OpenRouter)
     {
-        allDiscoveredModels.TryAdd(m.Name, m);
+        foreach (var model in modelsByBackend[backend.Name])
+        {
+            if (!backend.ModelPricing.TryGetValue(model, out var pricing) ||
+                pricing.InputUsdPerMillionTokens is null || pricing.OutputUsdPerMillionTokens is null)
+            {
+                AnsiConsole.MarkupLine($"[yellow]Token pricing is unknown for {Markup.Escape(model)} on {Markup.Escape(backend.Name)}; cost will be N/A.[/]");
+            }
+        }
+    }
+
+    if (backend.Type == InferenceBackendType.AzureFoundry)
+    {
+        AnsiConsole.MarkupLine("[dim]Foundry Responses uses provider sampling defaults. Temperature, top-p, and seed sweeps do not apply.[/]");
     }
 }
 
-// Also discover via legacy Ollama path for backward compat
-IReadOnlyList<OllamaModelInfo> models = [];
-try
-{
-    models = await discovery.ListModelsAsync();
-}
-catch (Exception exception)
-    when (exception is HttpRequestException or TimeoutException or OperationCanceledException)
-{
-    AnsiConsole.MarkupLine("[yellow]\u26a0[/] Legacy Ollama model discovery unavailable.");
-}
-foreach (var m in models)
-{
-    allDiscoveredModels.TryAdd(m.Name, new DiscoveredModel
-    {
-        Name = m.Name, Size = m.Size,
-        ParameterSize = m.ParameterSize, QuantizationLevel = m.QuantizationLevel
-    });
-}
-
-if (allDiscoveredModels.Count == 0)
-{
-    AnsiConsole.MarkupLine("[red]No models found on any backend. Pull a model first:[/]");
-    AnsiConsole.MarkupLine("[dim]  ollama pull llama3.2[/]");
-    return 1;
-}
-
-// ─── Interactive Model Selection ─────────────────────────────────────
-var discoveredList = allDiscoveredModels.Values
-    .Select(d => new OllamaModelInfo
-    {
-        Name = d.Name, Size = d.Size,
-        ParameterSize = d.ParameterSize, QuantizationLevel = d.QuantizationLevel
-    }).ToList();
-var selectedModels = ModelSelector.Select(discoveredList);
+var selectedModels = modelsByBackend.Values.SelectMany(models => models).Distinct(StringComparer.Ordinal).ToList();
 if (selectedModels.Count == 0) return 0;
 
 // ─── Eval Type Selection ──────────────────────────────────────────────
-// ─── Create Judge Client (Azure OpenAI) ──────────────────────────────
-var judgeChatClient = JudgeClientFactory.Create(config.AzureOpenAI);
+// ─── Judge Configuration ────────────────────────────────────────────
 if (judgeChatClient is not null)
 {
     AnsiConsole.MarkupLine(
-        $"[green]\u2713[/] Azure judge model configured: {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}");
+        $"[green]\u2713[/] {Markup.Escape(JudgeSelector.ProviderName(config.JudgeProvider))} judge: {Markup.Escape(config.JudgeModelName)}");
 }
 else
 {
-    AnsiConsole.MarkupLine("[yellow]\u26a0[/] No Azure OpenAI judge configured. LLM-evaluated metrics disabled.");
+    AnsiConsole.MarkupLine("[yellow]\u26a0[/] No judge configured. LLM-evaluated metrics disabled.");
 }
 AnsiConsole.WriteLine();
 
@@ -150,14 +195,14 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     AnsiConsole.MarkupLine($"[dim]Loaded {scenarios.Count} scenarios and {allProfiles.Count} personality profiles[/]");
     AnsiConsole.WriteLine();
 
-    // ─── Judge: reuse Azure OpenAI judge from main config ────────────
+    // ─── Judge: reuse the selected provider ──────────────────────────
     var judgeModelName = judgeChatClient is null
         ? "not configured"
-        : config.AzureOpenAI.JudgeDeployment;
+        : config.JudgeModelName;
     AnsiConsole.MarkupLine(
         judgeChatClient is null
             ? "[yellow]\u26a0[/] Judge unavailable; scores will be reported as N/A."
-            : $"[green]\u2713[/] Judge: [bold]{Markup.Escape(judgeModelName)}[/] (Azure OpenAI)");
+            : $"[green]\u2713[/] Judge: [bold]{Markup.Escape(judgeModelName)}[/] ({Markup.Escape(JudgeSelector.ProviderName(config.JudgeProvider))})");
     AnsiConsole.WriteLine();
 
     var personalityProfiles = lucia.EvalHarness.Personality.PersonalityProfileSelector.Select(allProfiles);
@@ -172,17 +217,31 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     AnsiConsole.Write(new Rule("[bold]Running Personality Eval[/]").LeftJustified());
     AnsiConsole.WriteLine();
 
-    var reports = await lucia.EvalHarness.Personality.PersonalityEvalDisplay.RunWithProgressAsync(
-        config.Ollama.Endpoint,
-        selectedModels,
-        judgeChatClient,
-        judgeModelName,
-        scenarios,
-        personalityProfiles,
-        config.AgentTimeout,
-        config.JudgeTimeout);
+    var reports = new List<lucia.EvalHarness.Personality.PersonalityEvalReport>();
+    foreach (var backend in selectedBackends)
+    {
+        reports.AddRange(await lucia.EvalHarness.Personality.PersonalityEvalDisplay.RunWithProgressAsync(
+            backend.Endpoint,
+            modelsByBackend[backend.Name],
+            judgeChatClient,
+            judgeModelName,
+            scenarios,
+            personalityProfiles,
+            config.AgentTimeout,
+            config.JudgeTimeout,
+            chatClientFactory: model => BackendChatClientFactory.CreateChatClient(backend, model),
+            backendName: selectedBackends.Count > 1 ? backend.Name : null));
+    }
 
     lucia.EvalHarness.Personality.PersonalityEvalDisplay.RenderReport(reports);
+    PersonalityCostReport.Render(reports);
+    var personalityReportPath = string.IsNullOrWhiteSpace(config.ReportPath)
+        ? Path.Combine(Path.GetTempPath(), "lucia-eval-reports")
+        : config.ReportPath;
+    foreach (var file in PersonalityCostReport.Export(reports, personalityReportPath))
+    {
+        AnsiConsole.MarkupLine($"[green]\u2713[/] {Markup.Escape(file)}");
+    }
 
     AnsiConsole.WriteLine();
     AnsiConsole.MarkupLine("[dim]Personality evaluation complete.[/]");
@@ -245,7 +304,8 @@ var result = await EvalProgressDisplay.RunWithProgressAsync(
     selectedAgents,
     datasetFile => LoadTestCases(datasetFile),
     testScope.MaxCasesPerAgent,
-    parameterProfiles: selectedProfiles);
+    parameterProfiles: selectedProfiles,
+    modelsByBackend: modelsByBackend);
 
 // ─── Render Report ───────────────────────────────────────────────────
 ReportRenderer.Render(result, gpuInfo);
@@ -294,7 +354,10 @@ AnsiConsole.MarkupLine("[dim]Evaluation complete.[/]");
 // ─── Parameter Sweep (optional) ─────────────────────────────────────
 // Sweep uses the first backend (primary) for consistency
 var primaryFactory = backendFactories[0].Item2;
-var sweepSelection = ParameterSweepSelector.Select(discoveredList, selectedAgents);
+var primaryBackend = selectedBackends[0];
+var sweepSelection = primaryBackend.Type == InferenceBackendType.AzureFoundry
+    ? null
+    : ParameterSweepSelector.Select(discoveredByBackend[primaryBackend.Name], selectedAgents);
 if (sweepSelection is not null)
 {
     AnsiConsole.WriteLine();
@@ -373,7 +436,11 @@ if (judgeChatClient is not null &&
 
         foreach (var agentResult in result.AgentResults)
         {
-            var agentInstance = await primaryFactory.AgentFactories[agentResult.AgentName](rawModel);
+            var targetBackendName = BackendComparisonRenderer.ExtractBackendName(targetModel);
+            var targetFactory = targetBackendName is null
+                ? primaryFactory
+                : backendFactories.Single(pair => pair.Item1.Name == targetBackendName).Item2;
+            var agentInstance = await targetFactory.AgentFactories[agentResult.AgentName](rawModel);
             var systemPrompt = ExtractInstructions(agentInstance.Agent);
 
             try

@@ -10,6 +10,21 @@ namespace lucia.EvalHarness.Tests.Providers;
 public class RealAgentInstanceTests
 {
     [Fact]
+    public void DatasetFile_ResolvesAgainstApplicationDirectory()
+    {
+        var relativePath = Path.Combine("TestData", "light-agent.yaml");
+        var instance = new RealAgentInstance
+        {
+            AgentName = "test",
+            Agent = A.Fake<ILuciaAgent>(),
+            DatasetFile = relativePath
+        };
+
+        Assert.Equal(Path.Combine(AppContext.BaseDirectory, relativePath), instance.DatasetFile);
+        Assert.True(File.Exists(instance.DatasetFile));
+    }
+
+    [Fact]
     public async Task DisposeAsync_CalledTwice_DisposesOwnedClientExactlyOnce()
     {
         // Instance-level idempotency: the Interlocked guard must make the second

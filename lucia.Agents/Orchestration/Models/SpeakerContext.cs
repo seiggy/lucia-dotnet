@@ -12,6 +12,11 @@ public sealed record SpeakerContext
     public string? SpeakerId { get; init; }
 
     /// <summary>
+    /// Stable profile ID resolved server-side from an enrolled, authorized voice match.
+    /// </summary>
+    public string? EnrolledProfileId { get; init; }
+
+    /// <summary>
     /// The area where the request originated (e.g., "Kitchen").
     /// </summary>
     public string? DeviceArea { get; init; }

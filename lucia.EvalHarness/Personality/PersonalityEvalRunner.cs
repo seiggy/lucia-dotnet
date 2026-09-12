@@ -5,6 +5,8 @@ using Azure.Identity;
 using System.Text.Json;
 using lucia.EvalHarness.Evaluation;
 using lucia.EvalHarness.Infrastructure;
+using lucia.EvalHarness.Providers;
+using lucia.EvalHarness.Tui;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Personality;
@@ -78,7 +80,7 @@ public sealed class PersonalityEvalRunner
     {
         var startedAt = DateTimeOffset.UtcNow;
         var results = new List<PersonalityScenarioResult>();
-        var traceDir = Path.Combine("personality-eval-traces", $"{modelName}_{startedAt:yyyyMMdd_HHmmss}");
+        var traceDir = GetTraceDirectory(modelName, startedAt);
         var judge = new PersonalityJudge(judgeChatClient, _judgeTimeout, traceDir, _timeProvider);
 
         foreach (var scenario in scenarios)
@@ -120,6 +122,9 @@ public sealed class PersonalityEvalRunner
         });
     }
 
+    internal static string GetTraceDirectory(string modelName, DateTimeOffset startedAt) =>
+        Path.Combine("personality-eval-traces", $"{TraceExporter.SanitizeFileName(modelName)}_{startedAt:yyyyMMdd_HHmmss}");
+
     private static IReadOnlyList<PersonalityProfile> GetApplicableProfiles(
         PersonalityEvalScenario scenario,
         IReadOnlyList<PersonalityProfile> allProfiles)
@@ -143,6 +148,7 @@ public sealed class PersonalityEvalRunner
         var sw = Stopwatch.StartNew();
         string llmResponse;
         var userMessage = PersonalityRewritePrompt + scenario.AgentResponse;
+        using var costScope = chatClient.GetService<InferenceCostChatClient>()?.BeginScope();
 
         // Step 1: Get personality rewrite from model-under-test
         try
@@ -181,6 +187,7 @@ public sealed class PersonalityEvalRunner
                     ? JudgeAvailability.Reason(JudgeAvailability.Timeout)
                     : JudgeAvailability.Reason(JudgeAvailability.ProviderError),
                 LlmResponse = string.Empty,
+                Cost = costScope?.Complete() ?? InferenceCostSummary.Untracked,
                 DurationMs = sw.ElapsedMilliseconds,
                 TimedOut = exception is OperationCanceledException or TimeoutException,
                 ErrorMessage = exception is OperationCanceledException or TimeoutException
@@ -188,6 +195,8 @@ public sealed class PersonalityEvalRunner
                     : "Model provider request failed."
             };
         }
+
+        var cost = costScope?.Complete() ?? InferenceCostSummary.Untracked;
 
         // Step 2: Build conversation trace
         var trace = new ConversationTrace
@@ -214,6 +223,7 @@ public sealed class PersonalityEvalRunner
             JudgeStatus = judgeResult.Status,
             JudgeReason = judgeResult.UnavailableReason,
             LlmResponse = llmResponse,
+            Cost = cost,
             DurationMs = sw.ElapsedMilliseconds,
             TimedOut = judgeResult.TimedOut,
             JudgeResult = judgeResult,

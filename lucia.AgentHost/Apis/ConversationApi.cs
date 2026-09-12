@@ -128,7 +128,8 @@ public static class ConversationApi
             var llmResult = await engine
                 .ProcessRequestAsync(
                     result.LlmPrompt,
-                    sessionId: result.ConversationId,
+                    sessionId: result.EngineSessionId ?? result.ConversationId,
+                    speakerContext: result.SpeakerContext,
                     originalUserText: result.OriginalUserText,
                     cancellationToken: ct)
                 .ConfigureAwait(false);

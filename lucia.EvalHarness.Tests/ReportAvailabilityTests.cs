@@ -15,8 +15,44 @@ using Spectre.Console;
 
 namespace lucia.EvalHarness.Tests;
 
+// Console capture must not overlap parameter-sweep tests that write through AnsiConsole.
+[Collection("Parameter sweep")]
 public sealed class ReportAvailabilityTests
 {
+    [Theory]
+    [InlineData(true, "Models available")]
+    [InlineData(false, "None available")]
+    public async Task WelcomeScreen_ReportsBackendNeutralAvailability(bool anyBackendAvailable, string expectedStatus)
+    {
+        var config = new HarnessConfiguration
+        {
+            Ollama = new OllamaSettings { Endpoint = "http://unreachable-ollama:11434" },
+            Backends = [new InferenceBackend { Name = "Remote", Endpoint = "http://remote:8000", Type = InferenceBackendType.OpenAICompat }]
+        };
+        var previousConsole = AnsiConsole.Console;
+        using var writer = new StringWriter();
+        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Out = new AnsiConsoleOutput(writer)
+        });
+        try
+        {
+            await WelcomeScreen.RenderAsync(config, new GpuInfo("test"), anyBackendAvailable);
+        }
+        finally
+        {
+            AnsiConsole.Console = previousConsole;
+        }
+
+        var output = writer.ToString();
+        Assert.Contains("Inference Backends", output, StringComparison.Ordinal);
+        Assert.Contains(expectedStatus, output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ollama", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(config.Ollama.Endpoint, output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Export_UnavailableJudge_RendersAndSerializesExplicitly()
     {

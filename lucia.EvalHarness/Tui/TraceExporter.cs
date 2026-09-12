@@ -187,6 +187,6 @@ public static class TraceExporter
     private static string Truncate(string text, int maxLen) =>
         text.Length <= maxLen ? text : text[..maxLen] + "\u2026";
 
-    private static string SanitizeFileName(string name) =>
+    internal static string SanitizeFileName(string name) =>
         string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '_'));
 }

@@ -1,6 +1,5 @@
 using System.Numerics;
 using Microsoft.ML.OnnxRuntime;
-using Microsoft.ML.OnnxRuntime.Tensors;
 
 namespace lucia.Wyoming.Audio;
 
@@ -24,8 +23,10 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
     private readonly Complex[] _fftBuffer;
     private readonly float[] _modelInput;
     private readonly float[] _enhancedOutput;
-    private readonly FixedBufferOnnxValue[] _inputValues;
-    private readonly FixedBufferOnnxValue[] _outputValues;
+    private readonly OrtValue[] _inputValues;
+    private readonly OrtValue[] _outputValues;
+    private readonly OrtIoBinding _binding;
+    private readonly RunOptions _runOptions;
     private readonly InferenceSessionHolder? _sessionHolder;
 
     // STFT overlap buffers
@@ -73,7 +74,9 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
         Action? beforeDispose,
         InferenceSessionHolder? sessionHolder)
     {
-        List<FixedBufferOnnxValue>? created = null;
+        List<OrtValue>? created = null;
+        OrtIoBinding? binding = null;
+        RunOptions? runOptions = null;
         try
         {
             ArgumentNullException.ThrowIfNull(session);
@@ -104,20 +107,28 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
             _traCacheOutput = new float[_traCache.Length];
             _interCacheOutput = new float[_interCache.Length];
 
-            created = new List<FixedBufferOnnxValue>(8);
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_modelInput, [1, FreqBins, 1, 2])));
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCache, [2, 1, 16, 16, 33])));
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCache, [2, 3, 1, 1, 16])));
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCache, [2, 1, 33, 16])));
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_enhancedOutput, [1, FreqBins, 1, 2])));
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCacheOutput, [2, 1, 16, 16, 33])));
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCacheOutput, [2, 3, 1, 1, 16])));
-            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCacheOutput, [2, 1, 33, 16])));
+            created = new List<OrtValue>(8);
+            created.Add(OrtValue.CreateTensorValueFromMemory(_modelInput, [1, FreqBins, 1, 2]));
+            created.Add(OrtValue.CreateTensorValueFromMemory(_convCache, [2, 1, 16, 16, 33]));
+            created.Add(OrtValue.CreateTensorValueFromMemory(_traCache, [2, 3, 1, 1, 16]));
+            created.Add(OrtValue.CreateTensorValueFromMemory(_interCache, [2, 1, 33, 16]));
+            created.Add(OrtValue.CreateTensorValueFromMemory(_enhancedOutput, [1, FreqBins, 1, 2]));
+            created.Add(OrtValue.CreateTensorValueFromMemory(_convCacheOutput, [2, 1, 16, 16, 33]));
+            created.Add(OrtValue.CreateTensorValueFromMemory(_traCacheOutput, [2, 3, 1, 1, 16]));
+            created.Add(OrtValue.CreateTensorValueFromMemory(_interCacheOutput, [2, 1, 33, 16]));
             _inputValues = [created[0], created[1], created[2], created[3]];
             _outputValues = [created[4], created[5], created[6], created[7]];
+            _binding = binding = session.CreateIoBinding();
+            _runOptions = runOptions = new RunOptions();
+            for (var i = 0; i < s_outputNames.Length; i++)
+            {
+                _binding.BindOutput(s_outputNames[i], _outputValues[i]);
+            }
         }
         catch
         {
+            binding?.Dispose();
+            runOptions?.Dispose();
             if (created != null)
             {
                 foreach (var v in created) v.Dispose();
@@ -195,7 +206,14 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
 
         // Run inference
         _beforeRun?.Invoke();
-        _session.Run(s_inputNames, _inputValues, s_outputNames, _outputValues);
+        // GPU providers may copy CPU inputs at binding time, so rebind each changed frame.
+        for (var i = 0; i < s_inputNames.Length; i++)
+        {
+            _binding.BindInput(s_inputNames[i], _inputValues[i]);
+        }
+        _binding.SynchronizeBoundInputs();
+        _session.RunWithBinding(_runOptions, _binding);
+        _binding.SynchronizeBoundOutputs();
 
         // Update caches for next frame
         _convCacheOutput.AsSpan().CopyTo(_convCache);
@@ -283,6 +301,8 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
             _disposed = true;
             try
             {
+                _binding.Dispose();
+                _runOptions.Dispose();
                 foreach (var value in _outputValues)
                 {
                     value.Dispose();
