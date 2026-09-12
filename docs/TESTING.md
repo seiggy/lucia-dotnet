@@ -323,6 +323,8 @@ Keep it in that format; a generic `data` dataset does not perform state setup.
 
 Music fixtures explicitly name and assign the requested endpoints: Office Speaker
 in Zack's Office, Bedroom Speaker in Bedroom, and Yamaha Speakers in Living Room.
+The office artist case is `play_artist_office`, renamed from the misleading
+`play_artist_kitchen` identifier.
 The kitchen STT case seeds a Kitchen Speaker instead of an office endpoint.
 The snapshot matcher uses substring matching, so fixture names must support the
 speaker descriptions used in the prompts. Exact entity names and IDs take

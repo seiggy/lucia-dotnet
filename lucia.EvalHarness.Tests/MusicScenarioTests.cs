@@ -10,7 +10,7 @@ namespace lucia.EvalHarness.Tests;
 public sealed class MusicScenarioTests
 {
     [Theory]
-    [InlineData("play_artist_kitchen", "Office Speaker", "media_player.zack_s_office_satellite1_media_player", "Zack's Office")]
+    [InlineData("play_artist_office", "Office Speaker", "media_player.zack_s_office_satellite1_media_player", "Zack's Office")]
     [InlineData("play_specific_song", "Office Speaker", "media_player.zack_s_office_satellite1_media_player", "Zack's Office")]
     [InlineData("shuffle_random_tracks", "Office Speaker", "media_player.zack_s_office_satellite1_media_player", "Zack's Office")]
     [InlineData("set_volume_50", "Office Speaker", "media_player.zack_s_office_satellite1_media_player", "Zack's Office")]

@@ -6,7 +6,7 @@
 scenarios:
 
   # --- Control: Play Artist ---
-  - id: play_artist_kitchen
+  - id: play_artist_office
     description: "Play an artist on a specific speaker"
     category: control
     device_area: "Zack's Office"
