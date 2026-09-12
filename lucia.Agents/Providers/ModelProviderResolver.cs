@@ -3,7 +3,7 @@ using Anthropic;
 using Azure;
 using Azure.AI.Inference;
 using Azure.Identity;
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;

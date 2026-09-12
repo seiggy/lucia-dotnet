@@ -1,4 +1,4 @@
-using GitHub.Copilot.SDK;
+using GitHub.Copilot;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -105,7 +105,7 @@ public sealed class CopilotClientLifecycleService : IHostedService, IAsyncDispos
 
         try
         {
-            await client.StopAsync().ConfigureAwait(false);
+            await client.DisposeAsync().ConfigureAwait(false);
             _logger.LogInformation("GitHub Copilot CLI stopped");
         }
         catch (Exception ex)
