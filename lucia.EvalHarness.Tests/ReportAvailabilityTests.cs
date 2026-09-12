@@ -15,6 +15,8 @@ using Spectre.Console;
 
 namespace lucia.EvalHarness.Tests;
 
+// Console capture must not overlap parameter-sweep tests that write through AnsiConsole.
+[Collection("Parameter sweep")]
 public sealed class ReportAvailabilityTests
 {
     [Theory]
