@@ -75,6 +75,28 @@ If voice fails (no response, error, or timeout):
 - **Reachability** — Home Assistant must be able to reach the **Agent Repository URL** (and the agent URL derived from it). If Lucia runs on another host, use that host’s IP or hostname and the correct port (e.g. `http://192.168.1.100:7233`).
 - **Logs** — Check **Settings → System → Logs** (and the Lucia container/server logs) for connection errors, timeouts, or 401/500 responses.
 
+### Voice enrollment from Satellite1
+
+Select Lucia as both the speech-to-text provider and conversation agent in the
+Satellite1's Assist pipeline. Activate a speaker recognition model on the Lucia
+server, then say **"Onboard me."** No dashboard enrollment session is needed.
+
+Lucia asks for consent, a preferred name, and optional room and interaction
+preferences. Confirm the answers, then speak each requested phrase. Home Assistant
+uses `needsInput` to keep the satellite conversation open between turns. Say
+**"skip"** for an optional question, **"repeat"** to repeat a prompt, or **"cancel"**
+to stop.
+
+The integration preserves the same conversation ID and satellite device ID
+throughout enrollment. Keep Lucia speech-to-text and `/api/conversation` on the
+same server instance. A text-only conversation or a different STT provider cannot
+supply voice samples.
+
+After enrollment, requests such as "Remember that I prefer dim lighting" and
+"What do you remember about me?" use the detected voice profile's memories.
+Voice recognition supports personalization, not secure authentication. Do not
+store passwords or other secrets in personal memories.
+
 ### Conversation Agent
 
 Once configured, Lucia appears as a conversation agent in Home Assistant. You can:

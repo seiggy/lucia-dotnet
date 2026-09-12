@@ -1,6 +1,6 @@
 # Technical Stack
 
-> Last Updated: 2026-08-30
+> Last Updated: 2026-09-11
 > Version: 1.3.0
 
 ## Core Technologies
@@ -25,6 +25,9 @@
 
 ### LLM Providers
 - **Online:** Azure OpenAI, OpenAI, Google Gemini, Anthropic Claude
+- **GitHub Copilot:** GitHub.Copilot.SDK 1.0.13 for GitHub authentication, model discovery, context tiers, and reasoning effort. The evaluation harness can use Copilot as its judge while keeping models under test on local backends.
+- **Copilot Agent Framework adapter:** Microsoft.Agents.AI.GitHub.Copilot 1.20.0 preserves the existing `AIAgent` integration. Its shared abstractions require Microsoft.Agents.AI.Abstractions 1.20.0, Microsoft.Extensions.AI.Abstractions 10.9.0, and DI/Logging abstractions 10.0.11. The existing core and workflow versions remain unchanged; the required abstraction updates are API-compatible.
+- **Evaluation judge:** Azure OpenAI v1 Responses API through the existing OpenAI and Microsoft.Extensions.AI packages, with an explicit legacy Chat Completions opt-out.
 - **Offline:** OLLaMa and llama.CPP
 - **Embeddings:** Support for Azure OpenAI, OpenAI, and local deployed Embeddings
 
@@ -103,6 +106,7 @@
 - **Framework:** xUnit
 - **Mocking:** FakeItEasy
 - **Integration:** Aspire.Hosting.Testing; Testcontainers 4.11 (PostgreSQL and Redis), with SSH.NET pinned to 2026.0
+- **Evaluation backends:** Ollama, local/remote OpenAI-compatible servers, Foundry Responses deployments, and OpenRouter. Per-test token usage and estimated USD costs are reported separately from quality; lower known cost breaks quality ties. OpenRouter rates come from its catalog, while Foundry rates are configured per deployment.
 
 ### CI/CD Pipeline
 - **Platform:** GitHub Actions
