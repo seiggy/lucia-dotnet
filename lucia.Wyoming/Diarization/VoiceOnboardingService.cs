@@ -22,12 +22,16 @@ public sealed class VoiceOnboardingService : BackgroundService
 
     private readonly ConcurrentDictionary<string, OnboardingSession> _sessions = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
+    private readonly TaskCompletionSource _initialRecoveryCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly IDiarizationEngine _diarization;
     private readonly ISpeakerProfileStore _profileStore;
     private readonly AudioQualityAnalyzer _qualityAnalyzer;
     private readonly AudioClipService _audioClipService;
     private readonly VoiceProfileOptions _options;
     private readonly ILogger<VoiceOnboardingService> _logger;
+
+    /// <summary>Completes after the initial recovery attempt, including any logged deferred failure.</summary>
+    internal Task InitialRecoveryCompletion => _initialRecoveryCompletion.Task;
 
     public VoiceOnboardingService(
         IDiarizationEngine diarization,
@@ -142,7 +146,14 @@ public sealed class VoiceOnboardingService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await TryRecoverOnboardingClipsAsync(stoppingToken).ConfigureAwait(false);
+        try
+        {
+            await TryRecoverOnboardingClipsAsync(stoppingToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _initialRecoveryCompletion.TrySetResult();
+        }
         using var timer = new PeriodicTimer(CleanupInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {
