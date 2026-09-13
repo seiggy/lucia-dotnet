@@ -695,6 +695,51 @@ function StorageStep({
   )
 }
 
+function WifiNetworkField({
+  id,
+  networks,
+  selectedSsid,
+  onSelectedSsidChange,
+}: {
+  id: string
+  networks: InstallerNetwork[]
+  selectedSsid: string
+  onSelectedSsidChange: (value: string) => void
+}) {
+  return (
+    <>
+      <label htmlFor={id} className="mb-2 block text-sm font-medium text-light">
+        Home Wi-Fi
+      </label>
+      <p id={`${id}-hint`} className="mb-2 text-sm leading-5 text-fog">
+        {networks.length === 0
+          ? 'No Wi-Fi networks were found. Enter your network name below.'
+          : 'Choose a suggested Wi-Fi network or enter its name.'}
+      </p>
+      <input
+        id={id}
+        list={`${id}-networks`}
+        value={selectedSsid}
+        onChange={(event) => onSelectedSsidChange(event.target.value)}
+        aria-describedby={`${id}-hint`}
+        autoComplete="off"
+        autoCapitalize="none"
+        spellCheck={false}
+        maxLength={32}
+        placeholder="Network name (SSID)"
+        className={inputStyle}
+      />
+      <datalist id={`${id}-networks`}>
+        {networks.map((network) => (
+          <option key={network.ssid} value={network.ssid}>
+            {network.signal}% · {network.security}
+          </option>
+        ))}
+      </datalist>
+    </>
+  )
+}
+
 function IdentityStep({
   networks,
   selectedSsid,
@@ -750,22 +795,15 @@ function IdentityStep({
       </div>
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <label htmlFor="home-wifi" className="mb-2 block text-sm font-medium text-light">
-            Home Wi-Fi
-          </label>
-          <select
+          <WifiNetworkField
             id="home-wifi"
-            value={selectedSsid}
-            onChange={(event) => onSelectedSsidChange(event.target.value)}
-            className={inputStyle}
-          >
-            <option value="">Use Ethernet only</option>
-            {networks.map((network) => (
-              <option key={network.ssid} value={network.ssid}>
-                {network.ssid} · {network.signal}% · {network.security || 'Open'}
-              </option>
-            ))}
-          </select>
+            networks={networks}
+            selectedSsid={selectedSsid}
+            onSelectedSsidChange={onSelectedSsidChange}
+          />
+          <p className="mt-2 text-sm text-dust">
+            Leave blank to use Ethernet only.
+          </p>
         </div>
         {selectedSsid && (
           <div className="sm:col-span-2">
@@ -827,7 +865,7 @@ function IdentityStep({
       </div>
       <p className="mt-3 flex gap-2 text-sm leading-5 text-dust">
         <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber" aria-hidden="true" />
-        This password opens NetworkManager recovery from the local console. Lucia stores only a salted hash.
+        Sign in as lucia-recovery over SSH or at the console. This password also authorizes sudo. Lucia stores only a salted hash.
       </p>
       <ErrorMessage message={error} />
       <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
@@ -1005,22 +1043,12 @@ function InstallingStep({
       {isFailed && status.canRetryNetwork && (
         <div className="mx-auto mt-6 max-w-md space-y-4 rounded-xl border border-amber/25 bg-amber/8 p-4">
           <div>
-           <label htmlFor="retry-wifi" className="mb-1.5 block text-sm font-medium text-light">
-             Home Wi-Fi
-           </label>
-           <select
-             id="retry-wifi"
-             value={selectedSsid}
-             onChange={(event) => onSelectedSsidChange(event.target.value)}
-             className={inputStyle}
-           >
-             <option value="">Choose a network</option>
-             {networks.map((network) => (
-               <option key={network.ssid} value={network.ssid}>
-                 {network.ssid} · {network.signal}%
-               </option>
-             ))}
-           </select>
+            <WifiNetworkField
+              id="retry-wifi"
+              networks={networks}
+              selectedSsid={selectedSsid}
+              onSelectedSsidChange={onSelectedSsidChange}
+            />
           </div>
           <div>
            <label htmlFor="retry-wifi-password" className="mb-1.5 block text-sm font-medium text-light">
@@ -1053,7 +1081,7 @@ function InstallingStep({
             {dashboardKey}
           </code>
           <p className="mt-2 text-xs leading-5 text-fog">
-            Copy this key to your password manager. Lucia will keep showing it until you confirm it is saved.
+            Copy this key to your password manager, then confirm below. Lucia will wait for your confirmation before changing Wi-Fi or powering off.
           </p>
           <button
             type="button"

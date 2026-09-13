@@ -153,7 +153,7 @@ test_bundle_contains_native_service_contract() {
     if [[ -f "$agent_unit" && -f "$manager_unit" && -f "$redis_unit" \
             && -f "$redis_config" && -f "$environment" ]] \
         && grep -q '"onnxRuntime": "1.23.2"' "$runtime_info" \
-        && grep -q '^exec /usr/bin/nmtui' "$recovery_shell" \
+        && grep -Fqx 'exec /bin/bash "$@"' "$recovery_shell" \
         && [[ -x "$updater" ]] \
         && [[ -x "$os_validator" && -f "$os_validation_unit" ]] \
         && [[ -x "$manager_health" ]] \
@@ -163,7 +163,9 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^RequiresMountsFor=/opt/lucia /var/lib/lucia$' \
             "$update_recovery_unit" \
         && grep -q '^Match User lucia-recovery$' "$recovery_sshd" \
-        && grep -q '^    ForceCommand /usr/libexec/lucia/lucia-recovery-shell$' "$recovery_sshd" \
+        && ! grep -q 'ForceCommand' "$recovery_sshd" \
+        && grep -q '^PermitRootLogin no$' "$recovery_sshd" \
+        && grep -q '^    PasswordAuthentication yes$' "$recovery_sshd" \
         && grep -q '^    DisableForwarding yes$' "$recovery_sshd" \
         && grep -q '^    AllowTcpForwarding no$' "$recovery_sshd" \
         && ! grep -q '^m lucia-telemetry lucia$' "$sysusers" \

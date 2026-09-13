@@ -40,7 +40,8 @@ done < <(lsblk --raw --noheadings --output NAME,MAJ:MIN "$loop_device")
 mkfs.ext4 -q -F "${loop_device}p18"
 
 before="$(blockdev --getsize64 "${loop_device}p18")"
-"$expand" "$loop_device"
+ln -s "$loop_device" "$work_dir/nvme-test"
+"$expand" "$work_dir/nvme-test"
 after="$(blockdev --getsize64 "${loop_device}p18")"
 filesystem_bytes="$(
     dumpe2fs -h "${loop_device}p18" 2>/dev/null \

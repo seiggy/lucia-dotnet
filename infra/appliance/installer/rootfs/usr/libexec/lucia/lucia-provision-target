@@ -87,7 +87,9 @@ def find_partition(device: str, label: str) -> str:
     return candidates[0]
 
 
-def replace_recovery_password(shadow_path: pathlib.Path, password_hash: str) -> None:
+def replace_recovery_password(shadow_path: pathlib.Path, password_hash: object) -> None:
+    if not isinstance(password_hash, str) or not password_hash.startswith("$6$"):
+        raise ValueError("Provisioning recovery password hash is invalid")
     lines = shadow_path.read_text(encoding="utf-8").splitlines()
     found = False
     updated_lines: list[str] = []
@@ -357,12 +359,10 @@ def provision(
 
     if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", hostname) is None:
         raise ValueError("Provisioning hostname is invalid")
-    if not isinstance(password_hash, str) or not password_hash.startswith("$6$"):
-        raise ValueError("Provisioning recovery password hash is invalid")
 
+    replace_recovery_password(target_root / "etc" / "shadow", password_hash)
     write_atomic(target_root / "etc" / "hostname", f"{hostname}\n")
     replace_hostname(target_root / "etc" / "hosts", hostname)
-    replace_recovery_password(target_root / "etc" / "shadow", password_hash)
     install_tls_material(target_root, certificate_path, key_path)
 
     if wifi is not None:
@@ -471,7 +471,7 @@ def install_manager_override(target_lucia_root: pathlib.Path) -> None:
 
 def main() -> None:
     if len(sys.argv) != 2:
-        raise SystemExit("Usage: lucia-provision-target BLOCK_DEVICE")
+        raise SystemExit("Usage: lucia-provision-target BLOCK_DEVICE|--recovery-only")
 
     state_directory = pathlib.Path(
         os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
@@ -482,6 +482,12 @@ def main() -> None:
     )
     if not isinstance(provisioning, dict):
         raise ValueError("Provisioning configuration must be an object")
+    if sys.argv[1] == "--recovery-only":
+        replace_recovery_password(
+            pathlib.Path(configured_target or "/") / "etc" / "shadow",
+            provisioning.get("recoveryPasswordHash"),
+        )
+        return
     dashboard_key = str(provisioning.get("dashboardApiKey", ""))
     wifi = provisioning.get("wifi")
     if wifi is not None:

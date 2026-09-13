@@ -1,6 +1,6 @@
 # Technical Stack
 
-> Last Updated: 2026-09-11
+> Last Updated: 2026-09-13
 > Version: 1.3.0
 
 ## Core Technologies
@@ -67,6 +67,8 @@
 - **Base:** Jetson Linux 36.5.2 on Jetson Orin Nano Super P3767-0005
 - **Runtime:** Native self-contained .NET 10 AgentHost
 - **Persistence:** Redis 8.2.9 with AOF for active work; SQLite for configuration, traces, schedules, and archives
+- **Redis toolchain:** GCC 11 on Debian Bullseye, pinned by image digest, with an execution check against the Jetson rootfs before packaging
+- **Runtime helpers:** Pinned Ubuntu 22.04 ARM64 curl and libcurl packages for manager health checks and updates
 - **Installer:** Client-isolated microSD captive setup with explicit NVMe erase authorization
 - **Updates:** Separate attested Lucia and Jetson OS assets published through GitHub Releases
 

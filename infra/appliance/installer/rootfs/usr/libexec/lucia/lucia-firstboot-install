@@ -41,15 +41,18 @@ validate_saved_device() {
         return 1
     }
 }
-power_off_for_handoff() {
-    write_progress syncing
-    sync
+wait_for_dashboard_key_handoff() {
     if [[ -f "$dashboard_key_handoff" ]]; then
         printf 'Waiting for Dashboard owner key confirmation.\n'
         while [[ -f "$dashboard_key_handoff" ]]; do
             sleep 1
         done
     fi
+}
+power_off_for_handoff() {
+    write_progress syncing
+    sync
+    wait_for_dashboard_key_handoff
     write_progress powering-off
     printf 'Lucia installation completed. Powering off for SD card removal.\n'
     "$systemctl_path" --no-block poweroff
@@ -71,8 +74,10 @@ if [[ -f "$state_file" ]] \
     if [[ -f "$provisioning_file" ]]; then
         device="$(sed -n 's/^device=//p' "$state_file")"
         validate_saved_device "$device"
+        "$provision_path" --recovery-only
         write_progress provisioning
         "$expand_path" "$device"
+        wait_for_dashboard_key_handoff
         "$provision_path" "$device"
         power_off_for_handoff
         exit 0
@@ -112,6 +117,7 @@ fi
     exit 1
 }
 
+"$provision_path" --recovery-only
 "$install_path" install \
     --device "$device" \
     --image "$payload" \
@@ -121,5 +127,6 @@ fi
 
 write_progress provisioning
 "$expand_path" "$device"
+wait_for_dashboard_key_handoff
 "$provision_path" "$device"
 power_off_for_handoff

@@ -2,7 +2,7 @@
 
 **Plan:** [plan.md](plan.md)
 **Research:** [research.md](research.md)
-**Last updated:** 2026-09-12
+**Last updated:** 2026-09-13
 
 ## Phase 0: decisions and tracking
 
@@ -46,7 +46,7 @@
 - [x] T024 Join home Wi-Fi through a timed NetworkManager checkpoint.
 - [x] T025 Restore setup mode after failed Wi-Fi activation.
 - [ ] T026 Set the hostname and publish dashboard and Wyoming Avahi records.
-- [ ] T027 Add USB Ethernet setup and restricted `nmtui` recovery.
+- [ ] T027 Validate USB Ethernet setup and owner-admin SSH recovery on hardware.
 
 ## Phase 4: appliance manager
 
@@ -94,6 +94,80 @@ detection, full occupied-drive reporting, and power-cut recovery remain open.
 Lab validation pulled appliance management and telemetry work forward.
 
 ## Work log
+
+### 2026-09-13
+
+- Pre-PR review found that rejecting an invalid recovery hash could occur after
+  changing the target hostname. Moved the validated password update first and
+  added a regression proving invalid recovery data leaves identity files intact.
+- Recovered a lost Dashboard key through the existing `DASHBOARD_API_KEY`
+  startup override, with owner approval. Removed the temporary override,
+  verified authentication after restart, and removed the private temporary
+  key file after the owner confirmed it was saved and dashboard access worked.
+- Moved the acknowledgment gate ahead of target provisioning, which tests home
+  Wi-Fi, for both initial and resumed installations. The final poweroff gate
+  remains. The Linux regression and all five installer browser checks pass.
+- Updated the saved `lucia-appliance-1.4.2-local-fixed-installer.img` with this
+  handoff fix. Its current SHA-256 is
+  `dae2841570ae1af6895d59bb1a3300d729b866206a08dc1002ce8ec822a7a622`.
+- Hardware installation now completes, manual Wi-Fi connects, and the owner
+  can SSH as `lucia-recovery` and use password-protected sudo.
+- Fixed three additional runtime blockers on the installed Jetson. GCC 14's
+  Redis executable required `GLIBCXX_3.4.32`, curl was absent, and archive-mode
+  overlay copying assigned checkout ownership to system directories. The last
+  defect made systemd-tmpfiles reject the path to AgentHost's staging directory.
+- Rebuilt the pinned Redis source with GCC 11, installed curl/libcurl, restored
+  root ownership of system directories, and replayed the existing tmpfiles
+  rules. Applied OS package and ownership fixes to both slots without changing
+  Wi-Fi or repartitioning. Redis, manager, and AgentHost remain running;
+  HTTPS health returns `Healthy`, and CUDA voice warm-up completes.
+- Updated the image build to use a pinned compatible compiler, pin curl's
+  Ubuntu packages, execute Redis and curl inside the target rootfs, and exclude
+  checkout ownership when copying overlays. Native Linux release checks pass.
+- A new `lucia-appliance-1.4.2-local-fixed-installer.img` incorporates these
+  runtime fixes and unfiltered Wi-Fi discovery. The original downloaded release
+  and earlier local recovery image remain separate.
+- Reversed the review-era security filter in Wi-Fi discovery. WPA3, open,
+  enterprise, WEP, and unreported security types remain visible; duplicate
+  SSIDs still use their strongest signal. Removed WPA2-only UI wording.
+  This source change was not in the SD image being installed at that point, and
+  it does not change the WPA-PSK connection profile.
+- Reproduced the empty-scan Wi-Fi dead end in the browser and installer control.
+  Initial setup and network retry now accept a typed WPA2-Personal SSID, with
+  scan results as suggestions. A blank initial SSID still selects Ethernet.
+- Removed scan membership as a configuration prerequisite. SSID byte limits,
+  passphrase validation, the provisioning connection check, and setup AP
+  recovery remain enforced.
+- Passed all five installer browser checks, the dashboard build and targeted
+  lint, Linux control/provisioning/bootstrap checks, and desktop/mobile layout
+  checks. The rootfs text check passes in Git Bash; WSL encounters the existing
+  CRLF in the checked-out captive DNS configuration.
+- Read the failed installation's SD card without writing to it. The NVMe image
+  write had finished, but `provision.state` was absent and `progress.json`
+  recorded a system failure; the chosen recovery hash was still pending.
+- Reproduced that failure: data expansion appended `p18` to a stable
+  `/dev/disk/by-id/...` link instead of its resolved device. Resolve the device
+  first, and run the existing loop test through a symlink so it covers the
+  production path.
+- The owner approved Bash SSH/console access with password-protected sudo,
+  replacing the network-only recovery shell. Direct root SSH remains disabled.
+  Apply the recovery password to the installer SD before the NVMe write, and
+  retain journals across reboots.
+- Built both NVMe rootfs slots locally from the verified release payload.
+  Actual ARM64 sshd accepted password login against each slot in disposable
+  overlays; sudo policy requires a password. WSL's ARM64 interpreter lacks
+  credential-preserving execution, so that local check did not prove sudo
+  elevation. The later hardware check recorded above did.
+- Built `lucia-appliance-1.4.2-local-recovery-installer.img` locally:
+  16,920,870,912 bytes, SHA-256
+  `95e7a4497ebf1254207a53f281cf3a32340c9e95c9382f54afce9c80ac0bd726`.
+  Its actual ARM64 installer helper applied a test recovery hash in a disposable
+  overlay and SSH accepted that password. Final filesystem, partition table,
+  embedded payload checksum, captive setup, and root-ownership checks passed.
+- The original release image is unchanged. The owner authorized flashing the
+  local build to the identified 128 GB SD. The full SD read-back matches the
+  image SHA-256 above. Physical boot, service health, Wi-Fi, and sudo elevation
+  were checked afterward, with the runtime repairs recorded above.
 
 ### 2026-09-12
 

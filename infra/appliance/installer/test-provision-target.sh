@@ -45,6 +45,38 @@ fi
 EOF
 chmod +x "$work_dir/nmcli"
 
+python3 - "$provision" "$target_root" <<'PY'
+import pathlib
+import runpy
+import sys
+
+provision = runpy.run_path(sys.argv[1])["provision"]
+root = pathlib.Path(sys.argv[2])
+paths = [root / "etc" / name for name in ("hostname", "hosts", "shadow")]
+before = [path.read_bytes() for path in paths]
+try:
+    provision(
+        root,
+        {"hostname": "must-not-change", "recoveryPasswordHash": "invalid"},
+        root / "missing.crt",
+        root / "missing.key",
+    )
+except ValueError as error:
+    assert "password hash is invalid" in str(error)
+else:
+    raise AssertionError("Invalid recovery password hash was accepted")
+assert [path.read_bytes() for path in paths] == before
+PY
+
+LUCIA_INSTALLER_STATE_DIR="$state_dir" \
+LUCIA_TARGET_ROOT="$target_root" \
+    "$provision" --recovery-only
+grep -q '^lucia-recovery:\$6\$salt\$hashed-password:' \
+    "$target_root/etc/shadow"
+[[ -e "$state_dir/provisioning.json" ]]
+[[ ! -e "$target_root/etc/NetworkManager/system-connections/lucia-home.nmconnection" ]]
+echo "PASS: installer recovery password is usable before target provisioning"
+
 LUCIA_MANAGER_OVERRIDE="$work_dir/lucia.ApplianceManager" \
 LUCIA_NMCLI_PATH="$work_dir/nmcli" \
 LUCIA_NM_RUNTIME_PROFILE_PATH="$work_dir/runtime-lucia-home.nmconnection" \

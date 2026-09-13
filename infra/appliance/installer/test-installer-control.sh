@@ -94,12 +94,18 @@ echo "PASS: control reports failed installation state"
 cat > "$work_dir/nmcli" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${LUCIA_TEST_EMPTY_SCAN:-}" == "1" ]]; then
+    exit 0
+fi
 printf '%s\n' \
+    'WPA3 Home:91:WPA3' \
     'Lab WiFi:82:WPA2' \
     'Lab WiFi:41:WPA2' \
     'Guest:63:WPA2 WPA3' \
     'Cafe:75:--' \
-    'Enterprise:70:WPA2 802.1X'
+    'Enterprise:70:WPA2 802.1X' \
+    'Legacy:35:WEP' \
+    'Unspecified:15:'
 EOF
 chmod +x "$work_dir/nmcli"
 
@@ -114,12 +120,22 @@ with open(sys.argv[1], encoding="utf-8") as stream:
     networks = json.load(stream)
 
 assert networks == [
+    {"ssid": "WPA3 Home", "signal": 91, "security": "WPA3"},
     {"ssid": "Lab WiFi", "signal": 82, "security": "WPA2"},
+    {"ssid": "Cafe", "signal": 75, "security": "--"},
+    {"ssid": "Enterprise", "signal": 70, "security": "WPA2 802.1X"},
     {"ssid": "Guest", "signal": 63, "security": "WPA2 WPA3"},
+    {"ssid": "Legacy", "signal": 35, "security": "WEP"},
+    {"ssid": "Unspecified", "signal": 15, "security": ""},
 ]
 PY
 
-echo "PASS: control returns the strongest visible Wi-Fi networks"
+echo "PASS: control returns Wi-Fi networks without filtering security types"
+
+export LUCIA_TEST_EMPTY_SCAN=1
+LUCIA_NMCLI_PATH="$work_dir/nmcli" "$control" networks \
+    > "$work_dir/networks.json"
+grep -qx '\[\]' "$work_dir/networks.json"
 
 printf 'LUCIA-NVME-IMAGE\n' > "$work_dir/payload.img"
 truncate --size 1M "$work_dir/payload.img"
@@ -161,6 +177,22 @@ grep -q 'printable ASCII' "$work_dir/invalid-wifi.log"
 [[ ! -e "$work_dir/state/erase.authorization" ]]
 
 echo "PASS: control rejects non-ASCII Wi-Fi passphrases"
+
+python3 - "$control" <<'PY'
+import runpy
+import sys
+
+validate_wifi = runpy.run_path(sys.argv[1])["validate_wifi_configuration"]
+wifi = {"ssid": "\u00e9" * 17, "passphrase": "lab-wifi-password"}
+try:
+    validate_wifi(wifi)
+except ValueError as error:
+    assert "32 UTF-8 bytes" in str(error)
+else:
+    raise AssertionError("Oversized UTF-8 SSID was accepted")
+wifi["ssid"] = "\u00e9" * 16
+assert validate_wifi(wifi) == wifi
+PY
 
 printf \
     '{"deviceId":"%s","eraseConfirmation":"%s","hostname":"lucia-lab","recoveryPassword":"correct horse battery staple","wifi":{"ssid":"Lab WiFi","passphrase":"lab-wifi-password"}}' \
@@ -226,6 +258,7 @@ grep -q '"acknowledged":true' "$work_dir/ack.json"
 [[ ! -e "$work_dir/state/dashboard-key.handoff" ]]
 
 echo "PASS: control binds approved setup to the selected disk and image"
+echo "PASS: control accepts entered Wi-Fi credentials without scan results"
 
 printf 'status=installed\n' > "$work_dir/state/install.state"
 printf '{"stage":"failed","failureKind":"wifi","message":"Wi-Fi validation failed"}\n' \

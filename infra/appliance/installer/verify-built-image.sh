@@ -43,8 +43,13 @@ read -r major minor < <(
 mknod "$work_dir/root-partition" b "$major" "$minor"
 mount -o ro "$work_dir/root-partition" "$root"
 
+for directory in etc etc/ssh etc/ssh/sshd_config.d usr usr/lib usr/libexec var var/lib; do
+    [[ "$(stat --format '%u:%g' "$root/$directory")" == "0:0" ]]
+done
 [[ "$(stat --format '%u:%g' \
     "$root/usr/libexec/lucia/lucia-installer-control")" == "0:0" ]]
+[[ "$(stat --format '%u:%g' \
+    "$root/opt/lucia-installer/app/lucia.InstallerHost")" == "0:0" ]]
 grep -Fqx 'User=root' \
     "$root/usr/lib/systemd/system/lucia-installer-host.service"
 grep -Fqx \
@@ -52,6 +57,18 @@ grep -Fqx \
     "$root/etc/lucia-installer/installer.env"
 grep -Fqx 'Appliance__ControlCommand=' \
     "$root/etc/lucia-installer/installer.env"
+grep -Eq '^lucia-recovery:[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:/bin/bash$' \
+    "$root/etc/passwd"
+grep -Eq '^sudo:[^:]*:[^:]*:([^,]+,)*lucia-recovery(,[^,]+)*$' \
+    "$root/etc/group"
+grep -Fqx 'PermitRootLogin no' \
+    "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
+! grep -q 'ForceCommand' \
+    "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
+grep -Fqx 'Storage=persistent' \
+    "$root/etc/systemd/journald.conf.d/lucia.conf"
+[[ "$(stat --format '%u:%g' \
+    "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf")" == "0:0" ]]
 
 cat > "$work_dir/nmcli" <<'EOF'
 #!/usr/bin/env bash

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('guides the first browser claim through installation', async ({ page }) => {
+test('guides installation with manually entered Wi-Fi when the scan is empty', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
 
   let installRequest: unknown;
@@ -48,7 +48,7 @@ test('guides the first browser claim through installation', async ({ page }) => 
   });
   await page.route('**/api/installer/networks', async (route) => {
     await route.fulfill({
-      json: [{ ssid: 'Lab WiFi', signal: 82, security: 'WPA2' }],
+      json: [],
     });
   });
   await page.route('**/api/installer/install', async (route) => {
@@ -92,7 +92,9 @@ test('guides the first browser claim through installation', async ({ page }) => 
   await page.getByRole('button', { name: /Use Lab SSD/ }).click();
   await page.getByRole('button', { name: 'Continue to network' }).click();
 
-  await page.getByLabel('Home Wi-Fi').selectOption('Lab WiFi');
+  await expect(page.getByText('No Wi-Fi networks were found. Enter your network name below.')).toBeVisible();
+  await expect(page.getByText('Leave blank to use Ethernet only.')).toBeVisible();
+  await page.getByLabel('Home Wi-Fi').fill('Lab WiFi');
   await page.getByLabel('Wi-Fi password').fill('lab-wifi-password');
   await page.getByLabel('Lucia name').fill('lucia-lab');
   await page.getByLabel('Recovery password', { exact: true }).fill('correct horse battery staple');
@@ -120,6 +122,9 @@ test('guides the first browser claim through installation', async ({ page }) => 
     },
   });
   await expect(page.getByText('lk_dashboard-owner-bootstrap-key')).toBeVisible();
+  await expect(page.getByText(
+    'Copy this key to your password manager, then confirm below. Lucia will wait for your confirmation before changing Wi-Fi or powering off.',
+  )).toBeVisible();
 });
 
 test('does not expose installer setup on a non-appliance host', async ({ page }) => {
@@ -207,7 +212,12 @@ test('offers Wi-Fi retry immediately after provisioning fails', async ({ page })
   });
   await page.route('**/api/installer/networks', async (route) => {
     await route.fulfill({
-      json: [{ ssid: 'Lab WiFi', signal: 82, security: 'WPA2' }],
+      json: [
+        { ssid: 'WPA3 Home', signal: 91, security: 'WPA3' },
+        { ssid: 'Lab WiFi', signal: 82, security: 'WPA2' },
+        { ssid: 'Cafe', signal: 75, security: '--' },
+        { ssid: 'Enterprise', signal: 70, security: 'WPA2 802.1X' },
+      ],
     });
   });
   await page.route('**/api/installer/retry-network', async (route) => {
@@ -218,7 +228,10 @@ test('offers Wi-Fi retry immediately after provisioning fails', async ({ page })
 
   await expect(page.getByRole('heading', { name: 'Installation needs attention' })).toBeVisible();
   await expect(page.getByLabel('Home Wi-Fi')).toBeVisible();
-  await page.getByLabel('Home Wi-Fi').selectOption('Lab WiFi');
+  await expect(page.locator('#retry-wifi-networks option')).toHaveText([
+    '91% · WPA3', '82% · WPA2', '75% · --', '70% · WPA2 802.1X',
+  ]);
+  await page.getByLabel('Home Wi-Fi').fill('Lab WiFi');
   await page.getByLabel('Wi-Fi password').fill('corrected-password');
   await page.getByRole('button', { name: 'Retry Wi-Fi' }).click();
   await expect(page.getByRole('heading', { name: 'Lucia is moving in' })).toBeVisible();

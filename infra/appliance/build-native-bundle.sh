@@ -138,7 +138,7 @@ fi
 
 release_dir="$output_dir/opt/lucia/releases/$version"
 mkdir -p "$release_dir/app/wwwroot" "$release_dir/manager" "$release_dir/redis/bin"
-cp -a "$script_dir/rootfs/." "$output_dir/"
+cp -a --no-preserve=ownership "$script_dir/rootfs/." "$output_dir/"
 cp -a "$publish_dir/." "$release_dir/app/"
 cp -a "$manager_dir/." "$release_dir/manager/"
 cp -a "$dashboard_dir/." "$release_dir/app/wwwroot/"
