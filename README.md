@@ -878,6 +878,11 @@ experimental microSD installer provisions A/B Jetson Linux 36.5.2 slots, a
 versioned Lucia partition, persistent Redis and SQLite data, captive setup, and
 appliance management.
 
+The recovery password chosen during setup signs in as `lucia-recovery` over
+SSH or at the local console and authorizes sudo. Direct root SSH login is
+disabled. The installer enables recovery access before writing the NVMe so a
+failed installation can be diagnosed from the SD card.
+
 See [the appliance release guide](infra/appliance/release/README.md) and
 [implementation status](specs/006-jetson-appliance-image/tasks.md). Stable
 release tags publish separate installer, Lucia, and OS assets.

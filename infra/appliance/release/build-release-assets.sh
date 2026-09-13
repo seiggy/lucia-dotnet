@@ -127,11 +127,11 @@ download_sha256 \
     "$GH_CLI_HOST_URL" \
     "$GH_CLI_HOST_SHA256" \
     "$downloads/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
-compute_downloads="$downloads/compute"
-mkdir -p "$compute_downloads"
-for package in "${COMPUTE_PACKAGES[@]}"; do
+runtime_downloads="$downloads/runtime"
+mkdir -p "$runtime_downloads"
+for package in "${COMPUTE_PACKAGES[@]}" "${RUNTIME_PACKAGES[@]}"; do
     read -r expected url <<< "$package"
-    download_sha256 "$url" "$expected" "$compute_downloads/${url##*/}"
+    download_sha256 "$url" "$expected" "$runtime_downloads/${url##*/}"
 done
 
 rm -rf \
@@ -324,7 +324,7 @@ prepare_bsp() {
     )
 }
 
-install_compute_runtime() (
+install_runtime_packages() (
     local root="$1"
 
     cleanup_chroot() {
@@ -359,26 +359,29 @@ install_compute_runtime() (
     sudo mount --bind /dev/pts "$root/dev/pts"
     sudo mount -t proc proc "$root/proc"
     sudo mount -t sysfs sys "$root/sys"
-    sudo mkdir -p "$root/tmp/lucia-compute"
+    sudo mkdir -p "$root/tmp/lucia-runtime"
     local guest_packages=()
     local package
     local url
     local name
-    for package in "${COMPUTE_PACKAGES[@]}"; do
+    for package in "${COMPUTE_PACKAGES[@]}" "${RUNTIME_PACKAGES[@]}"; do
         read -r _ url <<< "$package"
         name="${url##*/}"
-        sudo cp "$compute_downloads/$name" "$root/tmp/lucia-compute/$name"
-        guest_packages+=("/tmp/lucia-compute/$name")
+        sudo cp "$runtime_downloads/$name" "$root/tmp/lucia-runtime/$name"
+        guest_packages+=("/tmp/lucia-runtime/$name")
     done
     sudo chroot "$root" dpkg --install "${guest_packages[@]}"
-    sudo rm -rf "$root/tmp/lucia-compute"
+    sudo install -m 0755 "$redis_dir/redis-server" "$root/tmp/lucia-runtime/redis-server"
+    sudo chroot "$root" /tmp/lucia-runtime/redis-server --version
+    sudo chroot "$root" /usr/bin/curl --version
+    sudo rm -rf "$root/tmp/lucia-runtime"
 )
 
 configure_recovery_account() {
     local root="$1"
-    local shell_path="/usr/libexec/lucia/lucia-recovery-shell"
+    local shell_path="/bin/bash"
 
-    sudo chroot "$root" gpasswd --delete lucia-recovery sudo
+    sudo chroot "$root" usermod --append --groups sudo lucia-recovery
     sudo chroot "$root" usermod --shell "$shell_path" lucia-recovery
     grep -Fqx "$shell_path" "$root/etc/shells" \
         || printf '%s\n' "$shell_path" \
@@ -387,11 +390,12 @@ configure_recovery_account() {
 
 prepare_bsp "$bsp_dir"
 root="$bsp_dir/Linux_for_Tegra/rootfs"
-install_compute_runtime "$root"
-sudo cp -a "$repo_root/infra/appliance/rootfs/." "$root/"
+install_runtime_packages "$root"
+sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/rootfs/." "$root/"
 sudo chown -R root:root \
     "$root/etc/lucia" \
     "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
+    "$root/etc/systemd/journald.conf.d/lucia.conf" \
     "$root/usr/lib/systemd/system/lucia-"*.service \
     "$root/usr/libexec/lucia" \
     "$root/usr/lib/sysusers.d/lucia.conf" \
@@ -513,7 +517,7 @@ tar --sort=name \
 
 prepare_bsp "$sd_bsp_dir"
 sd_root="$sd_bsp_dir/Linux_for_Tegra/rootfs"
-sudo cp -a "$repo_root/infra/appliance/installer/rootfs/." "$sd_root/"
+sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/installer/rootfs/." "$sd_root/"
 sudo chown -R root:root \
     "$sd_root/etc/NetworkManager/dnsmasq-shared.d/lucia-captive.conf" \
     "$sd_root/etc/lucia-installer" \
@@ -529,9 +533,16 @@ sudo install -m 0755 \
     "$repo_root/infra/appliance/installer/lucia-install" \
     "$sd_root/usr/libexec/lucia/lucia-install"
 sudo cp -a "$installer_publish_dir/." "$sd_root/opt/lucia-installer/app/"
+sudo chown -R root:root "$sd_root/opt/lucia-installer/app"
 sudo install -D -m 0755 \
     "$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-recovery-shell" \
     "$sd_root/usr/libexec/lucia/lucia-recovery-shell"
+sudo install -D -m 0644 \
+    "$repo_root/infra/appliance/rootfs/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
+    "$sd_root/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
+sudo install -D -m 0644 \
+    "$repo_root/infra/appliance/rootfs/etc/systemd/journald.conf.d/lucia.conf" \
+    "$sd_root/etc/systemd/journald.conf.d/lucia.conf"
 sudo cp \
     "$sd_root/etc/lucia-installer/installer.env.example" \
     "$sd_root/etc/lucia-installer/installer.env"

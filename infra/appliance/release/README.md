@@ -16,20 +16,51 @@ the appliance physically controlled during setup.
 The temporary installer host runs as root and invokes `lucia-installer-control`
 directly. Its image does not include or require an installer sudoers rule.
 
+The Wi-Fi scan lists detected network names without filtering their security
+type. You can also enter a network name when the scan is empty. Leave the field
+blank to use Ethernet only. Listing a network does not add support for its
+authentication method; provisioning currently creates a WPA-PSK profile.
+The installer checks the connection during provisioning and restores the setup
+access point afterward.
+Before testing home Wi-Fi, the installer waits for the owner to save and
+acknowledge the Dashboard key. The same gate applies when provisioning resumes.
+
 The installed dashboard listens at `https://HOSTNAME.local:8099` with a
 per-device certificate generated during setup. The first browser must accept
 that local certificate. Plain HTTP is bound only to loopback on port 8098.
 
-The `lucia-recovery` account has no sudo membership. Its owner-selected
-password opens only the local NetworkManager text interface.
+The `lucia-recovery` account has a Bash login shell and password-protected sudo.
+Use the recovery password chosen during setup with
+`ssh -t lucia-recovery@HOSTNAME.local`. Direct root SSH login is disabled.
+The installer enables this password on the SD card before writing the NVMe,
+then applies it to both installed OS slots during provisioning. If installation
+fails, keep the SD inserted and use this account to inspect
+`journalctl -b -u lucia-firstboot-install`. Journals persist across reboots.
+
+If the Dashboard key is lost, an OS administrator can use the existing
+`DASHBOARD_API_KEY` startup override to replace it without resetting the
+configuration database. This revokes prior keys named Dashboard. Remove the
+temporary override after the replacement has been saved and verified.
 
 These are full component payloads, not binary deltas. Full payloads are larger,
 but they are deterministic, recoverable, and do not require every user to have
 the same prior version.
 
-`appliance.lock` pins every CUDA and cuDNN runtime package by direct URL and
-SHA-256. The rootfs build installs that local package set without reading live
-Ubuntu or NVIDIA package indexes.
+`appliance.lock` pins CUDA, cuDNN, curl, and libcurl runtime packages by direct
+URL and SHA-256. The rootfs build installs that local package set without
+reading live Ubuntu or NVIDIA package indexes. Curl is required by the
+appliance manager's Unix-socket health check and update helpers.
+
+Redis builds with GCC 11 on Debian Bullseye so its libc and libstdc++
+requirements stay compatible with JetPack's Ubuntu 22.04 runtime. The builder
+runs the resulting ARM64 Redis executable and curl inside the actual Jetson
+rootfs before packaging. A newer build host must not silently raise the target
+runtime requirements.
+
+Rootfs overlays preserve modes and links, but never checkout ownership.
+System directories such as `/var` and `/var/lib` must remain root-owned;
+otherwise systemd-tmpfiles refuses to create the service directories beneath
+them. The assembled installer image verifies these owners.
 
 ## Discovery
 

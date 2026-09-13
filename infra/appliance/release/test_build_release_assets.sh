@@ -8,6 +8,8 @@ voice_key_script="$script_dir/voice-asset-key.sh"
 workflow_dir="$script_dir/../../../.github/workflows"
 
 [[ "${#COMPUTE_PACKAGES[@]}" -eq 8 ]]
+[[ "${#RUNTIME_PACKAGES[@]}" -eq 2 ]]
+[[ "$REDIS_BUILD_IMAGE" == gcc:11.5.0-bullseye@sha256:* ]]
 [[ "$GH_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$GH_CLI_HOST_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$TRUSTED_ROOT_SHA256" =~ ^[0-9a-f]{64}$ ]]
@@ -42,11 +44,25 @@ for package in "${COMPUTE_PACKAGES[@]}"; do
     [[ "$url" == https://repo.download.nvidia.com/jetson/common/pool/*.deb ]]
 done
 
+for package in "${RUNTIME_PACKAGES[@]}"; do
+    read -r sha256 url <<< "$package"
+    [[ "$sha256" =~ ^[0-9a-f]{64}$ ]]
+    [[ "$url" == https://ports.ubuntu.com/ubuntu-ports/pool/main/c/curl/*.deb ]]
+done
+grep -Fq 'sudo chroot "$root" /tmp/lucia-runtime/redis-server --version' \
+    "$script_dir/build-release-assets.sh"
+grep -Fq 'sudo chroot "$root" /usr/bin/curl --version' \
+    "$script_dir/build-release-assets.sh"
+grep -Fq 'sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/rootfs/." "$root/"' \
+    "$script_dir/build-release-assets.sh"
+grep -Fq 'sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/installer/rootfs/." "$sd_root/"' \
+    "$script_dir/build-release-assets.sh"
+
 grep -q 'sudo chroot "$root" dpkg --install' \
     "$script_dir/build-release-assets.sh"
 ! grep -Eq 'apt-get (update|install)' \
     "$script_dir/build-release-assets.sh"
-grep -q 'gpasswd --delete lucia-recovery sudo' \
+grep -q 'usermod --append --groups sudo' \
     "$script_dir/build-release-assets.sh"
 grep -q 'usermod --shell.*lucia-recovery' \
     "$script_dir/build-release-assets.sh"
@@ -171,4 +187,4 @@ sed -i 's/node:22-alpine/node:22-alpine3.21/' "$voice_fixture"
 sed -i 's/ARG ORT_VERSION=1.23.2/ARG ORT_VERSION=1.23.3/' "$voice_fixture"
 [[ "$(bash "$voice_key_script" "$voice_fixture")" != "$voice_key" ]]
 
-echo "PASS: release rootfs uses pinned packages and restricted recovery"
+echo "PASS: release rootfs uses pinned packages and owner-admin recovery"

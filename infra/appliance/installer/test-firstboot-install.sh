@@ -5,9 +5,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 firstboot="$script_dir/rootfs/usr/libexec/lucia/lucia-firstboot-install"
 work_dir="$(mktemp -d)"
 loop_device=""
+firstboot_pid=""
 device_id="/dev/disk/by-id/lucia-test-$$"
 
 cleanup() {
+    if [[ -n "$firstboot_pid" ]] && kill -0 "$firstboot_pid" 2>/dev/null; then
+        kill "$firstboot_pid"
+        wait "$firstboot_pid" 2>/dev/null || true
+    fi
     if [[ -n "$loop_device" ]]; then
         losetup --detach "$loop_device" 2>/dev/null || true
     fi
@@ -37,6 +42,7 @@ if [[ "$1" == "plan" ]]; then
         'size_bytes=75161927680'
     exit 0
 fi
+device="$3"
 printf '%s\n' "$*" > "$LUCIA_TEST_INSTALL_LOG"
 state_file=""
 while [[ $# -gt 0 ]]; do
@@ -48,6 +54,7 @@ while [[ $# -gt 0 ]]; do
 done
 printf '%s\n' \
     'status=installed' \
+    "device=$device" \
     'device_identity=test-device-identity' \
     'device_size_bytes=75161927680' \
     > "$state_file"
@@ -55,7 +62,10 @@ EOF
 cat > "$work_dir/lucia-provision-target" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" > "$LUCIA_TEST_PROVISION_LOG"
+printf '%s\n' "$*" >> "$LUCIA_TEST_PROVISION_LOG"
+if [[ "$1" == "--recovery-only" ]]; then
+    exit 0
+fi
 rm "$LUCIA_INSTALLER_STATE_DIR/provisioning.json"
 printf 'status=provisioned\n' > "$LUCIA_INSTALLER_STATE_DIR/provision.state"
 EOF
@@ -105,27 +115,64 @@ LUCIA_TEST_INSTALL_LOG="$work_dir/install.log" \
 LUCIA_TEST_EXPAND_LOG="$work_dir/expand.log" \
 LUCIA_TEST_PROVISION_LOG="$work_dir/provision.log" \
 LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
-    "$firstboot" &
+    "$firstboot" > "$work_dir/firstboot.log" 2>&1 &
 firstboot_pid=$!
 for _ in {1..40}; do
-    grep -q '"stage":"syncing"' "$work_dir/state/progress.json" \
+    grep -q 'Waiting for Dashboard owner key confirmation.' "$work_dir/firstboot.log" \
         2>/dev/null && break
     sleep 0.05
 done
-grep -q '"stage":"syncing"' "$work_dir/state/progress.json"
+grep -q 'Waiting for Dashboard owner key confirmation.' "$work_dir/firstboot.log"
+[[ "$(cat "$work_dir/provision.log")" == "--recovery-only" ]]
+[[ -e "$work_dir/state/provisioning.json" ]]
+[[ ! -e "$work_dir/state/provision.state" ]]
 [[ ! -e "$work_dir/systemctl.log" ]] \
     || ! grep -q -- '--no-block poweroff' "$work_dir/systemctl.log"
 rm "$work_dir/state/dashboard-key.handoff"
 wait "$firstboot_pid"
+firstboot_pid=""
 
 grep -q -- "--device $device_id" "$work_dir/install.log"
 grep -qx -- "$device_id" "$work_dir/expand.log"
 grep -qx -- "$device_id" "$work_dir/provision.log"
+[[ "$(head -1 "$work_dir/provision.log")" == "--recovery-only" ]]
 grep -qx -- '--no-block poweroff' "$work_dir/systemctl.log"
 grep -q '^status=provisioned$' "$work_dir/state/provision.state"
 grep -q '"stage":"powering-off"' "$work_dir/state/progress.json"
 
-echo "PASS: first boot waits for owner-key acknowledgment before poweroff"
+echo "PASS: first boot waits for owner-key acknowledgment before changing Wi-Fi"
+
+printf '{}\n' > "$work_dir/state/provisioning.json"
+printf 'lk_owner-key\n' > "$work_dir/state/dashboard-key.handoff"
+rm "$work_dir/state/provision.state"
+: > "$work_dir/provision.log"
+: > "$work_dir/systemctl.log"
+LUCIA_INSTALL_PATH="$work_dir/lucia-install" \
+LUCIA_EXPAND_PATH="$work_dir/lucia-expand-data" \
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+LUCIA_PROVISION_PATH="$work_dir/lucia-provision-target" \
+LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+LUCIA_TEST_EXPAND_LOG="$work_dir/expand.log" \
+LUCIA_TEST_PROVISION_LOG="$work_dir/provision.log" \
+LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
+    "$firstboot" > "$work_dir/resume.log" 2>&1 &
+firstboot_pid=$!
+for _ in {1..40}; do
+    grep -q 'Waiting for Dashboard owner key confirmation.' "$work_dir/resume.log" \
+        2>/dev/null && break
+    sleep 0.05
+done
+grep -q 'Waiting for Dashboard owner key confirmation.' "$work_dir/resume.log"
+[[ "$(cat "$work_dir/provision.log")" == "--recovery-only" ]]
+[[ ! -e "$work_dir/state/provision.state" ]]
+[[ ! -s "$work_dir/systemctl.log" ]]
+rm "$work_dir/state/dashboard-key.handoff"
+wait "$firstboot_pid"
+firstboot_pid=""
+grep -qx -- "$device_id" "$work_dir/provision.log"
+grep -q '^status=provisioned$' "$work_dir/state/provision.state"
+
+echo "PASS: resumed provisioning waits for owner-key acknowledgment before changing Wi-Fi"
 
 : > "$work_dir/systemctl.log"
 LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \

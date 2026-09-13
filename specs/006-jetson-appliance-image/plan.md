@@ -26,7 +26,8 @@ mDNS, and separates Lucia updates from Jetson OS updates.
   primary DIY headless flow. The first browser atomically claims setup.
 - Captive setup requires the owner to choose a recovery password before the
   installer can write storage.
-- USB Ethernet and restricted `nmtui` are recovery paths.
+- USB Ethernet and an owner-password SSH/console shell with password-protected
+  sudo are recovery paths. Direct root SSH login stays disabled.
 - AgentHost stays unprivileged.
 - A root-owned appliance manager performs allowlisted host operations.
 - `Appliance:Mode` is `Off`, `Installer`, or `Installed`. Non-appliance hosts
@@ -81,7 +82,7 @@ installation resumes or returns to a known recovery state.
 
 Add a client-isolated, non-routed DIY SoftAP, captive setup, atomic first
 browser claim, owner-selected recovery password, Wi-Fi checkpoint rollback,
-hostname selection, Avahi records, USB Ethernet, and restricted `nmtui`.
+hostname selection, Avahi records, USB Ethernet, and owner-admin SSH recovery.
 
 **Gate:** a phone can claim a new appliance and join it to Wi-Fi without
 Ethernet, display, or keyboard; failed Wi-Fi returns to setup mode.

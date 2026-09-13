@@ -5,7 +5,7 @@ set -euo pipefail
     printf 'Usage: lucia-expand-data BLOCK_DEVICE\n' >&2
     exit 2
 }
-device="$1"
+device="$(readlink -f "$1")"
 
 for command in e2fsck mknod partx resize2fs sgdisk udevadm; do
     command -v "$command" >/dev/null || {
