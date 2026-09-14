@@ -15,7 +15,10 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleString()
 }
 
-function outcomeBadge(outcome: CommandTraceOutcome) {
+function outcomeBadge(outcome: CommandTraceOutcome, workflowName?: string) {
+  if (workflowName === 'voice-onboarding') {
+    return <span className="rounded-full bg-sage/15 px-2.5 py-1 text-xs font-medium text-sage">Voice onboarding</span>
+  }
   switch (outcome) {
     case 'commandHandled':
       return <span className="rounded-full bg-sage/15 px-2.5 py-1 text-xs font-medium text-sage">⚡ Command Handled</span>
@@ -123,7 +126,7 @@ export default function CommandTraceDetailPage() {
           </div>
           <div>
             <span className="text-xs text-dust">Outcome</span>
-            <div className="mt-0.5">{outcomeBadge(trace.outcome)}</div>
+            <div className="mt-0.5">{outcomeBadge(trace.outcome, trace.workflow?.name)}</div>
           </div>
         </div>
         {trace.error && (
@@ -142,7 +145,7 @@ export default function CommandTraceDetailPage() {
             <p className="mt-1 whitespace-pre-wrap text-light">{trace.rawText}</p>
           </div>
           <div>
-            <span className="text-xs text-dust">Matched Text (with highlights)</span>
+            <span className="text-xs text-dust">{trace.workflow ? 'Recorded Text' : 'Matched Text (with highlights)'}</span>
             <div className="mt-1">
               {match.tokenHighlights && match.tokenHighlights.length > 0 && trace.normalizedText ? (
                 <InputHighlight text={trace.normalizedText} highlights={match.tokenHighlights} />
@@ -153,7 +156,7 @@ export default function CommandTraceDetailPage() {
               )}
             </div>
           </div>
-          {!match.isMatch && (
+          {!match.isMatch && !trace.workflow && (
             <div className="flex items-center gap-2 rounded-lg border border-stone bg-void/30 p-2 text-sm text-dust">
               <XCircle className="h-4 w-4 text-dust" />
               No pattern match
@@ -161,6 +164,22 @@ export default function CommandTraceDetailPage() {
           )}
         </div>
       </div>
+
+      {trace.workflow && (
+        <div className="glass-panel rounded-xl p-5">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-dust">Voice onboarding</h3>
+          <p className="mb-4 text-sm text-fog">
+            Handled locally without command matching or an LLM. Personal answers and audio are not copied into these traces.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <ContextField label="Stage" value={trace.workflow.stage ?? 'Not started'} />
+            <ContextField label="Continuation" value={trace.workflow.needsInput ? 'Waiting for a reply' : 'Finished'} />
+            {trace.workflow.conversationId && (
+              <ContextField label="Returned conversation ID" value={trace.workflow.conversationId} />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Pattern Match card */}
       {match.isMatch && (
@@ -404,12 +423,14 @@ export default function CommandTraceDetailPage() {
       )}
 
       {/* Timing Waterfall */}
-      <CommandTimeline
-        matchDurationMs={match.matchDurationMs}
-        executionDurationMs={execution?.durationMs}
-        totalDurationMs={trace.totalDurationMs}
-        toolCalls={execution?.toolCalls}
-      />
+      {!trace.workflow && (
+        <CommandTimeline
+          matchDurationMs={match.matchDurationMs}
+          executionDurationMs={execution?.durationMs}
+          totalDurationMs={trace.totalDurationMs}
+          toolCalls={execution?.toolCalls}
+        />
+      )}
 
       {/* Context card (collapsible) */}
       <details open={contextOpen} onToggle={(e) => setContextOpen((e.target as HTMLDetailsElement).open)}>

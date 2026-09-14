@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { Activity, Check, ChevronDown, ChevronUp, Cpu, Download, Globe, Loader2, Mic, Pencil, Radio, Sparkles, Trash2, User, Volume2 } from 'lucide-react'
 import type {
   AsrModel,
@@ -1264,6 +1265,11 @@ export default function VoicePlatformPage() {
                     )}
                     <p className="mt-2 text-sm text-fog">{profile.isAuthorized ? 'Authorized speaker' : 'Needs review'} · {profile.interactionCount} interactions</p>
                     <p className="mt-1 text-xs text-dust">Enrolled {formatDate(profile.enrolledAt)} · Last seen {formatDate(profile.lastSeenAt)}</p>
+                    {!profile.isProvisional && (
+                      <Link to={`/user-memories?profile=${encodeURIComponent(profile.id)}`} className="mt-2 inline-flex min-h-11 items-center rounded-lg px-2 text-sm font-medium text-amber hover:text-amber-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60">
+                        View memories
+                      </Link>
+                    )}
                   </div>
                   <div className="flex items-center gap-1">
                     <IconButton label="Rename speaker" onClick={() => startEditingProfile(profile)}>

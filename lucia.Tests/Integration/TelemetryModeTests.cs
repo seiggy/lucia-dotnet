@@ -9,6 +9,7 @@ using OpenTelemetry.Trace;
 
 namespace lucia.Tests.Integration;
 
+[Collection(TelemetryTestCollection.Name)]
 public sealed class TelemetryModeTests
 {
     [Fact]
@@ -102,12 +103,12 @@ public sealed class TelemetryModeTests
         builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] = $"http://127.0.0.1:{endpoint.Port}";
         builder.ConfigureOpenTelemetry();
 
-        var host = builder.Build();
+        using var host = builder.Build();
         await host.StartAsync();
         _ = host.Services.GetRequiredService<TracerProvider>();
 
         using var source = new ActivitySource("lucia.Wyoming.Session");
-    var hadListeners = source.HasListeners();
+        var hadListeners = source.HasListeners();
         var productionTimer = Stopwatch.StartNew();
         for (var index = 0; index < 4_096; index++)
         {

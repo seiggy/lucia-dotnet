@@ -5,7 +5,7 @@ namespace lucia.Agents.CommandTracing;
 /// </summary>
 public enum CommandTraceOutcome
 {
-    /// <summary>Command pattern matched and skill executed successfully.</summary>
+    /// <summary>Request handled locally by a command skill or workflow.</summary>
     CommandHandled,
 
     /// <summary>No pattern match; request forwarded to LLM orchestrator.</summary>

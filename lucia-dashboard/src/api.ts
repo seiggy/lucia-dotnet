@@ -670,6 +670,8 @@ export async function discoverMcpTools(serverId: string): Promise<McpToolInfo[]>
 async function parseApiError(res: Response, fallback: string): Promise<string> {
   try {
     const body = await res.json();
+    if (typeof body === 'string') return body;
+    if (body && typeof body.error === 'string') return body.error;
     if (body && typeof body.detail === 'string') return body.detail;
     if (body && typeof body.title === 'string') return body.title;
   } catch {
@@ -1701,6 +1703,47 @@ export async function listSpeakerProfiles(): Promise<SpeakerProfileSummary[]> {
 export async function deleteSpeakerProfile(id: string) {
   const res = await fetch(`${BASE}/speakers/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`Failed to delete speaker profile: ${res.statusText}`)
+}
+
+export interface UserMemoryEntry {
+  key: string
+  value: string
+  createdAt: string
+  expiresAt: string | null
+}
+
+/** Read personal facts for the selected voice-profile ID, not its display name. */
+export async function fetchUserMemories(profileId: string, query = '', signal?: AbortSignal): Promise<UserMemoryEntry[]> {
+  const parameters = new URLSearchParams({ personalOnly: 'true' })
+  if (query.trim()) parameters.set('query', query.trim())
+  const res = await fetch(`${BASE}/memory/${encodeURIComponent(profileId)}?${parameters}`, { credentials: 'include', cache: 'no-store', signal })
+  if (!res.ok) {
+    throw new Error(await parseApiError(res, res.status === 403
+      ? "This session does not have access to this user's memories."
+      : 'Failed to load user memories.'))
+  }
+  return res.json()
+}
+
+/** Replace a memory value while retaining its existing expiration. */
+export async function updateUserMemory(profileId: string, entry: UserMemoryEntry, value: string): Promise<UserMemoryEntry> {
+  const res = await fetch(`${BASE}/memory/${encodeURIComponent(profileId)}/${encodeURIComponent(entry.key)}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value, expiresAt: entry.expiresAt }),
+  })
+  if (!res.ok) throw new Error(await parseApiError(res, 'Failed to save this memory.'))
+  return res.json()
+}
+
+/** Delete only the selected key from the selected profile's memory. */
+export async function deleteUserMemory(profileId: string, key: string): Promise<void> {
+  const res = await fetch(`${BASE}/memory/${encodeURIComponent(profileId)}/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  })
+  if (!res.ok) throw new Error(await parseApiError(res, 'Failed to delete this memory.'))
 }
 
 export async function updateSpeakerProfile(id: string, updates: { name?: string; isAuthorized?: boolean; isProvisional?: boolean }) {

@@ -36,6 +36,8 @@ public sealed record ConversationResponse
     [JsonPropertyName("needsInput")]
     public bool NeedsInput { get; init; }
 
+    internal string? OnboardingStage { get; init; }
+
     public static ConversationResponse FromCommand(
         string text,
         CommandDetail command,

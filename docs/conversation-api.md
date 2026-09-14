@@ -98,10 +98,13 @@ The Satellite1 path is Satellite1 audio to Home Assistant Assist, then Lucia's
 Wyoming STT, then the Lucia custom component's `POST /api/conversation`. It does not
 call the dashboard's `/api/onboarding/start` or sample-upload endpoints.
 
-Saying "Onboard me" starts a deterministic conversation before command matching or
-LLM routing. Lucia asks for permission to save a voice profile and shared facts,
+Saying "Learn my voice", "Enroll my voice", "Enroll my voice profile", or
+"I want to enroll my voice" starts a deterministic conversation before command
+matching or LLM routing. "Onboard me" and "On board me" remain supported, and the
+phrases may start with "Lucia" or "Hey Lucia".
+Lucia asks for permission to save a voice profile and shared facts,
 asks for a preferred name, then asks optional room and interaction preferences.
-"Skip" leaves either optional answer empty. Lucia reads the answers back for
+"No preference", "skip this question", or "skip" leaves either optional answer empty. Lucia reads the answers back for
 confirmation before collecting the configured number of voice samples.
 
 The response is JSON:
@@ -115,9 +118,11 @@ The response is JSON:
 }
 ```
 
-Home Assistant must preserve `conversationId` and `deviceId`, speak `text`, and
-reopen the microphone while `needsInput` is true. The Lucia custom component does
-this, including generating or adopting the first Home Assistant conversation ID.
+Clients should preserve the returned `conversationId`, keep `deviceId` unchanged,
+speak `text`, and reopen the microphone while `needsInput` is true. Lucia keeps
+one active enrollment per satellite and resumes it when a caller retains an older
+conversation ID or supplies a new one. Follow-ups still require live voice audio;
+another satellite cannot advance that enrollment.
 Successful enrollment returns `needsInput: false`. "Repeat" repeats the current
 prompt; "cancel" discards unfinished enrollment samples and answers. Inactivity
 expires the workflow after ten minutes. Restarting the server requires starting
@@ -140,6 +145,41 @@ recognition model must be active.
 Voice-started enrollment matches the captured voice against existing provisional
 profiles and promotes a matching profile through the normal enrollment process.
 Unrelated provisional profiles are left unchanged.
+
+### Managing remembered details
+
+Administrators can inspect enrolled users through **User memories** in the
+dashboard, or follow **View memories** from a voice profile. Editing or deleting
+an entry changes only that profile's stored memory, not its audio recordings.
+The page does not infer an author for entries because provenance is not stored.
+
+The existing `GET /api/memory/{userId}` endpoint accepts `personalOnly=true` to
+exclude internal chat history before the 200-entry limit, and an optional
+`query` of up to 200 characters. Administrator sessions may access the selected
+profile ID; ordinary user sessions retain their user-ID boundary, and existing
+trusted service credentials retain their previous access.
+
+`PUT /api/memory/{userId}/{key}` accepts an optional ISO `expiresAt` timestamp
+or `null`, allowing value edits to retain an existing expiration. It cannot be
+combined with `ttl` or `ttlSeconds`, and a timestamp must be in the future and
+at most one year away. `DELETE` removes only the selected key.
+
+### Enrollment diagnostics
+
+Every handled onboarding turn is recorded in **Cmd Traces** as a local workflow.
+The optional `workflow` object includes its name, current stage, returned
+conversation ID, and `needsInput` flag. The request context retains the incoming
+ID, so changes between turns are visible. Existing command-trace outcomes remain
+unchanged; local workflows count as `commandHandled`.
+
+Start phrases remain searchable. Personal replies are replaced with
+`[Voice onboarding reply]`, and response text is summarized. Audio and voice-turn
+tokens are not copied into command traces. The agent **Traces** view remains for
+LLM invocations; enrollment does not manufacture an LLM trace.
+
+On the appliance, `Wyoming__VoiceProfiles__AudioClipBasePath` points to
+`/var/lib/lucia/voice-clips`. Enrollment recordings and profile-deletion markers
+must use that writable data directory, not the read-only application directory.
 
 ### Audio handoff and identity
 

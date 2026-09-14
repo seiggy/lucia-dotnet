@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text.Json;
 
 using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
 using lucia.Agents.Models;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -32,18 +33,30 @@ public static class MemoryApi
         return endpoints;
     }
 
-    private static async Task<Results<Ok<IReadOnlyList<MemoryEntry>>, ForbidHttpResult>> GetAllAsync(
+    private static async Task<Results<Ok<IReadOnlyList<MemoryEntry>>, ForbidHttpResult, BadRequest<string>>> GetAllAsync(
         HttpContext context,
         [FromRoute] string userId,
         [FromServices] IMemoryStore memoryStore,
-        CancellationToken ct)
+        CancellationToken ct,
+        [FromQuery] bool personalOnly = false,
+        [FromQuery] string? query = null)
     {
+        context.Response.Headers.CacheControl = "no-store";
         if (!IsAuthorizedForUser(context, userId))
         {
             return TypedResults.Forbid();
         }
 
-        var memories = await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false);
+        if (query?.Length > 200)
+        {
+            return TypedResults.BadRequest("Search must be at most 200 characters.");
+        }
+
+        var memories = personalOnly
+            ? await memoryStore.SearchPersonalAsync(userId, query, 200, ct).ConfigureAwait(false)
+            : string.IsNullOrWhiteSpace(query)
+                ? await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false)
+                : await memoryStore.SearchAsync(userId, query, 200, ct).ConfigureAwait(false);
         return TypedResults.Ok(memories);
     }
 
@@ -120,6 +133,11 @@ public static class MemoryApi
 
     private static bool IsAuthorizedForUser(HttpContext context, string userId)
     {
+        if (context.User.IsInRole(AuthOptions.AdministratorRole))
+        {
+            return true;
+        }
+
         // API key and internal-service authenticated callers are trusted (service-to-service)
         // and may access any user's memories on behalf of the voice pipeline.
         var authMethod = context.User.FindFirst("auth_method")?.Value;
@@ -137,7 +155,9 @@ public static class MemoryApi
     private static bool TryReadValue(JsonElement body, out string? value)
     {
         value = null;
-        if (!body.TryGetProperty("value", out var valueElement) || valueElement.ValueKind != JsonValueKind.String)
+        if (body.ValueKind != JsonValueKind.Object
+            || !body.TryGetProperty("value", out var valueElement)
+            || valueElement.ValueKind != JsonValueKind.String)
         {
             return false;
         }
@@ -150,6 +170,33 @@ public static class MemoryApi
     {
         ttl = null;
         error = string.Empty;
+
+        if (body.TryGetProperty("expiresAt", out var expiresAtElement))
+        {
+            if (body.TryGetProperty("ttl", out _) || body.TryGetProperty("ttlSeconds", out _))
+            {
+                error = "Specify expiresAt or TTL, not both.";
+                return false;
+            }
+            if (expiresAtElement.ValueKind == JsonValueKind.Null)
+            {
+                return true;
+            }
+            if (expiresAtElement.ValueKind != JsonValueKind.String
+                || !expiresAtElement.TryGetDateTimeOffset(out var expiresAt))
+            {
+                error = "The optional 'expiresAt' field must be an ISO timestamp or null.";
+                return false;
+            }
+
+            ttl = expiresAt - DateTimeOffset.UtcNow;
+            if (ttl <= TimeSpan.Zero || ttl > TimeSpan.FromDays(365))
+            {
+                error = "Expiration must be in the future and no more than one year away.";
+                return false;
+            }
+            return true;
+        }
 
         if (body.TryGetProperty("ttl", out var ttlElement))
         {

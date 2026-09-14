@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FakeItEasy;
 using lucia.AgentHost;
 using lucia.AgentHost.Conversation;
@@ -23,6 +24,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     private readonly string _clipPath = Path.Combine(Path.GetTempPath(), "lucia-voice-onboarding", Guid.NewGuid().ToString("N"));
     private readonly InMemorySpeakerProfileStore _profiles = new();
     private readonly InMemoryMemoryStore _memories = new();
+    private readonly lucia.AgentHost.Conversation.Tracing.InMemoryCommandTraceRepository _traces = new();
     private readonly FakeTimeProvider _clock = new();
     private readonly VoiceTurnStore _turns;
     private readonly float[] _embedding = Enumerable.Repeat(0.1f, 128).ToArray();
@@ -53,7 +55,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
             new ResponseTemplateRenderer(A.Fake<IResponseTemplateRepository>(), NullLogger<ResponseTemplateRenderer>.Instance),
             new ContextReconstructor(new UserContextProvider(_memories)),
             new ConversationTelemetry(_telemetry),
-            new lucia.AgentHost.Conversation.Tracing.InMemoryCommandTraceRepository(),
+            _traces,
             new CommandTraceChannel(),
             A.Fake<IServiceProvider>(),
             NullLogger<ConversationCommandProcessor>.Instance,
@@ -62,6 +64,166 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
             voiceTurns: _turns,
             speakerProfiles: _profiles,
             onboarding: _workflow);
+    }
+
+    [Theory]
+    [InlineData("enroll my voice")]
+    [InlineData("I want to enroll my voice.")]
+    [InlineData("Enroll my voice profile")]
+    [InlineData("Learn my voice")]
+    [InlineData("Hey Lucia, enroll my voice.")]
+    [InlineData("Lucia, learn my voice")]
+    public async Task EnrollmentRequests_StartTheWorkflowWithoutLlmRouting(string text)
+    {
+        var response = await SayAsync(text);
+
+        Assert.Equal("onboarding", response.Type);
+        Assert.Contains("permission", response.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.True(response.NeedsInput);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Theory]
+    [InlineData("Skip this question")]
+    [InlineData("No preference")]
+    [InlineData("Leave it blank")]
+    [InlineData("Skip. Skip. Skip.")]
+    public async Task OptionalAnswers_AcceptLongerSkipPhrases(string answer)
+    {
+        await SayAsync("learn my voice");
+        await SayAsync("yes");
+        await SayAsync("Alice");
+        await SayAsync(answer);
+        var confirmation = await SayAsync(answer);
+
+        Assert.Contains("I'll call you Alice", confirmation.Text);
+        Assert.DoesNotContain("preferred room", confirmation.Text);
+        Assert.DoesNotContain("preferences are", confirmation.Text);
+    }
+
+    [Theory]
+    [InlineData("conversation-1")]
+    [InlineData("different-conversation")]
+    [InlineData("voice-onboarding:client-generated-marker")]
+    public async Task FollowupFromSameSatellite_ResumesWhenClientConversationIdChanges(string clientConversationId)
+    {
+        var started = await SayAsync("onboard me");
+        _conversationId = clientConversationId;
+
+        var followup = await SayAsync("yes");
+
+        Assert.Equal(started.ConversationId, followup.ConversationId);
+        Assert.Contains("name", followup.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.True(followup.NeedsInput);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task FollowupFromAnotherSatellite_DoesNotAdvanceTheActiveEnrollment()
+    {
+        await SayAsync("onboard me");
+        _conversationId = "another-conversation";
+
+        var other = await ProcessAsync("yes", deviceId: "another-satellite");
+        Assert.NotNull(other.LlmPrompt);
+
+        var followup = await SayAsync("yes");
+        Assert.Contains("name", followup.Text, StringComparison.OrdinalIgnoreCase);
+        A.CallTo(() => _router.RouteAsync("yes", A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task RestartRequestFromSameSatellite_RepeatsInsteadOfCreatingAnotherEnrollment()
+    {
+        var started = await SayAsync("onboard me");
+        await SayAsync("yes");
+        _conversationId = "new-client-conversation";
+
+        var repeated = await SayAsync("onboard me");
+
+        Assert.Equal(started.ConversationId, repeated.ConversationId);
+        Assert.Contains("name", repeated.Text, StringComparison.OrdinalIgnoreCase);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task OnboardingTurns_AreTracedWithoutVoiceTokensOrPersonalAnswers()
+    {
+        await SayAsync("onboard me");
+        _conversationId = "followup-client-id";
+        await SayAsync("yes");
+        await SayAsync("My name is Private Person");
+
+        var traces = (await _traces.ListAsync(new CommandTraceFilter())).Items;
+
+        Assert.Equal(3, traces.Count);
+        Assert.All(traces, trace =>
+        {
+            Assert.Equal(CommandTraceOutcome.CommandHandled, trace.Outcome);
+            Assert.NotNull(trace.Workflow);
+            Assert.Equal("voice-onboarding", trace.Workflow.Name);
+            Assert.Null(trace.LlmFallback);
+            Assert.Null(trace.Execution);
+            Assert.DoesNotContain("lucia-voice", trace.RawText);
+            Assert.DoesNotContain("Private Person", trace.RawText);
+            Assert.DoesNotContain("Private Person", trace.CleanText);
+            Assert.DoesNotContain("Private Person", trace.ResponseText ?? string.Empty);
+            var restored = Assert.IsType<CommandTrace>(
+                JsonSerializer.Deserialize<CommandTrace>(JsonSerializer.Serialize(trace)));
+            Assert.Equal(trace.Workflow, restored.Workflow);
+        });
+        var consent = Assert.Single(traces, trace => trace.Workflow!.Stage == "Consent");
+        var name = Assert.Single(traces, trace => trace.Workflow!.Stage == "Name");
+        Assert.Equal("followup-client-id", name.RequestContext.ConversationId);
+        Assert.Equal(consent.Workflow!.ConversationId, name.Workflow!.ConversationId);
+        Assert.True(name.Workflow.NeedsInput);
+    }
+
+    [Fact]
+    public async Task ChangedConversationId_DoesNotAllowTextOnlyConsent()
+    {
+        await SayAsync("onboard me");
+        var request = CreateRequest("yes") with
+        {
+            Context = new ConversationContext { ConversationId = "new-client-id", DeviceId = "satellite-1" },
+        };
+
+        var result = await _processor.ProcessAsync(request);
+
+        Assert.Contains("live voice samples", result.Response!.Text);
+        var followup = await SayAsync("yes");
+        Assert.Contains("name", followup.Text, StringComparison.OrdinalIgnoreCase);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task ChangedConversationId_ExpiredEnrollmentReturnsAnExpiryNoticeBeforeNormalRouting()
+    {
+        await SayAsync("onboard me");
+        _conversationId = "new-client-id";
+        _clock.Advance(TimeSpan.FromMinutes(11));
+
+        var expired = await SayAsync("yes");
+
+        Assert.Contains("expired", expired.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.False(expired.NeedsInput);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+        Assert.NotNull((await ProcessAsync("what time is it")).LlmPrompt);
+    }
+
+    [Fact]
+    public async Task ChangedConversationId_CanCancelWithoutRoutingTheAnswer()
+    {
+        await SayAsync("onboard me");
+        _conversationId = "new-client-id";
+
+        var cancelled = await SayAsync("cancel");
+
+        Assert.Contains("cancelled", cancelled.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.False(cancelled.NeedsInput);
+        Assert.Empty(await _profiles.GetAllAsync(CancellationToken.None));
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+        Assert.NotNull((await ProcessAsync("what time is it")).LlmPrompt);
     }
 
     [Theory]

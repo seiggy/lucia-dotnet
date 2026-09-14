@@ -641,6 +641,13 @@ export interface CommandTraceTemplateRender {
   isFallback: boolean
 }
 
+export interface CommandTraceWorkflow {
+  name: string
+  stage: string | null
+  conversationId: string | null
+  needsInput: boolean
+}
+
 export interface CommandTrace {
   id: string
   timestamp: string
@@ -653,6 +660,7 @@ export interface CommandTrace {
   execution: CommandTraceExecution | null
   llmFallback: CommandTraceLlmFallback | null
   templateRender: CommandTraceTemplateRender | null
+  workflow?: CommandTraceWorkflow | null
   outcome: CommandTraceOutcome
   totalDurationMs: number
   responseText: string | null

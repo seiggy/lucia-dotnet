@@ -135,18 +135,23 @@ public sealed partial class ConversationCommandProcessor
         if (onboardingResponse is not null)
         {
             activity?.SetTag("conversation.routing_path", "voice_onboarding");
+            sw.Stop();
+            await SaveOnboardingTraceAsync(cleanRequest, onboardingResponse, sw).ConfigureAwait(false);
             return ProcessingResult.CommandHandled(onboardingResponse);
         }
         if (VoiceOnboardingWorkflow.IsStartRequest(cleanText) || VoiceOnboardingWorkflow.IsOnboardingConversation(conversationId))
         {
-            return ProcessingResult.CommandHandled(new ConversationResponse
+            var response = new ConversationResponse
             {
                 Type = "onboarding",
                 Text = "Voice onboarding needs Lucia speech-to-text and an active speaker recognition model on this server.",
                 ConversationId = VoiceOnboardingWorkflow.IsOnboardingConversation(conversationId)
                     ? Guid.NewGuid().ToString("N")
                     : conversationId,
-            });
+            };
+            sw.Stop();
+            await SaveOnboardingTraceAsync(cleanRequest, response, sw).ConfigureAwait(false);
+            return ProcessingResult.CommandHandled(response);
         }
 
         // Step 1: Try command pattern matching (on clean text, without speaker tag)
@@ -350,6 +355,32 @@ public sealed partial class ConversationCommandProcessor
         }
     }
 
+    private Task SaveOnboardingTraceAsync(
+        ConversationRequest request,
+        ConversationResponse response,
+        Stopwatch sw)
+    {
+        // Keep routing diagnostics without copying personal enrollment answers into command traces.
+        var text = VoiceOnboardingWorkflow.IsStartRequest(request.Text)
+            ? request.Text
+            : "[Voice onboarding reply]";
+        return SaveCommandTraceAsync(
+            text,
+            request with { Text = text },
+            CommandRouteResult.NoMatch(TimeSpan.Zero),
+            null,
+            response.NeedsInput ? "Voice onboarding is waiting for a reply." : "Voice onboarding ended.",
+            sw,
+            CommandTraceOutcome.CommandHandled,
+            workflow: new CommandTraceWorkflow
+            {
+                Name = "voice-onboarding",
+                Stage = response.OnboardingStage,
+                ConversationId = response.ConversationId,
+                NeedsInput = response.NeedsInput,
+            });
+    }
+
     private async Task SaveCommandTraceAsync(
         string originalText,
         ConversationRequest request,
@@ -359,7 +390,8 @@ public sealed partial class ConversationCommandProcessor
         Stopwatch sw,
         CommandTraceOutcome outcome,
         string? error = null,
-        CommandTraceTemplateRender? templateRender = null)
+        CommandTraceTemplateRender? templateRender = null,
+        CommandTraceWorkflow? workflow = null)
     {
         try
         {
@@ -417,6 +449,7 @@ public sealed partial class ConversationCommandProcessor
                     }
                     : null,
                 TemplateRender = templateRender,
+                Workflow = workflow,
                 Outcome = outcome,
                 TotalDurationMs = sw.Elapsed.TotalMilliseconds,
                 ResponseText = responseText,

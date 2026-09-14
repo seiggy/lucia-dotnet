@@ -44,7 +44,8 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 ### Voice onboarding and personal memory
 
 On a Satellite1 using Lucia's Wyoming speech-to-text and the Lucia Home Assistant
-conversation agent, say **"Onboard me."** Lucia asks permission to save a voice
+conversation agent, say **"Learn my voice"** or **"Enroll my voice."**
+**"I want to enroll my voice"** and **"Onboard me"** also work. Lucia asks permission to save a voice
 profile, your preferred name, and optional room and interaction preferences. After
 you confirm the answers, repeat the prompted phrases. These are enrollment samples,
 not commands that control your home.
@@ -53,12 +54,19 @@ Say **"repeat"** to hear a prompt again or **"cancel"** to stop. An unfinished
 conversation expires after ten minutes of inactivity. A speaker recognition model
 must be active, and both speech-to-text and the conversation API must use the same
 Lucia server instance.
+Lucia keeps an active enrollment bound to its satellite even if the caller changes
+the conversation ID between turns. Cmd Traces shows these turns as voice
+onboarding, with stage and continuation metadata rather than an LLM invocation.
 
 Once enrolled, ask Lucia to remember, recall, or forget a preference. Memories use
 the existing configured database and the voice profile's stable ID, not a display
 name or the satellite's Home Assistant account. Unknown voices receive no personal
 memory context. See the [conversation API guide](docs/conversation-api.md#voice-onboarding)
 for the turn sequence and deployment requirements.
+
+The dashboard's **User memories** page shows the personal facts stored for each
+enrolled voice profile. Administrators can search, edit values, and delete
+individual memories without deleting the voice profile or its recordings.
 
 ### Supported Inference Platforms
 
