@@ -187,20 +187,23 @@ public sealed partial class VoiceOnboardingWorkflow(
                         return Reply("Please tell me a name to use, up to eighty characters.");
                     }
                     state.Name = name;
-                    state.Stage = VoiceOnboardingStage.Room;
+                    state.Stage = VoiceOnboardingStage.Birthday;
                     break;
-                case VoiceOnboardingStage.Room:
-                    state.Room = IsSkip(answer) ? null : text.Trim().TrimEnd('.');
-                    state.Stage = VoiceOnboardingStage.Preferences;
-                    break;
-                case VoiceOnboardingStage.Preferences:
-                    state.Preferences = IsSkip(answer) ? null : text.Trim().TrimEnd('.');
+                case VoiceOnboardingStage.Birthday:
+                    if (string.IsNullOrWhiteSpace(answer))
+                    {
+                        return Reply(Prompt(state));
+                    }
+                    // ponytail: keep confirmed wording; parse dates when a feature needs date arithmetic.
+                    state.Birthday = IsSkip(answer) || answer is "no" or "no thanks" or "i d rather not say"
+                        ? null
+                        : text.Trim().TrimEnd('.');
                     state.Stage = VoiceOnboardingStage.Confirm;
                     break;
                 case VoiceOnboardingStage.Confirm:
                     if (IsNo(answer))
                     {
-                        state.Name = state.Room = state.Preferences = null;
+                        state.Name = state.Birthday = null;
                         state.Stage = VoiceOnboardingStage.Name;
                         break;
                     }
@@ -228,17 +231,15 @@ public sealed partial class VoiceOnboardingWorkflow(
                     if (result.CompletedProfile is { } profile)
                     {
                         await memories.StoreAsync(profile.Id, "preferred_name", state.Name!, ct: ct).ConfigureAwait(false);
-                        if (state.Room is not null)
+                        if (state.Birthday is not null)
                         {
-                            await memories.StoreAsync(profile.Id, "preferred_room", state.Room, ct: ct).ConfigureAwait(false);
-                        }
-                        if (state.Preferences is not null)
-                        {
-                            await memories.StoreAsync(profile.Id, "preferences", state.Preferences, ct: ct).ConfigureAwait(false);
+                            await memories.StoreAsync(profile.Id, "birthday", state.Birthday, ct: ct).ConfigureAwait(false);
                         }
                         _conversations.TryRemove(conversationId, out _);
                         LogCompleted(logger, conversationId, profile.Id);
-                        return Reply("You're enrolled. I've saved your name and the preferences you confirmed. I'll use them when I recognize your voice.", false);
+                        return Reply(state.Birthday is null
+                            ? "You're enrolled. I've saved your name. You can ask me to remember other details as we talk."
+                            : "You're enrolled. I've saved your name and birthday. You can ask me to remember other details as we talk.", false);
                     }
                     break;
             }
@@ -307,7 +308,7 @@ public sealed partial class VoiceOnboardingWorkflow(
             {
                 await enrollment.CancelOnboardingAsync(state.Enrollment.Id, ct).ConfigureAwait(false);
             }
-            state.Name = state.Room = state.Preferences = null;
+            state.Name = state.Birthday = null;
             state.Enrollment = null;
             state.Stage = VoiceOnboardingStage.Expired;
             state.LastActivityAt = timeProvider.GetUtcNow();
@@ -318,11 +319,9 @@ public sealed partial class VoiceOnboardingWorkflow(
     {
         VoiceOnboardingStage.Consent => "I need your permission to save a voice profile and the facts you choose to share. Do you agree? You can say cancel at any time.",
         VoiceOnboardingStage.Name => "What name should I call you?",
-        VoiceOnboardingStage.Room => "Which room should I associate with you? Say no preference to leave this blank.",
-        VoiceOnboardingStage.Preferences => "What should I remember about how you like me to help, such as lighting or response preferences? Say no preference to leave this blank.",
+        VoiceOnboardingStage.Birthday => "When is your birthday, including the year? Say skip this question if you'd rather not share it.",
         VoiceOnboardingStage.Confirm => $"I'll call you {state.Name}."
-            + (state.Room is null ? "" : $" Your preferred room is {state.Room}.")
-            + (state.Preferences is null ? "" : $" Your preferences are: {state.Preferences}.")
+            + (state.Birthday is null ? "" : $" Your birthday is {state.Birthday}.")
             + " Is that correct?",
         VoiceOnboardingStage.Samples when state.Enrollment!.CurrentPromptIndex < state.Enrollment.Prompts.Count =>
             state.Enrollment.Prompts[state.Enrollment.CurrentPromptIndex],

@@ -88,17 +88,33 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     [InlineData("No preference")]
     [InlineData("Leave it blank")]
     [InlineData("Skip. Skip. Skip.")]
-    public async Task OptionalAnswers_AcceptLongerSkipPhrases(string answer)
+    [InlineData("No")]
+    [InlineData("No thanks")]
+    [InlineData("I'd rather not say")]
+    public async Task Birthday_CanBeSkippedWithoutAddingAnotherQuestion(string answer)
     {
         await SayAsync("learn my voice");
         await SayAsync("yes");
-        await SayAsync("Alice");
-        await SayAsync(answer);
+        var birthday = await SayAsync("Alice");
         var confirmation = await SayAsync(answer);
 
+        Assert.Contains("birthday", birthday.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("year", birthday.Text);
         Assert.Contains("I'll call you Alice", confirmation.Text);
+        Assert.Contains("Is that correct?", confirmation.Text);
+        Assert.DoesNotContain("birthday is", confirmation.Text);
         Assert.DoesNotContain("preferred room", confirmation.Text);
         Assert.DoesNotContain("preferences are", confirmation.Text);
+
+        var response = await SayAsync("yes");
+        for (var index = 0; index < 3; index++)
+        {
+            response = await SayAsync(GetPhrase(response));
+        }
+        Assert.False(response.NeedsInput);
+        Assert.DoesNotContain("birthday", response.Text, StringComparison.OrdinalIgnoreCase);
+        var profile = Assert.Single(await _profiles.GetEnrolledProfilesAsync(CancellationToken.None));
+        Assert.Equal("preferred_name", Assert.Single(await _memories.GetAllAsync(profile.Id)).Key);
     }
 
     [Theory]
@@ -153,10 +169,11 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         _conversationId = "followup-client-id";
         await SayAsync("yes");
         await SayAsync("My name is Private Person");
+        await SayAsync("March 14, 1990");
 
         var traces = (await _traces.ListAsync(new CommandTraceFilter())).Items;
 
-        Assert.Equal(3, traces.Count);
+        Assert.Equal(4, traces.Count);
         Assert.All(traces, trace =>
         {
             Assert.Equal(CommandTraceOutcome.CommandHandled, trace.Outcome);
@@ -168,6 +185,9 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
             Assert.DoesNotContain("Private Person", trace.RawText);
             Assert.DoesNotContain("Private Person", trace.CleanText);
             Assert.DoesNotContain("Private Person", trace.ResponseText ?? string.Empty);
+            Assert.DoesNotContain("March 14, 1990", trace.RawText);
+            Assert.DoesNotContain("March 14, 1990", trace.CleanText);
+            Assert.DoesNotContain("March 14, 1990", trace.ResponseText ?? string.Empty);
             var restored = Assert.IsType<CommandTrace>(
                 JsonSerializer.Deserialize<CommandTrace>(JsonSerializer.Serialize(trace)));
             Assert.Equal(trace.Workflow, restored.Workflow);
@@ -177,6 +197,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         Assert.Equal("followup-client-id", name.RequestContext.ConversationId);
         Assert.Equal(consent.Workflow!.ConversationId, name.Workflow!.ConversationId);
         Assert.True(name.Workflow.NeedsInput);
+        Assert.Single(traces, trace => trace.Workflow!.Stage == "Birthday");
     }
 
     [Fact]
@@ -248,7 +269,6 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         await SayAsync("yes");
         await SayAsync("Alice");
         await SayAsync("skip");
-        await SayAsync("skip");
         var response = await SayAsync("yes");
         for (var index = 0; index < 3; index++)
         {
@@ -282,12 +302,15 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
 
         response = await SayAsync("yes");
         Assert.Contains("name", response.Text, StringComparison.OrdinalIgnoreCase);
-        await SayAsync("My name is Alice");
-        await SayAsync("office");
-        response = await SayAsync("I prefer soft lighting");
+        response = await SayAsync("My name is Alice");
+        Assert.Contains("birthday", response.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("year", response.Text);
+        Assert.DoesNotContain("room", response.Text);
+        response = await SayAsync("March 14, 1990");
         Assert.Contains("Alice", response.Text);
-        Assert.Contains("office", response.Text);
-        Assert.Contains("soft lighting", response.Text);
+        Assert.Contains("March 14, 1990", response.Text);
+        Assert.Contains("Is that correct?", response.Text);
+        Assert.Empty(await _profiles.GetEnrolledProfilesAsync(CancellationToken.None));
 
         response = await SayAsync("yes");
         for (var index = 0; index < 3; index++)
@@ -302,10 +325,40 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         Assert.Equal("Alice", profile.Name);
         Assert.Equal(3, profile.Embeddings.Length);
         Assert.Equal("Alice", await _memories.RetrieveAsync(profile.Id, "preferred_name"));
-        Assert.Equal("office", await _memories.RetrieveAsync(profile.Id, "preferred_room"));
-        Assert.Equal("I prefer soft lighting", await _memories.RetrieveAsync(profile.Id, "preferences"));
+        Assert.Equal("March 14, 1990", await _memories.RetrieveAsync(profile.Id, "birthday"));
+        Assert.Equal(2, (await _memories.GetAllAsync(profile.Id)).Count);
+        Assert.Null(await _memories.RetrieveAsync(profile.Id, "preferred_room"));
+        Assert.Null(await _memories.RetrieveAsync(profile.Id, "preferences"));
+        Assert.Contains("name and birthday", response.Text);
+        Assert.Contains("birthday: March 14, 1990",
+            await new UserContextProvider(_memories).GetUserContextAsync(profile.Id, CancellationToken.None));
         Assert.Empty(await _memories.GetAllAsync("ha-service-account"));
         A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task RejectedConfirmation_DiscardsTheBirthdayBeforeRestartingQuestions()
+    {
+        await SayAsync("learn my voice");
+        await SayAsync("yes");
+        await SayAsync("Alice");
+        await SayAsync("March 14, 1990");
+
+        var restart = await SayAsync("no");
+
+        Assert.Contains("name", restart.Text, StringComparison.OrdinalIgnoreCase);
+        await SayAsync("Alex");
+        var confirmation = await SayAsync("skip this question");
+        Assert.DoesNotContain("March 14", confirmation.Text);
+        var response = await SayAsync("yes");
+        for (var index = 0; index < 3; index++)
+        {
+            response = await SayAsync(GetPhrase(response));
+        }
+        var profile = Assert.Single(await _profiles.GetEnrolledProfilesAsync(CancellationToken.None));
+        var memory = Assert.Single(await _memories.GetAllAsync(profile.Id));
+        Assert.Equal("preferred_name", memory.Key);
+        Assert.Equal("Alex", memory.Value);
     }
 
     [Fact]
@@ -314,7 +367,6 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         await SayAsync("Onboard me");
         await SayAsync("yes");
         await SayAsync("Alice");
-        await SayAsync("skip");
         await SayAsync("skip");
         var prompt = await SayAsync("yes");
 
@@ -358,7 +410,6 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         await SayAsync("yes");
         await SayAsync("Alice");
         await SayAsync("skip");
-        await SayAsync("skip");
         var prompt = await SayAsync("yes");
         _clock.Advance(TimeSpan.FromMinutes(11));
 
@@ -376,7 +427,6 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         await SayAsync("onboard me");
         await SayAsync("yes");
         await SayAsync("Alice");
-        await SayAsync("skip");
         await SayAsync("skip");
         var prompt = await SayAsync("yes");
 

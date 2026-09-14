@@ -81,8 +81,9 @@ Select Lucia as both the speech-to-text provider and conversation agent in the
 Satellite1's Assist pipeline. Activate a speaker recognition model on the Lucia
 server, then say **"Onboard me."** No dashboard enrollment session is needed.
 
-Lucia asks for consent, a preferred name, and optional room and interaction
-preferences. Confirm the answers, then speak each requested phrase. Home Assistant
+Lucia asks for consent, a preferred name, and an optional birthday including the
+year. Other facts and preferences can be shared during normal conversations.
+Confirm the answers, then speak each requested phrase. Home Assistant
 uses `needsInput` to keep the satellite conversation open between turns. Say
 **"skip"** for an optional question, **"repeat"** to repeat a prompt, or **"cancel"**
 to stop.

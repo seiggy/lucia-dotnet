@@ -4,8 +4,7 @@ internal enum VoiceOnboardingStage
 {
     Consent,
     Name,
-    Room,
-    Preferences,
+    Birthday,
     Confirm,
     Samples,
     Expired,

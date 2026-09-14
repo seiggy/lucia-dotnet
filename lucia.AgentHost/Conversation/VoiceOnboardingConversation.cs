@@ -8,7 +8,6 @@ internal sealed class VoiceOnboardingConversation
     public required DateTimeOffset LastActivityAt { get; set; }
     public VoiceOnboardingStage Stage { get; set; }
     public string? Name { get; set; }
-    public string? Room { get; set; }
-    public string? Preferences { get; set; }
+    public string? Birthday { get; set; }
     public OnboardingSession? Enrollment { get; set; }
 }

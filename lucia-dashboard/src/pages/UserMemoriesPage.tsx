@@ -9,6 +9,7 @@ const inputStyle = 'min-h-11 w-full rounded-xl border border-stone bg-basalt px-
 const secondaryButton = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone bg-basalt px-3 py-2 text-sm font-medium text-fog transition-colors hover:border-amber/40 hover:text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60 disabled:cursor-not-allowed disabled:opacity-40'
 const memoryLabels: Record<string, string> = {
   preferred_name: 'Preferred name',
+  birthday: 'Birthday',
   preferred_room: 'Preferred room',
   preferences: 'Preferences',
 }
