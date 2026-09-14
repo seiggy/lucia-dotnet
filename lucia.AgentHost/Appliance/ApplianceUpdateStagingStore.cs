@@ -306,14 +306,19 @@ public sealed partial class ApplianceUpdateStagingStore
 
     private static void SyncDirectory(string path)
     {
-        const int OpenDirectory = 0x10000;
-        var descriptor = Open(path, OpenDirectory);
-        if (descriptor < 0)
+        // Let libc select directory-open flags; their values differ on ARM64.
+        var directory = OpenDirectory(path);
+        if (directory == IntPtr.Zero)
         {
             throw new Win32Exception(Marshal.GetLastPInvokeError());
         }
         try
         {
+            var descriptor = DirectoryDescriptor(directory);
+            if (descriptor < 0)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+            }
             if (Fsync(descriptor) != 0)
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
@@ -321,20 +326,22 @@ public sealed partial class ApplianceUpdateStagingStore
         }
         finally
         {
-            _ = Close(descriptor);
+            _ = CloseDirectory(directory);
         }
     }
 
-    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
-    private static extern int Open(
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
-        int flags);
+    [DllImport("libc", EntryPoint = "opendir", SetLastError = true)]
+    private static extern IntPtr OpenDirectory(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+
+    [DllImport("libc", EntryPoint = "dirfd", SetLastError = true)]
+    private static extern int DirectoryDescriptor(IntPtr directory);
 
     [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
     private static extern int Fsync(int descriptor);
 
-    [DllImport("libc", EntryPoint = "close")]
-    private static extern int Close(int descriptor);
+    [DllImport("libc", EntryPoint = "closedir")]
+    private static extern int CloseDirectory(IntPtr directory);
 
     private void DeleteOrphanedAttempts()
     {

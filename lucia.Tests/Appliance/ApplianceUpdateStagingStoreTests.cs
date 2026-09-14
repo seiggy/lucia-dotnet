@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Reflection;
+
 using lucia.AgentHost.Appliance;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -5,6 +8,42 @@ namespace lucia.Tests.Appliance;
 
 public sealed class ApplianceUpdateStagingStoreTests
 {
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SyncDirectory_UsesTheNativeDirectoryApi(bool regularFile)
+    {
+        Skip.IfNot(OperatingSystem.IsLinux(), "Directory fsync is Linux-specific.");
+        var root = Directory.CreateTempSubdirectory("lucia-directory-sync-").FullName;
+        try
+        {
+            var path = regularFile ? Path.Combine(root, "not-a-directory") : root;
+            if (regularFile)
+            {
+                File.WriteAllText(path, "memory");
+            }
+            var sync = typeof(ApplianceUpdateStagingStore).GetMethod(
+                "SyncDirectory", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(sync);
+
+            var exception = Record.Exception(() => sync.Invoke(null, [path]));
+
+            if (regularFile)
+            {
+                var invocation = Assert.IsType<TargetInvocationException>(exception);
+                Assert.Equal(20, Assert.IsType<Win32Exception>(invocation.InnerException).NativeErrorCode);
+            }
+            else
+            {
+                Assert.Null(exception);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void TryStart_SerializesAndPersistsStagingOperations()
     {

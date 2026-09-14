@@ -144,6 +144,15 @@ public sealed class ApplianceUpdateServiceTests
         true,
         true)]
     [InlineData(
+        "jetson-orin-nano-super-p3767-0005",
+        "36.5.2",
+        "1.2.2",
+        "1.1.0",
+        true,
+        false,
+        true,
+        false)]
+    [InlineData(
         "unsupported-board",
         "36.5.2",
         "1.2.3",
@@ -284,7 +293,7 @@ public sealed class ApplianceUpdateServiceTests
             Assert.Equal(expectedLuciaCompatible, result.LuciaCompatible);
             Assert.Equal(expectedOsCompatible, result.OsCompatible);
             Assert.Equal(
-                currentLuciaVersion == "1.2.3",
+                Version.Parse(currentLuciaVersion) < new Version(1, 3, 0),
                 result.LuciaNewerDiscovered);
             Assert.Equal(
                 currentOsVersion == "1.1.0",

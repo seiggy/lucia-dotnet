@@ -110,6 +110,19 @@ checks. If validation fails, the updater returns to the current release and
 keeps the rollback backup. A Lucia update remains recoverable until the
 restarted appliance manager binds its socket and finalizes the transaction.
 
+Update-state writes flush both the file and its containing directory. The
+managed updater uses libc directory APIs so this durability step works on
+ARM64 as well as x86-64; Linux open-flag values are not portable between them.
+The ARM64 updaters shipped in 1.4.2 and 1.4.3 used an x86-64 flag and can fail
+with `Invalid argument` before staging begins. Those installations need a
+one-time repair of both AgentHost and the manager before the dashboard can
+install the corrected release. A replacement payload alone cannot repair the
+updater that must install it.
+
+Install the Lucia update before its matching OS update when the manifest's
+`minimumLuciaVersion` requires it. The OS channel remains incompatible until
+that application version is installed.
+
 OS updates stream the selected raw images directly to the inactive `APP`,
 kernel, and device-tree partitions. NVIDIA rootfs A/B selects the new slot for
 the next boot. Before switching slots, the updater restores the device hostname,
