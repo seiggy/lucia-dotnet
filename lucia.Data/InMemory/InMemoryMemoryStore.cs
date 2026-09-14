@@ -23,9 +23,25 @@ public sealed class InMemoryMemoryStore : IMemoryStore
 
         var createdAt = DateTime.UtcNow;
         var expiresAt = ttl.HasValue ? createdAt.Add(ttl.Value) : (DateTime?)null;
+        return StoreCoreAsync(userId, key, value, createdAt, expiresAt);
+    }
+
+    /// <inheritdoc/>
+    public Task StoreAsync(string userId, string key, string value, DateTimeOffset expiresAt, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(value);
+
+        var createdAt = DateTime.UtcNow;
+        var exactExpiresAt = expiresAt.UtcDateTime;
+        return StoreCoreAsync(userId, key, value, createdAt, exactExpiresAt);
+    }
+
+    private Task StoreCoreAsync(string userId, string key, string value, DateTime createdAt, DateTime? expiresAt)
+    {
         var userStore = _userMemories.GetOrAdd(userId, static _ => new ConcurrentDictionary<string, MemoryEntry>(StringComparer.OrdinalIgnoreCase));
         userStore[key] = new MemoryEntry(key, value, createdAt, expiresAt);
-
         return Task.CompletedTask;
     }
 

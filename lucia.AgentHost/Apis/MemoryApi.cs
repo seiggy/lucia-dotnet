@@ -98,7 +98,7 @@ public static class MemoryApi
             return TypedResults.BadRequest("A non-empty 'value' field is required.");
         }
 
-        if (!TryReadTtl(body, out var ttl, out var ttlError))
+        if (!TryReadExpiration(body, out var ttl, out var expiresAt, out var ttlError))
         {
             return TypedResults.BadRequest(ttlError);
         }
@@ -108,7 +108,14 @@ public static class MemoryApi
             return TypedResults.BadRequest("TTL must be positive.");
         }
 
-        await memoryStore.StoreAsync(userId, key, value!, ttl, ct).ConfigureAwait(false);
+        if (expiresAt is { } absoluteExpiration)
+        {
+            await memoryStore.StoreAsync(userId, key, value!, absoluteExpiration, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await memoryStore.StoreAsync(userId, key, value!, ttl, ct).ConfigureAwait(false);
+        }
         var storedMemory = (await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false))
             .First(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
 
@@ -166,9 +173,10 @@ public static class MemoryApi
         return !string.IsNullOrWhiteSpace(value);
     }
 
-    private static bool TryReadTtl(JsonElement body, out TimeSpan? ttl, out string error)
+    private static bool TryReadExpiration(JsonElement body, out TimeSpan? ttl, out DateTimeOffset? expiresAt, out string error)
     {
         ttl = null;
+        expiresAt = null;
         error = string.Empty;
 
         if (body.TryGetProperty("expiresAt", out var expiresAtElement))
@@ -183,18 +191,20 @@ public static class MemoryApi
                 return true;
             }
             if (expiresAtElement.ValueKind != JsonValueKind.String
-                || !expiresAtElement.TryGetDateTimeOffset(out var expiresAt))
+                || !expiresAtElement.TryGetDateTimeOffset(out var parsedExpiresAt))
             {
                 error = "The optional 'expiresAt' field must be an ISO timestamp or null.";
                 return false;
             }
 
-            ttl = expiresAt - DateTimeOffset.UtcNow;
-            if (ttl <= TimeSpan.Zero || ttl > TimeSpan.FromDays(365))
+            var now = DateTimeOffset.UtcNow;
+            if (parsedExpiresAt <= now || parsedExpiresAt - now > TimeSpan.FromDays(365))
             {
                 error = "Expiration must be in the future and no more than one year away.";
                 return false;
             }
+
+            expiresAt = parsedExpiresAt;
             return true;
         }
 

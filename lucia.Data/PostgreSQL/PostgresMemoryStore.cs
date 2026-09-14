@@ -31,7 +31,23 @@ public sealed class PostgresMemoryStore : IMemoryStore
 
         var createdAt = DateTime.UtcNow;
         var expiresAt = ttl.HasValue ? createdAt.Add(ttl.Value) : (DateTime?)null;
+        await StoreCoreAsync(userId, key, value, createdAt, expiresAt, ct).ConfigureAwait(false);
+    }
 
+    /// <inheritdoc/>
+    public Task StoreAsync(string userId, string key, string value, DateTimeOffset expiresAt, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(value);
+
+        var createdAt = DateTime.UtcNow;
+        var normalizedExpiresAt = expiresAt.UtcDateTime;
+        return StoreCoreAsync(userId, key, value, createdAt, normalizedExpiresAt, ct);
+    }
+
+    private async Task StoreCoreAsync(string userId, string key, string value, DateTime createdAt, DateTime? expiresAt, CancellationToken ct)
+    {
         await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = """
@@ -111,17 +127,18 @@ public sealed class PostgresMemoryStore : IMemoryStore
         }
         else
         {
+            var escapedQuery = SqlLikePattern.Escape(query);
             cmd.CommandText = """
                 SELECT key, value, created_at, expires_at
                 FROM user_memories
                 WHERE user_id = @userId
                   AND (expires_at IS NULL OR expires_at > @now)
-                  AND (key ILIKE @query OR value ILIKE @query)
+                  AND (key ILIKE @query ESCAPE '\' OR value ILIKE @query ESCAPE '\')
                   AND (NOT @personalOnly OR lower(left(ltrim(key, @whitespace), length(@historyPrefix))) <> @historyPrefix)
                 ORDER BY created_at DESC
                 LIMIT @limit;
                 """;
-            cmd.Parameters.AddWithValue("query", $"%{query}%");
+            cmd.Parameters.AddWithValue("query", $"%{escapedQuery}%");
         }
 
         cmd.Parameters.AddWithValue("userId", userId);

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Loader2, Pencil, RefreshCw, Search, Trash2 } from 'lucide-react'
@@ -17,6 +17,11 @@ interface MemoryEdit extends UserMemoryEntry {
   profileId: string
 }
 
+interface MemoryFocus {
+  profileId: string
+  keys: string[]
+}
+
 /** Inspect and manage personal memories through stable enrolled-profile identities. */
 export default function UserMemoriesPage() {
   const [parameters, setParameters] = useSearchParams()
@@ -26,6 +31,9 @@ export default function UserMemoriesPage() {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(null)
+  const editButtons = useRef(new Map<string, HTMLButtonElement>())
+  const profileHeading = useRef<HTMLHeadingElement>(null)
+  const pendingFocus = useRef<MemoryFocus | null>(null)
 
   const profilesQuery = useQuery({
     queryKey: ['memory-speaker-profiles'],
@@ -51,7 +59,24 @@ export default function UserMemoriesPage() {
   const activeEdit = editing?.profileId === profile?.id ? editing : null
   const controlsLocked = busy || activeEdit !== null
 
+  useEffect(() => {
+    const target = pendingFocus.current
+    if (!target || busy || activeEdit || memoriesQuery.isFetching) {
+      return
+    }
+    pendingFocus.current = null
+    if (target.profileId !== profile?.id) {
+      return
+    }
+    const button = target.keys
+      .map(key => editButtons.current.get(key))
+      .find(candidate => candidate && !candidate.disabled)
+    const focusElement = button ?? profileHeading.current
+    focusElement?.focus()
+  }, [busy, activeEdit, memoriesQuery.isFetching, profile?.id])
+
   function selectProfile(profileId: string) {
+    pendingFocus.current = null
     setParameters({ profile: profileId })
     setSearch('')
     setEditing(null)
@@ -62,6 +87,14 @@ export default function UserMemoriesPage() {
     if (!profile) return
     setEditing({ ...entry, profileId: profile.id })
     setDraft(entry.value)
+    setNotice(null)
+  }
+
+  function cancelEdit() {
+    if (activeEdit) {
+      pendingFocus.current = { profileId: activeEdit.profileId, keys: [activeEdit.key] }
+    }
+    setEditing(null)
     setNotice(null)
   }
 
@@ -76,6 +109,7 @@ export default function UserMemoriesPage() {
     try {
       await updateUserMemory(activeEdit.profileId, activeEdit, draft)
       await queryClient.invalidateQueries({ queryKey: ['user-memories', profile.id] })
+      pendingFocus.current = { profileId: activeEdit.profileId, keys: [activeEdit.key] }
       setEditing(null)
       setNotice({ error: false, text: `Memory saved for ${profile.name}.` })
     } catch (error: unknown) {
@@ -89,11 +123,15 @@ export default function UserMemoriesPage() {
     if (!profile || controlsLocked) return
     const label = memoryLabels[entry.key] ?? entry.key
     if (!window.confirm(`Delete "${label}" for ${profile.name}? This removes only this memory, not the voice profile.`)) return
+    const index = memories.findIndex(candidate => candidate.key === entry.key)
+    const focusKeys = [...memories.slice(index + 1), ...memories.slice(0, index).reverse()]
+      .map(candidate => candidate.key)
     setBusy(true)
     setNotice(null)
     try {
       await deleteUserMemory(profile.id, entry.key)
       await queryClient.invalidateQueries({ queryKey: ['user-memories', profile.id] })
+      pendingFocus.current = { profileId: profile.id, keys: focusKeys }
       setNotice({ error: false, text: `Memory deleted for ${profile.name}.` })
     } catch (error: unknown) {
       setNotice({ error: true, text: error instanceof Error ? error.message : 'Failed to delete this memory.' })
@@ -159,7 +197,7 @@ export default function UserMemoriesPage() {
         <section aria-label={`Memories for ${profile.name}`} className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="break-words font-display text-xl font-semibold text-light [overflow-wrap:anywhere]">{profile.name}</h2>
+              <h2 ref={profileHeading} tabIndex={-1} className="break-words font-display text-xl font-semibold text-light [overflow-wrap:anywhere]">{profile.name}</h2>
               <p className="mt-1 break-all font-mono text-xs text-dust">Profile ID: {profile.id}</p>
               {!profile.isAuthorized && <p className="mt-2 text-sm text-amber">Voice recognition is not authorized for this profile. Its stored memories are still available to manage.</p>}
             </div>
@@ -198,14 +236,20 @@ export default function UserMemoriesPage() {
                           <button type="button" disabled={busy || !draft.trim()} onClick={() => void saveMemory()} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber px-4 py-2 text-sm font-semibold text-on-accent hover:bg-amber-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60 disabled:cursor-not-allowed disabled:opacity-40">
                             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />} Save changes
                           </button>
-                          <button type="button" className={secondaryButton} disabled={busy} onClick={() => { setEditing(null); setNotice(null) }}>Cancel</button>
+                          <button type="button" className={secondaryButton} disabled={busy} onClick={cancelEdit}>Cancel</button>
                         </div>
                       </div>
                     ) : (
                       <>
                         <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 text-cloud [overflow-wrap:anywhere]">{entry.value}</p>
                         <div className="flex items-start gap-2">
-                          <button type="button" aria-label={`Edit ${label}`} className={secondaryButton} disabled={controlsLocked} onClick={() => editMemory(entry)}><Pencil className="h-4 w-4" aria-hidden="true" /> Edit</button>
+                          <button type="button" ref={button => {
+                            if (button) {
+                              editButtons.current.set(entry.key, button)
+                            } else {
+                              editButtons.current.delete(entry.key)
+                            }
+                          }} aria-label={`Edit ${label}`} className={secondaryButton} disabled={controlsLocked} onClick={() => editMemory(entry)}><Pencil className="h-4 w-4" aria-hidden="true" /> Edit</button>
                           <button type="button" aria-label={`Delete ${label}`} className={`${secondaryButton} text-rose`} disabled={controlsLocked} onClick={() => void removeMemory(entry)}><Trash2 className="h-4 w-4" aria-hidden="true" /> Delete</button>
                         </div>
                       </>

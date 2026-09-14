@@ -102,6 +102,66 @@ test('keeps an edited value available when saving fails', async ({ page }) => {
   await expect(page.getByRole('status')).toHaveText('Memory saved for Sam.');
 });
 
+test('returns keyboard focus to the edited memory after saving', async ({ page }) => {
+  await mockMemories(page);
+  await page.goto('/user-memories?profile=profile-sam');
+  const editButton = page.getByRole('button', { name: 'Edit Preferences', exact: true });
+  await editButton.focus();
+  await page.keyboard.press('Enter');
+  await page.getByLabel('Edit Preferences', { exact: true }).fill('Keep replies concise.');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('status')).toHaveText('Memory saved for Sam.');
+  await expect(editButton).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Delete Preferences', exact: true })).toBeFocused();
+});
+
+test('returns keyboard focus to the memory after cancelling an edit', async ({ page }) => {
+  await mockMemories(page);
+  await page.goto('/user-memories?profile=profile-sam');
+  const editButton = page.getByRole('button', { name: 'Edit Preferences', exact: true });
+  await editButton.focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(editButton).toBeFocused();
+});
+
+test('focuses the user heading when a saved memory no longer matches the search', async ({ page }) => {
+  await mockMemories(page);
+  await page.goto('/user-memories?profile=profile-sam');
+  await page.getByLabel('Search memories').fill('warm lighting');
+  await page.getByRole('button', { name: 'Edit Preferences', exact: true }).click();
+  await page.getByLabel('Edit Preferences', { exact: true }).fill('Keep replies concise.');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('No memories match this search.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Sam', exact: true })).toBeFocused();
+});
+
+for (const scenario of [
+  { name: 'next memory', profile: 'profile-sam', deleted: 'Preferred name', next: 'Preferences' },
+  { name: 'previous memory', profile: 'profile-sam', deleted: 'Preferences', next: 'Preferred name' },
+  { name: 'user heading when no memories remain', profile: 'profile-alex', deleted: 'drink', next: null },
+]) {
+  test(`moves keyboard focus to the ${scenario.name} after deleting`, async ({ page }) => {
+    await mockMemories(page);
+    await page.goto(`/user-memories?profile=${scenario.profile}`);
+    const deleteButton = page.getByRole('button', { name: `Delete ${scenario.deleted}`, exact: true });
+    await deleteButton.focus();
+    page.once('dialog', dialog => dialog.accept());
+    await page.keyboard.press('Enter');
+    await expect(deleteButton).toHaveCount(0);
+    if (scenario.next) {
+      await expect(page.getByRole('button', { name: `Edit ${scenario.next}`, exact: true })).toBeFocused();
+    } else {
+      await expect(page.getByRole('heading', { name: 'Alex', exact: true })).toBeFocused();
+    }
+  });
+}
+
 test('does not substitute another user for an unknown profile link', async ({ page }) => {
   await mockMemories(page);
   await page.goto('/user-memories?profile=missing-profile');

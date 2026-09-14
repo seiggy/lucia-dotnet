@@ -155,14 +155,17 @@ The page does not infer an author for entries because provenance is not stored.
 
 The existing `GET /api/memory/{userId}` endpoint accepts `personalOnly=true` to
 exclude internal chat history before the 200-entry limit, and an optional
-`query` of up to 200 characters. Administrator sessions may access the selected
-profile ID; ordinary user sessions retain their user-ID boundary, and existing
-trusted service credentials retain their previous access.
+`query` of up to 200 characters. Search treats the query as a literal substring
+of a key or value on every storage provider, including `%`, `_`, and backslashes.
+Administrator sessions may access the selected profile ID; ordinary user sessions
+retain their user-ID boundary, and existing trusted service credentials retain
+their previous access.
 
 `PUT /api/memory/{userId}/{key}` accepts an optional ISO `expiresAt` timestamp
-or `null`, allowing value edits to retain an existing expiration. It cannot be
-combined with `ttl` or `ttlSeconds`, and a timestamp must be in the future and
-at most one year away. `DELETE` removes only the selected key.
+or `null`, allowing value edits to retain an existing expiration. The store writes
+the absolute deadline directly rather than recalculating it from a relative TTL.
+It cannot be combined with `ttl` or `ttlSeconds`, and a timestamp must be in the
+future and at most 365 days away. `DELETE` removes only the selected key.
 
 ### Enrollment diagnostics
 
@@ -224,7 +227,7 @@ model-behavior requirement to cover with evaluations, while profile isolation
 remains server-enforced. The existing authenticated
 `/api/memory/{userId}` endpoints
 can also inspect or change memories using the stable speaker profile ID.
-There is no new memory-management dashboard in this change.
+The User memories dashboard uses these same endpoints.
 
 Memory tools are registered on in-process `ChatClientAgent` agents, including
 the built-in, dynamic, music, and timer agents. Remote A2A services and agents

@@ -48,4 +48,10 @@ public sealed class InMemoryMemoryStoreTests
         Assert.Equal("music-style", results[0].Key);
         Assert.DoesNotContain(allEntries, entry => entry.Key == "expired-entry");
     }
+
+    [Fact]
+    public async Task SearchAsync_TreatsWildcardCharactersAsLiterals()
+    {
+        await PersonalMemorySearchAssertions.VerifyLiteralSearchSemanticsAsync(new InMemoryMemoryStore());
+    }
 }

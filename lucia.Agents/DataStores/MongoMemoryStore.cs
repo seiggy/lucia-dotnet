@@ -37,7 +37,23 @@ public sealed class MongoMemoryStore : IMemoryStore
 
         var createdAt = DateTime.UtcNow;
         var expiresAt = ttl.HasValue ? createdAt.Add(ttl.Value) : (DateTime?)null;
+        await StoreCoreAsync(userId, key, value, createdAt, expiresAt, ct).ConfigureAwait(false);
+    }
 
+    /// <inheritdoc/>
+    public Task StoreAsync(string userId, string key, string value, DateTimeOffset expiresAt, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(value);
+
+        var createdAt = DateTime.UtcNow;
+        var normalizedExpiresAt = expiresAt.UtcDateTime;
+        return StoreCoreAsync(userId, key, value, createdAt, normalizedExpiresAt, ct);
+    }
+
+    private async Task StoreCoreAsync(string userId, string key, string value, DateTime createdAt, DateTime? expiresAt, CancellationToken ct)
+    {
         var filter = Builders<BsonDocument>.Filter.Eq("user_id", userId)
             & Builders<BsonDocument>.Filter.Eq("key", key);
         var updates = new List<UpdateDefinition<BsonDocument>>

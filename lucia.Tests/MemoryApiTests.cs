@@ -71,19 +71,56 @@ public sealed class MemoryApiTests
     }
 
     [Fact]
-    public async Task EditingMemory_PreservesTheExistingExpiration()
+    public async Task EditingMemory_PreservesTheExactExpirationTimestamp()
     {
         var store = new InMemoryMemoryStore();
-        await store.StoreAsync("user-b", "favorite-color", "red", TimeSpan.FromHours(2));
+        var expectedExpiration = DateTimeOffset.UtcNow.AddDays(30).ToOffset(TimeSpan.FromHours(-7));
+        await store.StoreAsync("user-b", "favorite-color", "red", expectedExpiration, CancellationToken.None);
         var before = Assert.Single(await store.GetAllAsync("user-b"));
-        var body = JsonSerializer.SerializeToElement(new { value = "blue", expiresAt = before.ExpiresAt });
+        var rawExpiration = before.ExpiresAt!.Value.ToString("O");
+        var body = JsonSerializer.SerializeToElement(new { value = "blue", expiresAt = rawExpiration });
 
         var result = await InvokeHandlerAsync("PutAsync", CreateAdministratorContext(), store, body: body);
         var response = Assert.IsType<Ok<MemoryEntry>>(Unwrap(result));
 
         Assert.Equal("blue", response.Value!.Value);
-        Assert.NotNull(response.Value.ExpiresAt);
-        Assert.InRange(response.Value.ExpiresAt.Value - before.ExpiresAt!.Value, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        Assert.Equal(before.ExpiresAt, response.Value.ExpiresAt);
+        Assert.Equal(expectedExpiration.UtcDateTime, response.Value.ExpiresAt);
+    }
+
+    [Theory]
+    [InlineData("""{"value":"blue","ttl":"01:00:00"}""", 3600)]
+    [InlineData("""{"value":"blue","ttlSeconds":3600}""", 3600)]
+    [InlineData("""{"value":"blue","expiresAt":null}""", null)]
+    [InlineData("""{"value":"blue"}""", null)]
+    public async Task EditingMemory_PreservesRelativeTtlAndNoExpirationSemantics(string json, int? ttlSeconds)
+    {
+        var store = new InMemoryMemoryStore();
+        await store.StoreAsync("user-b", "favorite-color", "red", TimeSpan.FromDays(1));
+        var body = JsonSerializer.Deserialize<JsonElement>(json);
+
+        var result = await InvokeHandlerAsync("PutAsync", CreateAdministratorContext(), store, body: body);
+        var entry = Assert.IsType<Ok<MemoryEntry>>(Unwrap(result)).Value!;
+
+        Assert.Equal("blue", entry.Value);
+        Assert.Equal(ttlSeconds.HasValue ? entry.CreatedAt.AddSeconds(ttlSeconds.Value) : (DateTime?)null, entry.ExpiresAt);
+    }
+
+    [Theory]
+    [InlineData("""{"value":"blue","expiresAt":null,"ttl":"01:00:00"}""")]
+    [InlineData("""{"value":"blue","expiresAt":null,"ttlSeconds":3600}""")]
+    [InlineData("""{"value":"blue","expiresAt":"not a timestamp"}""")]
+    [InlineData("""{"value":"blue","expiresAt":"9999-12-31T00:00:00Z"}""")]
+    public async Task EditingMemory_RejectsInvalidExpirationWithoutChangingTheValue(string json)
+    {
+        var store = new InMemoryMemoryStore();
+        await store.StoreAsync("user-b", "favorite-color", "red");
+        var body = JsonSerializer.Deserialize<JsonElement>(json);
+
+        var result = await InvokeHandlerAsync("PutAsync", CreateAdministratorContext(), store, body: body);
+
+        Assert.IsType<BadRequest<string>>(Unwrap(result));
+        Assert.Equal("red", await store.RetrieveAsync("user-b", "favorite-color"));
     }
 
     [Fact]
