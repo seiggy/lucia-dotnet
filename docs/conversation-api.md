@@ -166,6 +166,9 @@ or `null`, allowing value edits to retain an existing expiration. The store writ
 the absolute deadline directly rather than recalculating it from a relative TTL.
 It cannot be combined with `ttl` or `ttlSeconds`, and a timestamp must be in the
 future and at most 365 days away. `DELETE` removes only the selected key.
+If the entry expires or is removed before `PUT` can read it back, the endpoint
+returns `400` with a refresh instruction. It does not extend the deadline or retry
+the write.
 
 ### Enrollment diagnostics
 

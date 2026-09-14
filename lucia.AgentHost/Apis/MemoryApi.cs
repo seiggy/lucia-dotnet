@@ -117,9 +117,11 @@ public static class MemoryApi
             await memoryStore.StoreAsync(userId, key, value!, ttl, ct).ConfigureAwait(false);
         }
         var storedMemory = (await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false))
-            .First(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
 
-        return TypedResults.Ok(storedMemory);
+        return storedMemory is null
+            ? TypedResults.BadRequest("The memory is no longer available. It may have expired or been deleted. Refresh memories before retrying.")
+            : TypedResults.Ok(storedMemory);
     }
 
     private static async Task<Results<Ok<object>, ForbidHttpResult>> DeleteAsync(

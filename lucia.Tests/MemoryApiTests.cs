@@ -89,6 +89,35 @@ public sealed class MemoryApiTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task EditingMemory_ReturnsBadRequestWhenTheEntryExpiresBeforeReadBack(bool absoluteExpiration)
+    {
+        var store = A.Fake<IMemoryStore>();
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        var ttl = TimeSpan.FromSeconds(1);
+        var body = absoluteExpiration
+            ? JsonSerializer.SerializeToElement(new { value = "blue", expiresAt })
+            : JsonSerializer.SerializeToElement(new { value = "blue", ttlSeconds = ttl.TotalSeconds });
+        A.CallTo(() => store.GetAllAsync("user-b", A<CancellationToken>._)).Returns([]);
+
+        var result = await InvokeHandlerAsync("PutAsync", CreateAdministratorContext(), store, body: body);
+
+        var response = Assert.IsType<BadRequest<string>>(Unwrap(result));
+        Assert.Equal("The memory is no longer available. It may have expired or been deleted. Refresh memories before retrying.", response.Value);
+        if (absoluteExpiration)
+        {
+            A.CallTo(() => store.StoreAsync("user-b", "favorite-color", "blue", expiresAt, A<CancellationToken>._))
+                .MustHaveHappenedOnceExactly();
+        }
+        else
+        {
+            A.CallTo(() => store.StoreAsync("user-b", "favorite-color", "blue", ttl, A<CancellationToken>._))
+                .MustHaveHappenedOnceExactly();
+        }
+    }
+
+    [Theory]
     [InlineData("""{"value":"blue","ttl":"01:00:00"}""", 3600)]
     [InlineData("""{"value":"blue","ttlSeconds":3600}""", 3600)]
     [InlineData("""{"value":"blue","expiresAt":null}""", null)]
