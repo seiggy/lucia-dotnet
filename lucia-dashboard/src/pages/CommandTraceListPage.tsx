@@ -8,7 +8,10 @@ import type { CommandTrace, CommandTraceOutcome } from '../types'
 import { Search, ChevronLeft, ChevronRight, Activity, Zap, Brain, AlertTriangle, Timer, Loader2, Wifi, WifiOff, Download } from 'lucide-react'
 import { downloadJson, datestamp } from '../utils/traceExport'
 
-function outcomeBadge(outcome: CommandTraceOutcome) {
+function outcomeBadge(outcome: CommandTraceOutcome, workflowName?: string) {
+  if (workflowName === 'voice-onboarding') {
+    return <span className="rounded-full bg-sage/15 px-2 py-0.5 text-xs font-medium text-sage">Voice onboarding</span>
+  }
   switch (outcome) {
     case 'commandHandled':
       return <span className="rounded-full bg-sage/15 px-2 py-0.5 text-xs font-medium text-sage">⚡ Command</span>
@@ -88,8 +91,8 @@ export default function CommandTraceListPage() {
   ]
 
   function skillActionLabel(trace: CommandTrace) {
-    const skill = trace.match.skillId ?? trace.execution?.skillId
-    const action = trace.match.action ?? trace.execution?.action
+    const skill = trace.workflow?.name ?? trace.match.skillId ?? trace.execution?.skillId
+    const action = trace.workflow?.stage ?? trace.match.action ?? trace.execution?.action
     if (!skill) return null
     return (
       <span className="rounded-md bg-amber/10 px-1.5 py-0.5 text-xs text-amber">
@@ -198,7 +201,7 @@ export default function CommandTraceListPage() {
                   <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-dust">Timestamp</th>
                   <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-dust">User Input</th>
                   <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-dust">Outcome</th>
-                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-dust">Skill / Action</th>
+                  <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-dust">Handler / Action</th>
                   <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-dust">Confidence</th>
                   <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-dust">Duration</th>
                 </tr>
@@ -216,10 +219,10 @@ export default function CommandTraceListPage() {
                     <td className="px-4 py-3 text-light">
                       {truncate(trace.cleanText || trace.rawText, 80)}
                     </td>
-                    <td className="px-4 py-3">{outcomeBadge(trace.outcome)}</td>
+                    <td className="px-4 py-3">{outcomeBadge(trace.outcome, trace.workflow?.name)}</td>
                     <td className="px-4 py-3">{skillActionLabel(trace)}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-dust">
-                      {(trace.match.confidence * 100).toFixed(1)}%
+                      {trace.workflow ? '-' : `${(trace.match.confidence * 100).toFixed(1)}%`}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-dust">
                       {trace.totalDurationMs} ms

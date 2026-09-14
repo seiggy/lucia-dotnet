@@ -34,6 +34,8 @@ public sealed record CommandTrace
     /// <summary>Response template rendering details (null when LLM fallback or no template).</summary>
     public CommandTraceTemplateRender? TemplateRender { get; init; }
 
+    public CommandTraceWorkflow? Workflow { get; init; }
+
     public required CommandTraceOutcome Outcome { get; init; }
     public required double TotalDurationMs { get; init; }
     public string? ResponseText { get; init; }

@@ -202,6 +202,7 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^DataProvider__Cache=Redis$' "$environment" \
         && grep -q '^DataProvider__Store=SQLite$' "$environment" \
         && grep -q '^Appliance__Mode=Installed$' "$environment" \
+        && grep -q '^Wyoming__VoiceProfiles__AudioClipBasePath=/var/lib/lucia/voice-clips$' "$environment" \
         && grep -q '^ASPNETCORE_URLS=http://127.0.0.1:8098;https://0.0.0.0:8099$' "$environment" \
         && grep -q '^Kestrel__Certificates__Default__Path=/var/lib/lucia/config/tls/agenthost.crt$' "$environment" \
         && grep -q '^Kestrel__Certificates__Default__KeyPath=/var/lib/lucia/config/tls/agenthost.key$' "$environment" \

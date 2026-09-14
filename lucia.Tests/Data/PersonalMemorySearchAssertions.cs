@@ -35,4 +35,53 @@ internal static class PersonalMemorySearchAssertions
         await store.StoreAsync(UserId, "chatXhistory", "not the reserved prefix");
         Assert.Equal("chatXhistory", Assert.Single(await store.SearchPersonalAsync(UserId, "chatXhistory", 1)).Key);
     }
+
+    public static async Task VerifyLiteralSearchSemanticsAsync(IMemoryStore store)
+    {
+        const string UserId = "literal-search-user";
+        const string HistoryKey = "chat_history:one";
+        foreach (var (key, value) in new[]
+        {
+            ("key%literal", "percent key"),
+            ("key_literal", "underscore key"),
+            ("percent-value", "100% savings"),
+            ("underscore-value", "living_room"),
+            ("path", @"C:\tmp\50%_ready"),
+            ("quotes", "owner's \"note\""),
+            ("mixed", "MiXeD CaSe"),
+            ("plain", "100percent livingXroom"),
+            (HistoryKey, "100% savings"),
+        })
+        {
+            await store.StoreAsync(UserId, key, value);
+            await store.StoreAsync("another-user", key, value);
+        }
+
+        (string Query, string[] Keys)[] cases =
+        [
+            ("%", ["key%literal", "percent-value", "path", HistoryKey]),
+            ("_", ["key_literal", "underscore-value", "path", HistoryKey]),
+            (@"\", ["path"]),
+            (@"50%_ready", ["path"]),
+            ("100%", ["percent-value", HistoryKey]),
+            ("living_room", ["underscore-value"]),
+            ("owner's", ["quotes"]),
+            ("\"note\"", ["quotes"]),
+            ("mixed case", ["mixed"]),
+            ("key%literal", ["key%literal"]),
+            ("key_literal", ["key_literal"]),
+            ("missing", []),
+        ];
+        foreach (var personalOnly in new[] { false, true })
+        {
+            foreach (var (query, keys) in cases)
+            {
+                var matches = personalOnly
+                    ? await store.SearchPersonalAsync(UserId, query, limit: 50)
+                    : await store.SearchAsync(UserId, query, limit: 50);
+                var expected = keys.Where(key => !personalOnly || key != HistoryKey);
+                Assert.Equal(expected.Order(), matches.Select(entry => entry.Key).Order());
+            }
+        }
+    }
 }

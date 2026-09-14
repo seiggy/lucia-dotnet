@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text.Json;
 
 using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
 using lucia.Agents.Models;
 
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -32,18 +33,30 @@ public static class MemoryApi
         return endpoints;
     }
 
-    private static async Task<Results<Ok<IReadOnlyList<MemoryEntry>>, ForbidHttpResult>> GetAllAsync(
+    private static async Task<Results<Ok<IReadOnlyList<MemoryEntry>>, ForbidHttpResult, BadRequest<string>>> GetAllAsync(
         HttpContext context,
         [FromRoute] string userId,
         [FromServices] IMemoryStore memoryStore,
-        CancellationToken ct)
+        CancellationToken ct,
+        [FromQuery] bool personalOnly = false,
+        [FromQuery] string? query = null)
     {
+        context.Response.Headers.CacheControl = "no-store";
         if (!IsAuthorizedForUser(context, userId))
         {
             return TypedResults.Forbid();
         }
 
-        var memories = await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false);
+        if (query?.Length > 200)
+        {
+            return TypedResults.BadRequest("Search must be at most 200 characters.");
+        }
+
+        var memories = personalOnly
+            ? await memoryStore.SearchPersonalAsync(userId, query, 200, ct).ConfigureAwait(false)
+            : string.IsNullOrWhiteSpace(query)
+                ? await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false)
+                : await memoryStore.SearchAsync(userId, query, 200, ct).ConfigureAwait(false);
         return TypedResults.Ok(memories);
     }
 
@@ -85,7 +98,7 @@ public static class MemoryApi
             return TypedResults.BadRequest("A non-empty 'value' field is required.");
         }
 
-        if (!TryReadTtl(body, out var ttl, out var ttlError))
+        if (!TryReadExpiration(body, out var ttl, out var expiresAt, out var ttlError))
         {
             return TypedResults.BadRequest(ttlError);
         }
@@ -95,11 +108,20 @@ public static class MemoryApi
             return TypedResults.BadRequest("TTL must be positive.");
         }
 
-        await memoryStore.StoreAsync(userId, key, value!, ttl, ct).ConfigureAwait(false);
+        if (expiresAt is { } absoluteExpiration)
+        {
+            await memoryStore.StoreAsync(userId, key, value!, absoluteExpiration, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await memoryStore.StoreAsync(userId, key, value!, ttl, ct).ConfigureAwait(false);
+        }
         var storedMemory = (await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false))
-            .First(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
+            .FirstOrDefault(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
 
-        return TypedResults.Ok(storedMemory);
+        return storedMemory is null
+            ? TypedResults.BadRequest("The memory is no longer available. It may have expired or been deleted. Refresh memories before retrying.")
+            : TypedResults.Ok(storedMemory);
     }
 
     private static async Task<Results<Ok<object>, ForbidHttpResult>> DeleteAsync(
@@ -120,6 +142,11 @@ public static class MemoryApi
 
     private static bool IsAuthorizedForUser(HttpContext context, string userId)
     {
+        if (context.User.IsInRole(AuthOptions.AdministratorRole))
+        {
+            return true;
+        }
+
         // API key and internal-service authenticated callers are trusted (service-to-service)
         // and may access any user's memories on behalf of the voice pipeline.
         var authMethod = context.User.FindFirst("auth_method")?.Value;
@@ -137,7 +164,9 @@ public static class MemoryApi
     private static bool TryReadValue(JsonElement body, out string? value)
     {
         value = null;
-        if (!body.TryGetProperty("value", out var valueElement) || valueElement.ValueKind != JsonValueKind.String)
+        if (body.ValueKind != JsonValueKind.Object
+            || !body.TryGetProperty("value", out var valueElement)
+            || valueElement.ValueKind != JsonValueKind.String)
         {
             return false;
         }
@@ -146,10 +175,40 @@ public static class MemoryApi
         return !string.IsNullOrWhiteSpace(value);
     }
 
-    private static bool TryReadTtl(JsonElement body, out TimeSpan? ttl, out string error)
+    private static bool TryReadExpiration(JsonElement body, out TimeSpan? ttl, out DateTimeOffset? expiresAt, out string error)
     {
         ttl = null;
+        expiresAt = null;
         error = string.Empty;
+
+        if (body.TryGetProperty("expiresAt", out var expiresAtElement))
+        {
+            if (body.TryGetProperty("ttl", out _) || body.TryGetProperty("ttlSeconds", out _))
+            {
+                error = "Specify expiresAt or TTL, not both.";
+                return false;
+            }
+            if (expiresAtElement.ValueKind == JsonValueKind.Null)
+            {
+                return true;
+            }
+            if (expiresAtElement.ValueKind != JsonValueKind.String
+                || !expiresAtElement.TryGetDateTimeOffset(out var parsedExpiresAt))
+            {
+                error = "The optional 'expiresAt' field must be an ISO timestamp or null.";
+                return false;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            if (parsedExpiresAt <= now || parsedExpiresAt - now > TimeSpan.FromDays(365))
+            {
+                error = "Expiration must be in the future and no more than one year away.";
+                return false;
+            }
+
+            expiresAt = parsedExpiresAt;
+            return true;
+        }
 
         if (body.TryGetProperty("ttl", out var ttlElement))
         {

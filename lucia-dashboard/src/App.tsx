@@ -6,7 +6,7 @@ import {
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
   AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic, MessageSquareText,
   MessageCircle, Zap,
-  MonitorCog,
+  MonitorCog, Users,
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -35,6 +35,7 @@ import ConversationPage from './pages/ConversationPage'
 import CommandTraceListPage from './pages/CommandTraceListPage'
 import CommandTraceDetailPage from './pages/CommandTraceDetailPage'
 import AppliancePage from './pages/AppliancePage'
+import UserMemoriesPage from './pages/UserMemoriesPage'
 import TaskTracker from './components/TaskTracker'
 import { ThemeSelector } from './theme/ThemeSelector'
 import { isInstallerMode } from './installer-api'
@@ -59,6 +60,7 @@ const NAV_ITEMS = [
   { to: '/response-templates', label: 'Response Templates', icon: MessageSquareText },
   { to: '/plugins', label: 'Plugins', icon: Puzzle },
   { to: '/voice-platform', label: 'Voice Platform', icon: Mic },
+  { to: '/user-memories', label: 'User memories', icon: Users },
   { to: '/matcher-debug', label: 'Matcher Debug', icon: Sparkles },
   { to: '/configuration', label: 'Configuration', icon: Settings },
 ]
@@ -305,6 +307,7 @@ function AppRoutes() {
             <Route path="/agent-definitions" element={<AgentDefinitionsPage />} />
             <Route path="/model-providers" element={<ModelProvidersPage />} />
             <Route path="/voice-platform" element={<VoicePlatformPage />} />
+            <Route path="/user-memories" element={<UserMemoriesPage />} />
             <Route path="/voice-onboarding" element={<Navigate to="/voice-platform" replace />} />
             <Route
               path="/appliance"

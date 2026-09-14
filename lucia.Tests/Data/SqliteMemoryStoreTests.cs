@@ -48,6 +48,28 @@ public sealed class SqliteMemoryStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task SearchAsync_TreatsWildcardCharactersAsLiterals()
+    {
+        await PersonalMemorySearchAssertions.VerifyLiteralSearchSemanticsAsync(_store);
+    }
+
+    [Fact]
+    public async Task StoreAsync_WithAbsoluteExpiresAt_PersistsExactDeadline()
+    {
+        var expiresAt = new DateTimeOffset(2030, 2, 3, 4, 5, 6, 987, TimeSpan.FromHours(-7));
+
+        await _store.StoreAsync("user-1", "deadline", "value", expiresAt, CancellationToken.None);
+
+        var entry = Assert.Single(await _store.GetAllAsync("user-1"));
+        Assert.Equal(expiresAt.UtcDateTime, entry.ExpiresAt);
+
+        await _store.StoreAsync("user-1", "deadline", "edited", new DateTimeOffset(entry.ExpiresAt!.Value), CancellationToken.None);
+        var edited = Assert.Single(await _store.GetAllAsync("user-1"));
+        Assert.Equal("edited", edited.Value);
+        Assert.Equal(entry.ExpiresAt, edited.ExpiresAt);
+    }
+
+    [Fact]
     public async Task DeleteAsync_RemovesStoredEntry()
     {
         await _store.StoreAsync("user-1", "nickname", "Sam");

@@ -104,6 +104,25 @@ The dashboard uses API key authentication with HMAC-signed sessions:
 2. **Login** — Users authenticate at `/login` with their API key.
 3. **Route guards** — `AuthContext` redirects unauthenticated users to login and users who haven't completed setup to the wizard.
 
+## Voice onboarding traces
+
+Cmd Traces labels voice enrollment as **Voice onboarding**. Its detail view shows
+the stage, whether another reply is needed, and the returned conversation ID
+alongside the incoming request context. Personal answers are redacted, and no
+command-match score or LLM invocation is shown for the local workflow.
+
+## User memories
+
+Open **User memories** in the sidebar, or **View memories** on an enrolled voice
+profile. The page uses the stable profile ID to list personal memories, including
+preferred name, room, and preferences. It supports search, inline editing, and
+confirmed deletion of individual entries. Edits retain the entry's expiration.
+
+Internal chat-history entries are excluded. The store records a save time and
+optional expiration, but does not record whether the author was onboarding or an
+AI tool. Results are limited to 200 matches; use search to find older entries.
+Administrator sessions can manage other profiles through the existing memory API.
+
 ## Building for Production
 
 ```bash

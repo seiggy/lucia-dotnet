@@ -19,8 +19,22 @@ public sealed partial class VoiceOnboardingWorkflow(
     // ponytail: onboarding serializes across satellites; use per-conversation gates if enrollment throughput matters.
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public static bool IsStartRequest(string text) =>
-        Normalize(text) is "onboard me" or "on board me" or "lucia onboard me" or "hey lucia onboard me";
+    public static bool IsStartRequest(string text)
+    {
+        var normalized = Normalize(text);
+        if (normalized.StartsWith("hey lucia ", StringComparison.Ordinal))
+        {
+            normalized = normalized["hey lucia ".Length..];
+        }
+        else if (normalized.StartsWith("lucia ", StringComparison.Ordinal))
+        {
+            normalized = normalized["lucia ".Length..];
+        }
+
+        return normalized is "onboard me" or "on board me"
+            or "enroll my voice" or "enroll my voice profile"
+            or "i want to enroll my voice" or "learn my voice";
+    }
 
     public static bool IsOnboardingConversation(string? conversationId) =>
         conversationId?.StartsWith(ConversationPrefix, StringComparison.Ordinal) == true;
@@ -33,30 +47,55 @@ public sealed partial class VoiceOnboardingWorkflow(
         CancellationToken ct)
     {
         var isStart = IsStartRequest(text);
-        if (isStart && !IsOnboardingConversation(conversationId))
-        {
-            conversationId = ConversationPrefix + conversationId;
-        }
-        if (!isStart && !IsOnboardingConversation(conversationId))
+        var carriesOnboardingId = IsOnboardingConversation(conversationId);
+        if (!isStart && !carriesOnboardingId
+            && (string.IsNullOrWhiteSpace(deviceId)
+                || !_conversations.Values.Any(conversation =>
+                    string.Equals(conversation.DeviceId, deviceId, StringComparison.Ordinal))))
         {
             return null;
         }
 
+        VoiceOnboardingConversation? state = null;
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await ExpireConversationsAsync(ct).ConfigureAwait(false);
-            _conversations.TryGetValue(conversationId, out var state);
+            if (!_conversations.ContainsKey(conversationId))
+            {
+                var active = _conversations.FirstOrDefault(entry =>
+                    string.Equals(entry.Value.DeviceId, deviceId, StringComparison.Ordinal));
+                if (active.Value is not null)
+                {
+                    conversationId = active.Key;
+                }
+                else if (isStart)
+                {
+                    if (!carriesOnboardingId)
+                    {
+                        conversationId = ConversationPrefix + conversationId;
+                    }
+                }
+                else if (!carriesOnboardingId)
+                {
+                    return null;
+                }
+            }
+            _conversations.TryGetValue(conversationId, out state);
             // Keep an outstanding sample out of command routing even after the server loses its in-memory workflow.
             if (state is null && !isStart)
             {
-                return Reply("Onboarding expired or the server restarted. Say onboard me to start again.", false);
+                return Reply("Onboarding expired or the server restarted. Say learn my voice to start again.", false);
             }
             if (state is { Stage: VoiceOnboardingStage.Expired })
             {
                 if (!isStart)
                 {
-                    return Reply("Onboarding expired. Say onboard me to start again.", false);
+                    if (!carriesOnboardingId)
+                    {
+                        _conversations.TryRemove(conversationId, out _);
+                    }
+                    return Reply("Onboarding expired. Say learn my voice to start again.", false);
                 }
                 _conversations.TryRemove(conversationId, out _);
                 state = null;
@@ -143,7 +182,7 @@ public sealed partial class VoiceOnboardingWorkflow(
                             break;
                         }
                     }
-                    if (string.IsNullOrWhiteSpace(name) || name.Length > 80 || answer is "skip")
+                    if (string.IsNullOrWhiteSpace(name) || name.Length > 80 || IsSkip(answer))
                     {
                         return Reply("Please tell me a name to use, up to eighty characters.");
                     }
@@ -151,11 +190,11 @@ public sealed partial class VoiceOnboardingWorkflow(
                     state.Stage = VoiceOnboardingStage.Room;
                     break;
                 case VoiceOnboardingStage.Room:
-                    state.Room = answer is "skip" ? null : text.Trim().TrimEnd('.');
+                    state.Room = IsSkip(answer) ? null : text.Trim().TrimEnd('.');
                     state.Stage = VoiceOnboardingStage.Preferences;
                     break;
                 case VoiceOnboardingStage.Preferences:
-                    state.Preferences = answer is "skip" ? null : text.Trim().TrimEnd('.');
+                    state.Preferences = IsSkip(answer) ? null : text.Trim().TrimEnd('.');
                     state.Stage = VoiceOnboardingStage.Confirm;
                     break;
                 case VoiceOnboardingStage.Confirm:
@@ -225,6 +264,7 @@ public sealed partial class VoiceOnboardingWorkflow(
             Text = message,
             ConversationId = needsInput ? conversationId : conversationId[ConversationPrefix.Length..],
             NeedsInput = needsInput,
+            OnboardingStage = state?.Stage.ToString() ?? (isStart ? "Start" : "Expired"),
         };
     }
 
@@ -278,8 +318,8 @@ public sealed partial class VoiceOnboardingWorkflow(
     {
         VoiceOnboardingStage.Consent => "I need your permission to save a voice profile and the facts you choose to share. Do you agree? You can say cancel at any time.",
         VoiceOnboardingStage.Name => "What name should I call you?",
-        VoiceOnboardingStage.Room => "Which room should I associate with you? Say skip if you don't want to share one.",
-        VoiceOnboardingStage.Preferences => "What should I remember about how you like me to help, such as lighting or response preferences? Say skip to leave this blank.",
+        VoiceOnboardingStage.Room => "Which room should I associate with you? Say no preference to leave this blank.",
+        VoiceOnboardingStage.Preferences => "What should I remember about how you like me to help, such as lighting or response preferences? Say no preference to leave this blank.",
         VoiceOnboardingStage.Confirm => $"I'll call you {state.Name}."
             + (state.Room is null ? "" : $" Your preferred room is {state.Room}.")
             + (state.Preferences is null ? "" : $" Your preferences are: {state.Preferences}.")
@@ -287,7 +327,7 @@ public sealed partial class VoiceOnboardingWorkflow(
         VoiceOnboardingStage.Samples when state.Enrollment!.CurrentPromptIndex < state.Enrollment.Prompts.Count =>
             state.Enrollment.Prompts[state.Enrollment.CurrentPromptIndex],
         VoiceOnboardingStage.Samples => "Your voice profile was created, but saving your answers needs another attempt. Say retry.",
-        _ => "Onboarding expired. Say onboard me to start again.",
+        _ => "Onboarding expired. Say learn my voice to start again.",
     };
 
     private static string Normalize(string text) => TranscriptNormalizer.Normalize(text);
@@ -300,6 +340,9 @@ public sealed partial class VoiceOnboardingWorkflow(
 
     private static bool IsYes(string text) => text is "yes" or "yes i agree" or "i agree" or "sure" or "correct" or "that s correct";
     private static bool IsNo(string text) => text is "no" or "no i don t" or "i don t agree";
+    private static bool IsSkip(string text) =>
+        text is "no preference" or "no preferences" or "leave it blank" or "skip this question" or "nothing to add"
+        || (text.Length > 0 && text.Split(' ').All(word => word == "skip"));
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Started voice onboarding for conversation {ConversationId}")]
     private static partial void LogStarted(ILogger logger, string conversationId);
