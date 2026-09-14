@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>Lucia is a privacy-first Home Assistant agent platform. This repository contains the Lucia application template and its PostgreSQL and Redis dependencies. Report problems through the GitHub issue tracker.</Profile>
+  <Icon>https://raw.githubusercontent.com/seiggy/lucia-dotnet/master/lucia.png</Icon>
+  <WebPage>https://luciahome.net/</WebPage>
+  <Forum>https://github.com/seiggy/lucia-dotnet/issues</Forum>
+</CommunityApplications>

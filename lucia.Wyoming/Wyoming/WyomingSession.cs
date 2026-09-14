@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Net.Sockets;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.CommandRouting;
@@ -17,6 +18,19 @@ namespace lucia.Wyoming.Wyoming;
 public sealed partial class WyomingSession : IDisposable
 {
     private static readonly ActivitySource WyomingActivitySource = new("lucia.Wyoming.Session", "1.0.0");
+    private static readonly Meter s_speechPipelineMeter = new("lucia.Wyoming.SpeechPipeline", "1.0.0");
+    private static readonly Histogram<double> s_sttQueueWaitDuration =
+        s_speechPipelineMeter.CreateHistogram<double>("wyoming.speech.stt.queue_wait.duration", "ms");
+    private static readonly Histogram<double> s_sttDuration =
+        s_speechPipelineMeter.CreateHistogram<double>("wyoming.speech.stt.duration", "ms");
+    private static readonly Histogram<double> s_enhancementDuration =
+        s_speechPipelineMeter.CreateHistogram<double>("wyoming.speech.enhancement.duration", "ms");
+    private static readonly Histogram<double> s_enhancedRetranscriptionDuration =
+        s_speechPipelineMeter.CreateHistogram<double>("wyoming.speech.enhanced_retranscription.duration", "ms");
+    private static readonly Histogram<double> s_diarizationDuration =
+        s_speechPipelineMeter.CreateHistogram<double>("wyoming.speech.diarization.duration", "ms");
+    private static readonly Histogram<double> s_transcriptWriteDuration =
+        s_speechPipelineMeter.CreateHistogram<double>("wyoming.speech.transcript_write.duration", "ms");
     private readonly TcpClient _client;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<WyomingSession> _logger;
@@ -35,6 +49,7 @@ public sealed partial class WyomingSession : IDisposable
     private int _utteranceSampleRate = 16_000;
     private IDiarizationEngine? _diarizationEngine;
     private ISpeakerProfileStore? _profileStore;
+    private VoiceTurnStore? _voiceTurns;
     private IOptionsMonitor<VoiceProfileOptions>? _voiceProfileOptions;
     private SpeakerVerificationFilter? _speakerFilter;
     private UnknownSpeakerTracker? _unknownTracker;
@@ -478,6 +493,7 @@ public sealed partial class WyomingSession : IDisposable
                         sttResult = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
                         sttSw.Stop();
                         _sttFinalizationMs = sttSw.ElapsedMilliseconds;
+                        s_sttDuration.Record(_sttFinalizationMs);
                         sttActivity?.SetTag("stt.duration_ms", sttSw.ElapsedMilliseconds);
                         sttActivity?.SetTag("stt.text", sttResult.Text);
                         _logger.LogInformation(
@@ -849,6 +865,7 @@ public sealed partial class WyomingSession : IDisposable
             waitSw.Stop();
             Interlocked.Exchange(ref _sttSlotAcquired, 1);
             _sttQueueWaitMs = waitSw.ElapsedMilliseconds;
+            s_sttQueueWaitDuration.Record(_sttQueueWaitMs);
         }
         catch (ObjectDisposedException) when (ct.IsCancellationRequested)
         {
@@ -1003,6 +1020,7 @@ public sealed partial class WyomingSession : IDisposable
 
         _diarizationEngine = services.GetService<IDiarizationEngine>();
         _profileStore = services.GetService<ISpeakerProfileStore>();
+        _voiceTurns = services.GetService<VoiceTurnStore>();
         _voiceProfileOptions = services.GetService<IOptionsMonitor<VoiceProfileOptions>>();
         _speakerFilter = services.GetService<SpeakerVerificationFilter>();
         _unknownTracker = services.GetService<UnknownSpeakerTracker>();
@@ -1086,6 +1104,15 @@ public sealed partial class WyomingSession : IDisposable
         }
 
         var audioSource = usedEnhancedClip ? "enhanced_clip" : "raw";
+        if (_enhancementTotalMs > 0)
+        {
+            s_enhancementDuration.Record(_enhancementTotalMs);
+        }
+
+        if (_enhancedClipRetranscriptionMs > 0)
+        {
+            s_enhancedRetranscriptionDuration.Record(_enhancedClipRetranscriptionMs);
+        }
 
         // Identify speaker
         SpeakerIdentification? speaker;
@@ -1096,6 +1123,7 @@ public sealed partial class WyomingSession : IDisposable
                 .ConfigureAwait(false);
             diarSw.Stop();
             _diarizationMs = diarSw.ElapsedMilliseconds;
+            s_diarizationDuration.Record(_diarizationMs);
             diarActivity?.SetTag("diarization.duration_ms", diarSw.ElapsedMilliseconds);
             diarActivity?.SetTag("diarization.speaker", speaker?.Name ?? "unknown");
             _logger.LogInformation(
@@ -1104,7 +1132,12 @@ public sealed partial class WyomingSession : IDisposable
         }
 
         var speakerTag = FormatSpeakerTag(speaker);
-        var taggedTranscript = $"{speakerTag}{transcript}";
+        var verificationAudio = _speechEnhancementOptions?.CurrentValue.UseEnhancedClipForStt != true
+            && _rawUtteranceAudioBuffer.Count > 0
+                ? _rawUtteranceAudioBuffer.ToArray()
+                : utteranceAudio;
+        var taggedTranscript = _voiceTurns?.Capture(transcript, verificationAudio, _utteranceSampleRate, speaker)
+            ?? $"{speakerTag}{transcript}";
 
         // Send transcript to HA via Wyoming protocol
         using (var writeActivity = WyomingActivitySource.StartActivity("wyoming.send_transcript"))
@@ -1119,6 +1152,7 @@ public sealed partial class WyomingSession : IDisposable
                     ct)
                 .ConfigureAwait(false);
             writeSw.Stop();
+            s_transcriptWriteDuration.Record(writeSw.Elapsed.TotalMilliseconds);
             writeActivity?.SetTag("transcript.text", taggedTranscript);
             writeActivity?.SetTag("transcript.write_ms", writeSw.ElapsedMilliseconds);
             _logger.LogInformation(

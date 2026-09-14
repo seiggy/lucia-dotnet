@@ -5,6 +5,28 @@ namespace lucia.Tests.Wyoming;
 public sealed class InMemorySpeakerProfileStoreTests
 {
     [Fact]
+    public async Task DeleteExpiredProvisionalAsync_DoesNotDeleteRenewedProfile()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        var profile = new SpeakerProfile
+        {
+            Id = "speaker-1",
+            Name = "Speaker",
+            IsProvisional = true,
+            LastSeenAt = DateTimeOffset.UtcNow,
+        };
+        await store.CreateAsync(profile, CancellationToken.None);
+
+        var deleted = await store.DeleteExpiredProvisionalAsync(
+            profile.Id,
+            DateTimeOffset.UtcNow.AddDays(-1),
+            CancellationToken.None);
+
+        Assert.False(deleted);
+        Assert.NotNull(await store.GetAsync(profile.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task CreateAndGetAsync_CloneEmbeddings()
     {
         var store = new InMemorySpeakerProfileStore();
@@ -16,6 +38,8 @@ public sealed class InMemorySpeakerProfileStoreTests
             Name = "Speaker 1",
             AverageEmbedding = average,
             Embeddings = [embedding],
+            PendingMergeSourceIds = ["pending"],
+            MergedProfileIds = ["merged"],
         };
 
         await store.CreateAsync(profile, CancellationToken.None);
@@ -31,12 +55,16 @@ public sealed class InMemorySpeakerProfileStoreTests
 
         stored.AverageEmbedding[1] = 77f;
         stored.Embeddings[0][1] = 66f;
+        stored.PendingMergeSourceIds[0] = "changed";
+        stored.MergedProfileIds[0] = "changed";
 
         var reloaded = await store.GetAsync(profile.Id, CancellationToken.None);
 
         Assert.NotNull(reloaded);
         Assert.Equal(2f, reloaded.AverageEmbedding[1]);
         Assert.Equal(4f, reloaded.Embeddings[0][1]);
+        Assert.Equal("pending", reloaded.PendingMergeSourceIds[0]);
+        Assert.Equal("merged", reloaded.MergedProfileIds[0]);
     }
 
     [Fact]
@@ -88,5 +116,38 @@ public sealed class InMemorySpeakerProfileStoreTests
         Assert.Equal(20f, reloaded.AverageEmbedding[1]);
         Assert.Equal(30f, reloaded.Embeddings[0][0]);
         Assert.Equal(40f, reloaded.Embeddings[0][1]);
+    }
+
+    [Fact]
+    public async Task UpdateAtomicAsync_ReturnsNullForMissingProfile()
+    {
+        var store = new InMemorySpeakerProfileStore();
+
+        var updated = await store.UpdateAtomicAsync(
+            "missing",
+            static profile => profile,
+            CancellationToken.None);
+
+        Assert.Null(updated);
+    }
+
+    [Fact]
+    public async Task UpdateAtomicAsync_RejectsMutationOfClaimedMergeSource()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        await store.CreateAsync(
+            new SpeakerProfile
+            {
+                Id = "source",
+                Name = "Source",
+                MergeTargetProfileId = "target",
+                InteractionCount = 1,
+            },
+            CancellationToken.None);
+        await Assert.ThrowsAsync<ProfileMergeConflictException>(
+            () => store.UpdateAtomicAsync(
+                "source",
+                profile => profile with { InteractionCount = 2 },
+                CancellationToken.None));
     }
 }

@@ -1,5 +1,8 @@
+using System.Security.Claims;
+
 using lucia.AgentHost;
 using lucia.AgentHost.Apis;
+using lucia.AgentHost.Appliance;
 using lucia.AgentHost.Auth;
 using lucia.AgentHost.Hosting;
 using lucia.AgentHost.Conversation;
@@ -38,6 +41,10 @@ using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+var applianceMode = builder.Configuration["Appliance:Mode"] ?? "Off";
+var isInstalledAppliance = applianceMode.Equals(
+    "Installed",
+    StringComparison.OrdinalIgnoreCase);
 
 builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
@@ -89,7 +96,8 @@ else if (usePostgres)
 else if (useSqlite)
 {
     // SQLite configuration provider (replaces MongoDB config source)
-    var sqliteFactory = new SqliteConnectionFactory(dataProviderOptions.SqlitePath);
+    var sqliteFactory = new SqliteConnectionFactory(
+        SqliteDbNames.GetConfigPath(dataProviderOptions.SqlitePath));
     builder.Services.AddSingleton(sqliteFactory);
     builder.Configuration.AddSqliteConfiguration(sqliteFactory);
 }
@@ -266,12 +274,20 @@ else if (useSqlite)
     builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
 }
 builder.Services.AddSingleton<ConversationCommandProcessor>();
+if (builder.Services.Any(service => service.ServiceType == typeof(lucia.Wyoming.Diarization.VoiceOnboardingService)))
+{
+    builder.Services.AddSingleton<VoiceOnboardingWorkflow>();
+    builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<VoiceOnboardingWorkflow>());
+}
 builder.Services.AddSingleton<IPersonalityResponseRenderer, PersonalityResponseRenderer>();
 
 // Register span collector as an OTEL processor so captured Lucia.* spans
 // can be attached to conversation traces for the waterfall timeline.
-builder.Services.AddOpenTelemetry()
-    .WithTracing(tracing => tracing.AddProcessor<SpanCollectorProcessor>());
+if (builder.Services.Any(service => service.ServiceType == typeof(TracerProvider)))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithTracing(tracing => tracing.AddProcessor<SpanCollectorProcessor>());
+}
 
 // Task archive services
 builder.Services.Configure<TaskArchiveOptions>(
@@ -334,6 +350,10 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization(options =>
 {
+    options.AddPolicy(
+        AuthOptions.AdministratorPolicy,
+        policy => policy.RequireRole(AuthOptions.AdministratorRole));
+
     // Internal-only: only platform-injected token (agent → registry)
     options.AddPolicy("InternalOnly", policy =>
         policy.AddAuthenticationSchemes(InternalTokenDefaults.AuthenticationScheme)
@@ -369,6 +389,30 @@ builder.Services.AddSingleton<IAutoAssignEntityService, AutoAssignEntityService>
 builder.Services.AddSingleton<SkillOptimizerJobManager>();
 
 builder.Services.AddProblemDetails();
+if (isInstalledAppliance)
+{
+    var applianceSocketPath =
+        builder.Configuration["Appliance:ManagerSocketPath"]
+            ?? "/run/lucia-appliance/appliance-manager.sock";
+    builder.Services.AddSingleton(
+        new ApplianceManagerClient(applianceSocketPath));
+    builder.Services.AddSingleton<ApplianceUpdateStagingStore>();
+    builder.Services.AddHttpClient("appliance-updater", client =>
+    {
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "lucia-appliance-updater/1.0");
+        client.Timeout = TimeSpan.FromMinutes(30);
+    });
+    builder.Services.AddSingleton(serviceProvider =>
+        new ApplianceUpdateService(
+            serviceProvider
+                .GetRequiredService<IHttpClientFactory>()
+                .CreateClient("appliance-updater"),
+            serviceProvider.GetRequiredService<ApplianceManagerClient>(),
+            serviceProvider.GetRequiredService<ApplianceUpdateStagingStore>(),
+            serviceProvider.GetRequiredService<
+                ILogger<ApplianceUpdateService>>()));
+}
 
 builder.Services.AddOpenApi();
 
@@ -436,8 +480,11 @@ app.UseAuthorization();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error");
-    app.UseHsts();
+    app.UseExceptionHandler();
+    if (!isInstalledAppliance)
+    {
+        app.UseHsts();
+    }
 }
 else
 {
@@ -445,7 +492,7 @@ else
 }
 app.MapAuthApi();
 app.MapSetupApi();
-app.MapApiKeyManagementApi();
+app.MapApiKeyManagementApi(isInstalledAppliance);
 app.MapAgentRegistryApiV1();
 app.MapAgentProxyApi();
 app.MapAgentDiscovery();
@@ -492,7 +539,21 @@ app.MapVoiceConfigEndpoints();
 app.MapOnboardingEndpoints();
 app.MapVoiceClipEndpoints();
 #endif
-app.MapSystemApi();
+app.MapSystemApi(isInstalledAppliance);
+app.MapGet(
+        "/api/appliance/capabilities",
+        (ClaimsPrincipal user) => Results.Ok(new
+        {
+            Enabled = isInstalledAppliance
+                && user.IsInRole(AuthOptions.AdministratorRole),
+        }))
+    .RequireAuthorization()
+    .WithTags("Appliance");
+if (isInstalledAppliance)
+{
+    app.MapApplianceApi();
+    app.MapApplianceUpdateValidation();
+}
 app.MapDefaultEndpoints();
 
 // Bootstrap plugin repository into MongoDB

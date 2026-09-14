@@ -1,0 +1,30 @@
+[Unit]
+Description=Validate a newly activated Lucia OS slot
+After=lucia-agenthost.service lucia-redis.service network-online.target
+Wants=lucia-agenthost.service lucia-redis.service network-online.target
+ConditionPathExists=/var/lib/lucia/updates/state/os.env
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/libexec/lucia/lucia-validate-os-update
+TimeoutStartSec=1100s
+Restart=on-failure
+RestartSec=30s
+ReadWritePaths=/var/lib/lucia/updates
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_SYS_ADMIN CAP_SYS_BOOT
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target

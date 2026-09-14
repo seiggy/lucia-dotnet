@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 0077
+
+socket_path="${LUCIA_APPLIANCE_SOCKET:-/run/lucia-appliance/appliance-manager.sock}"
+curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
+updater_path="${LUCIA_UPDATE_PATH:-/usr/libexec/lucia/lucia-update}"
+systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
+attempts="${LUCIA_MANAGER_HEALTH_ATTEMPTS:-10}"
+delay="${LUCIA_MANAGER_HEALTH_DELAY_SECONDS:-1}"
+
+[[ "$attempts" =~ ^[1-9][0-9]?$ && "$delay" =~ ^[0-9]$ ]] || exit 1
+for ((attempt = 0; attempt < attempts; attempt++)); do
+    if "$curl_path" --fail --silent --show-error \
+            --max-time 1 \
+            --unix-socket "$socket_path" \
+            http://localhost/v1/updates/operation \
+            >/dev/null; then
+        if "$updater_path" finalize lucia; then
+            exit 0
+        fi
+        break
+    fi
+    sleep "$delay"
+done
+
+"$systemctl_path" stop lucia-agenthost.service lucia-redis.service || true
+"$updater_path" recover lucia
+"$systemctl_path" --no-block start \
+    lucia-redis.service lucia-agenthost.service
+exit 1

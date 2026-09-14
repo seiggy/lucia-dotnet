@@ -1,0 +1,107 @@
+receivers:
+  hostmetrics:
+    collection_interval: 30s
+    root_path: /hostfs
+    scrapers:
+      cpu: {}
+      disk: {}
+      filesystem:
+        exclude_fs_types:
+          fs_types:
+            - autofs
+            - binfmt_misc
+            - bpf
+            - cgroup2
+            - configfs
+            - debugfs
+            - devpts
+            - devtmpfs
+            - fusectl
+            - hugetlbfs
+            - mqueue
+            - overlay
+            - proc
+            - pstore
+            - securityfs
+            - sysfs
+            - tmpfs
+            - tracefs
+          match_type: strict
+      load: {}
+      memory: {}
+      network: {}
+      paging: {}
+      processes: {}
+      system: {}
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: lucia-postgres
+          scrape_interval: 30s
+          static_configs:
+            - targets: [lucia-postgres-exporter:9187]
+        - job_name: lucia-redis
+          scrape_interval: 30s
+          static_configs:
+            - targets: [lucia-redis-exporter:9121]
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 10s
+  resourcedetection/system:
+    detectors: [system]
+    override: false
+    system:
+      hostname_sources: [os]
+  resource/device:
+    attributes:
+      - key: device.id
+        value: ${env:JETSON_DEVICE_ID}
+        action: upsert
+      - key: host.name
+        value: ${env:JETSON_HOST_NAME}
+        action: upsert
+      - key: deployment.environment.name
+        value: ${env:DEPLOYMENT_ENVIRONMENT}
+        action: upsert
+      - key: service.namespace
+        value: lucia
+        action: upsert
+  transform/metric_identity:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["device.id"], resource.attributes["device.id"])
+          - set(attributes["host.name"], resource.attributes["host.name"])
+          - set(attributes["deployment.environment.name"], resource.attributes["deployment.environment.name"])
+          - set(attributes["service.namespace"], resource.attributes["service.namespace"])
+
+exporters:
+  otlp/remote:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    headers:
+      Authorization: ${env:OTEL_EXPORTER_OTLP_AUTHORIZATION}
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1024
+    timeout: 10s
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: /
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [hostmetrics, prometheus]
+      processors: [resourcedetection/system, resource/device, transform/metric_identity, batch]
+      exporters: [otlp/remote]

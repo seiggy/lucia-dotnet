@@ -334,6 +334,7 @@ function FieldEditor({
           <ToggleSwitch
             checked={checked}
             onChange={(val) => onChange(val ? 'true' : 'false')}
+            label={name}
           />
           <span className="text-sm text-dust">
             {checked ? 'Enabled' : 'Disabled'}
@@ -518,7 +519,7 @@ function MusicAssistantTestButton({ integrationId }: { integrationId: string }) 
           className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
             testing || !integrationId
               ? 'bg-stone text-dust cursor-not-allowed'
-              : 'bg-amber text-void hover:bg-amber-glow'
+              : 'bg-amber text-on-accent hover:bg-amber-glow'
           }`}
         >
           {testing ? (
@@ -815,7 +816,11 @@ export default function ConfigurationPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <ToggleSwitch checked={showSecrets} onChange={setShowSecrets} />
+            <ToggleSwitch
+              checked={showSecrets}
+              onChange={setShowSecrets}
+              label="Show secrets"
+            />
             <span className="text-sm text-dust">
               {showSecrets ? (
                 <span className="flex items-center gap-1 text-amber">
@@ -963,7 +968,7 @@ export default function ConfigurationPage() {
                     className={`rounded-xl px-5 py-2 text-sm font-medium transition-colors ${
                       saving || !isDirty()
                         ? 'bg-amber/40 text-dust cursor-not-allowed'
-                        : 'bg-amber text-void hover:bg-amber-glow'
+                        : 'bg-amber text-on-accent hover:bg-amber-glow'
                     }`}
                   >
                     {saving ? (

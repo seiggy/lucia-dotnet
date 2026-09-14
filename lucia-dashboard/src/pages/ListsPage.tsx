@@ -205,7 +205,7 @@ export default function ListsPage() {
             <button
               onClick={handleAddShopping}
               disabled={!newItem.trim() || actionId === 'add-shopping'}
-              className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {actionId === 'add-shopping' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             </button>
@@ -262,7 +262,7 @@ export default function ListsPage() {
                   <button
                     onClick={handleAddTodo}
                     disabled={!newItem.trim() || actionId === 'add-todo'}
-                    className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {actionId === 'add-todo' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                   </button>

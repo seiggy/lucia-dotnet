@@ -89,13 +89,24 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISttEngine, HybridSttEngine>();
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IGraniteEngine, GraniteOnnxEngine>();
-        builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
-        builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
+        if (builder.Configuration.GetValue("FeatureManagement:VadPipeline", true))
+        {
+            builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
+        }
+        if (builder.Configuration.GetValue("FeatureManagement:WakeWordPipeline", true))
+        {
+            builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
+        }
 
         builder.Services.AddSingleton<IDiarizationEngine, SherpaDiarizationEngine>();
         builder.Services.AddSingleton<ISpeechEnhancer, GtcrnSpeechEnhancer>();
         builder.Services.AddSingleton<AudioClipService>();
+        builder.Services.AddSingleton<SpeakerProfileDeletionService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<SpeakerProfileDeletionService>());
         builder.Services.AddSingleton<ProfileMergeService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<ProfileMergeService>());
 
         // Determine data provider mode from configuration
         var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
@@ -137,7 +148,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHostedService<ProvisionalProfileCleanupService>();
 
         builder.Services.AddSingleton<AudioQualityAnalyzer>();
+        builder.Services.AddSingleton<VoiceTurnStore>();
         builder.Services.AddSingleton<VoiceOnboardingService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<VoiceOnboardingService>());
 
         builder.Services.AddSingleton<WakeWordTokenizer>();
         builder.Services.AddSingleton<IWakeWordStore, InMemoryWakeWordStore>();

@@ -20,9 +20,8 @@ namespace lucia.AgentHost.Conversation.Execution;
 
 /// <summary>
 /// Executes matched command routes by calling skill methods directly, bypassing LLM processing.
-/// Entity resolution uses exact-match lookups against the in-memory cache only.
-/// If the cache is not loaded or no exact match is found, execution bails immediately
-/// so the orchestrator can handle the request via LLM.
+/// Entity resolution starts with deterministic cache matching and retries no-match results
+/// through the configured embedding matcher before deferring to LLM orchestration.
 /// </summary>
 public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 {
@@ -148,7 +147,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var state = captures.GetValueOrDefault("action", "on");
         var resolvedIds = useCascadingResolver
-            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, "light-agent", ct)
+            ? await ResolveEntitiesWithCascadeAsync(
+                route, context, LightDomains, skill.GetCurrentMatchOptions(), requireSingle: false, "light-agent", ct)
+                .ConfigureAwait(false)
             : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
         return await collector.RecordAsync(
@@ -164,14 +165,17 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
         if (!captures.TryGetValue("value", out var valueStr) ||
-            !int.TryParse(valueStr, CultureInfo.InvariantCulture, out var brightness))
+            !int.TryParse(valueStr, CultureInfo.InvariantCulture, out var brightness) ||
+            brightness is < 0 or > 100)
         {
             throw new InvalidOperationException(
-                "Brightness value not captured or not a valid integer");
+                "Brightness value must be an integer between 0 and 100");
         }
 
         var resolvedIds = useCascadingResolver
-            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, "light-agent", ct)
+            ? await ResolveEntitiesWithCascadeAsync(
+                route, context, LightDomains, skill.GetCurrentMatchOptions(), requireSingle: false, "light-agent", ct)
+                .ConfigureAwait(false)
             : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
         return await collector.RecordAsync(
@@ -187,14 +191,17 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
         if (!captures.TryGetValue("value", out var tempStr) ||
-            !double.TryParse(tempStr, CultureInfo.InvariantCulture, out var temperature))
+            !double.TryParse(tempStr, CultureInfo.InvariantCulture, out var temperature) ||
+            !double.IsFinite(temperature))
         {
             throw new InvalidOperationException(
-                "Temperature value not captured or not a valid number");
+                "Temperature value was not captured or is not a valid finite number");
         }
 
         var entityId = useCascadingResolver
-            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, "climate-agent", ct)
+            ? await ResolveSingleEntityWithCascadeAsync(
+                route, context, ClimateDomains, skill.GetCurrentMatchOptions(), "climate-agent", ct)
+                .ConfigureAwait(false)
             : ResolveEntityIdFromCache(route, ClimateDomains);
 
         return await collector.RecordAsync(
@@ -211,7 +218,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var direction = captures.GetValueOrDefault("action", "warmer");
         var entityId = useCascadingResolver
-            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, "climate-agent", ct)
+            ? await ResolveSingleEntityWithCascadeAsync(
+                route, context, ClimateDomains, skill.GetCurrentMatchOptions(), "climate-agent", ct)
+                .ConfigureAwait(false)
             : ResolveEntityIdFromCache(route, ClimateDomains);
 
         var stateInfo = await collector.RecordAsync(
@@ -250,7 +259,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     {
         var skill = _serviceProvider.GetRequiredService<SceneControlSkill>();
         var entityId = useCascadingResolver
-            ? ResolveSingleEntityWithCascade(route, context, SceneDomains, "scene-agent", ct)
+            ? await ResolveSingleEntityWithCascadeAsync(
+                route, context, SceneDomains, skill.GetCurrentMatchOptions(), "scene-agent", ct)
+                .ConfigureAwait(false)
             : ResolveEntityIdFromCache(route, SceneDomains, captureKey: "scene");
 
         return await collector.RecordAsync(
@@ -261,10 +272,11 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
     // ── Entity resolution helpers ────────────────────────────────────
 
-    private string[] ResolveEntitiesWithCascade(
+    private async Task<string[]> ResolveEntitiesWithCascadeAsync(
         CommandRouteResult route,
         ConversationContext context,
         IReadOnlyList<string> domains,
+        HybridMatchOptions matchOptions,
         bool requireSingle,
         string? callerAgentId,
         CancellationToken ct)
@@ -278,39 +290,80 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
             callerAgentId,
             ct);
 
-        if (!result.IsResolved)
+        var resolvedIds = result.ResolvedEntityIds;
+        if (!result.IsResolved && result.BailReason == BailReason.NoMatch)
+        {
+            if (_entityLocationService is not IAgentFilteredEntityLocationService filteredLocationService
+                || callerAgentId is null)
+            {
+                throw new EntityResolutionBailException(
+                    result.BailReason.Value.ToString(),
+                    result.Explanation ?? "Agent-filtered entity search is unavailable");
+            }
+
+            var fuzzyResult = await filteredLocationService.SearchHierarchyForAgentAsync(
+                ResolveEntitySearchQuery(route),
+                options: matchOptions,
+                domainFilter: domains,
+                callerAgentId,
+                ct: ct).ConfigureAwait(false);
+            resolvedIds = fuzzyResult.ResolvedEntities
+                .Select(entity => entity.EntityId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        if (resolvedIds.Count == 0)
         {
             var reason = result.BailReason?.ToString() ?? "cascade_bail";
             var explanation = result.Explanation ?? "Cascading resolver bailed; deferring to orchestrator";
             throw new EntityResolutionBailException(reason, explanation);
         }
 
-        if (result.ResolvedEntityIds.Count == 0)
-        {
-            throw new EntityResolutionBailException(
-                BailReason.NoMatch.ToString(),
-                "Cascading resolver returned no entity IDs");
-        }
-
-        if (requireSingle && result.ResolvedEntityIds.Count != 1)
+        if (requireSingle && resolvedIds.Count != 1)
         {
             throw new EntityResolutionBailException(
                 BailReason.Ambiguous.ToString(),
                 "Multiple entities resolved for single-target command");
         }
 
-        return result.ResolvedEntityIds.ToArray();
+        return resolvedIds.ToArray();
     }
 
-    private string ResolveSingleEntityWithCascade(
+    private async Task<string> ResolveSingleEntityWithCascadeAsync(
         CommandRouteResult route,
         ConversationContext context,
         IReadOnlyList<string> domains,
+        HybridMatchOptions matchOptions,
         string? callerAgentId,
         CancellationToken ct)
     {
-        var resolvedIds = ResolveEntitiesWithCascade(route, context, domains, requireSingle: true, callerAgentId, ct);
+        var resolvedIds = await ResolveEntitiesWithCascadeAsync(
+            route, context, domains, matchOptions, requireSingle: true, callerAgentId, ct).ConfigureAwait(false);
         return resolvedIds[0];
+    }
+
+    private static string ResolveEntitySearchQuery(CommandRouteResult route)
+    {
+        if (route.CapturedValues?.TryGetValue("entity", out var entity) == true
+            && !string.IsNullOrWhiteSpace(entity))
+        {
+            return entity;
+        }
+
+        if (route.CapturedValues?.TryGetValue("scene", out var scene) == true
+            && !string.IsNullOrWhiteSpace(scene))
+        {
+            return scene;
+        }
+
+        if (route.CapturedValues?.TryGetValue("area", out var area) == true
+            && !string.IsNullOrWhiteSpace(area))
+        {
+            return area;
+        }
+
+        return route.NormalizedTranscript ?? route.MatchedTemplate ?? string.Empty;
     }
 
     private static string ResolveCascadeQuery(CommandRouteResult route)

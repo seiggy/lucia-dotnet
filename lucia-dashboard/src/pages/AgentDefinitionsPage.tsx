@@ -155,7 +155,7 @@ export default function AgentDefinitionsPage() {
           </button>
           <button
             onClick={() => setMode('create')}
-            className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow"
+            className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow"
           >
             + New Agent
           </button>
@@ -225,7 +225,7 @@ export default function AgentDefinitionsPage() {
                   {!def.isBuiltIn && (
                     <button
                       onClick={() => handleDelete(def.id)}
-                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-800"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-ember/25"
                     >
                       Delete
                     </button>
@@ -605,7 +605,7 @@ function AgentForm({
           <button
             type="submit"
             disabled={saving}
-            className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50"
+            className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50"
           >
             {saving ? 'Saving...' : definition ? 'Update Agent' : 'Create Agent'}
           </button>

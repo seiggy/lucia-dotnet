@@ -1,3 +1,5 @@
+using lucia.EvalHarness.Evaluation;
+
 namespace lucia.EvalHarness.Personality;
 
 /// <summary>
@@ -13,13 +15,15 @@ public sealed class PersonalityEvalReport
     public required DateTimeOffset CompletedAt { get; init; }
 
     public int TotalCombinations => Results.Count;
+    public InferenceCostSummary Cost => InferenceCostSummary.Aggregate(Results.Select(result => result.Cost));
+    public decimal? MeanTestCostUsd => Results.Count > 0 ? Cost.EstimatedUsd / Results.Count : null;
 
     /// <summary>
     /// Average combined score across all successfully judged results (1-5 scale).
     /// Timed-out judge results are excluded so a judge outage doesn't lower scores.
     /// </summary>
-    public double AverageCombinedScore =>
-        Results.Where(r => r.JudgeResult is { TimedOut: false }).Select(r => r.JudgeResult!.CombinedScore).DefaultIfEmpty(0).Average();
+    public double? AverageCombinedScore => Average(
+        Results.Where(result => !result.TimedOut).Select(result => result.JudgeResult?.CombinedScore));
 
     public IReadOnlyList<string> ScenarioIds =>
         Results.Select(r => r.ScenarioId).Distinct().ToList();
@@ -31,28 +35,36 @@ public sealed class PersonalityEvalReport
     /// Average personality adherence score across all successfully judged results (0-5).
     /// Timed-out judge results are excluded.
     /// </summary>
-    public double AveragePersonalityScore =>
-        Results.Where(r => r.JudgeResult is { TimedOut: false }).Select(r => r.JudgeResult!.PersonalityScore).DefaultIfEmpty(0).Average();
+    public double? AveragePersonalityScore => Average(
+        Results.Where(result => !result.TimedOut).Select(result => result.JudgeResult?.PersonalityScore is { } score
+            ? (double?)score
+            : null));
 
     /// <summary>
     /// Average meaning preservation score across all successfully judged results (0-5).
     /// Timed-out judge results are excluded.
     /// </summary>
-    public double AverageMeaningScore =>
-        Results.Where(r => r.JudgeResult is { TimedOut: false }).Select(r => r.JudgeResult!.MeaningScore).DefaultIfEmpty(0).Average();
+    public double? AverageMeaningScore => Average(
+        Results.Where(result => !result.TimedOut).Select(result => result.JudgeResult?.MeaningScore is { } score
+            ? (double?)score
+            : null));
 
     /// <summary>
     /// Results where meaning score is below 3 — the dangerous failures.
     /// Timed-out judge results are excluded so a judge outage isn't reported as meaning loss.
     /// </summary>
     public IReadOnlyList<PersonalityScenarioResult> MeaningFailures =>
-        Results.Where(r => r.JudgeResult is { TimedOut: false } && r.JudgeResult.MeaningScore < 3).ToList();
+        Results.Where(result => !result.TimedOut && result.JudgeResult?.MeaningScore is < 3).ToList();
 
     /// <summary>
-    /// Results that failed because the model-under-test or judge call exceeded its
-    /// deadline. Surfaced separately from scored failures so timeouts aren't conflated
-    /// with genuine zero-score judgements.
+    /// Results that failed because the model-under-test or judge call exceeded its deadline.
     /// </summary>
     public IReadOnlyList<PersonalityScenarioResult> Timeouts =>
-        Results.Where(r => r.TimedOut).ToList();
+        Results.Where(result => result.TimedOut).ToList();
+
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
+    }
 }

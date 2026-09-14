@@ -1,0 +1,372 @@
+- generic [ref=e2]:
+  - generic "Aspire" [ref=e4]:
+    - link "Aspire" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - generic:
+        - generic:
+          - generic:
+            - img
+  - banner [ref=e6]:
+    - generic [ref=e7]:
+      - link "lucia" [ref=e9] [cursor=pointer]:
+        - /url: /
+        - generic:
+          - generic: lucia
+      - generic "Aspire repo" [ref=e10]:
+        - link "Aspire repo" [ref=e11] [cursor=pointer]:
+          - /url: https://aka.ms/aspire/repo
+          - generic:
+            - generic:
+              - img
+      - generic "Help" [ref=e12] [cursor=pointer]:
+        - button "Help" [ref=e13]:
+          - generic:
+            - generic:
+              - img
+      - generic "AI agents" [ref=e14] [cursor=pointer]:
+        - button "AI agents" [ref=e15]:
+          - generic:
+            - generic:
+              - img
+      - generic "Notifications" [ref=e16] [cursor=pointer]:
+        - button "Notifications" [ref=e17]:
+          - generic:
+            - generic:
+              - img
+      - generic "Settings" [ref=e18] [cursor=pointer]:
+        - button "Settings" [ref=e19]:
+          - generic:
+            - generic:
+              - img
+  - navigation [ref=e20]:
+    - generic "Resources" [ref=e21]:
+      - link "Resources" [ref=e23] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e24]:
+          - img [ref=e429]
+          - generic [ref=e27]: Resources
+    - generic "Console" [ref=e28]:
+      - link "Console" [ref=e30] [cursor=pointer]:
+        - /url: /consolelogs
+        - generic [ref=e31]:
+          - img [ref=e32]
+          - generic [ref=e34]: Console
+    - generic "Structured" [ref=e35]:
+      - link "Structured" [ref=e37] [cursor=pointer]:
+        - /url: /structuredlogs
+        - generic [ref=e38]:
+          - img [ref=e39]
+          - generic [ref=e41]: Structured
+    - generic "Traces" [ref=e42]:
+      - link "Traces" [ref=e44] [cursor=pointer]:
+        - /url: /traces
+        - generic [ref=e45]:
+          - img [ref=e46]
+          - generic [ref=e48]: Traces
+    - generic "Metrics" [ref=e49]:
+      - link "Metrics" [active] [ref=e51] [cursor=pointer]:
+        - /url: /metrics
+        - generic [ref=e52]:
+          - img [ref=e431]
+          - generic [ref=e55]: Metrics
+  - generic [ref=e58]:
+    - img [ref=e60]
+    - generic [ref=e62]:
+      - generic [ref=e63]: Update now
+      - text: Aspire 13.4.6 is available.
+      - generic "Link" [ref=e64]:
+        - link "Upgrade instructions" [ref=e65] [cursor=pointer]:
+          - /url: https://aka.ms/aspire/update-latest
+          - generic:
+            - generic: Upgrade instructions
+    - generic [ref=e66]:
+      - generic "Alert action" [ref=e67] [cursor=pointer]:
+        - button "Alert action" [ref=e68]:
+          - generic:
+            - generic: Ignore
+      - img [ref=e69] [cursor=pointer]
+  - generic [ref=e434]:
+    - banner "Page toolbar" [ref=e435]:
+      - heading "Metrics" [level=1] [ref=e436]
+      - toolbar [ref=e437]:
+        - generic [ref=e438]:
+          - generic:
+            - generic [ref=e439]: Resource
+            - combobox "Select a resource" [ref=e440]:
+              - generic [ref=e442] [cursor=pointer]:
+                - generic [ref=e443]: lucia-agenthost
+                - img [ref=e446]
+            - generic "Pause incoming data" [ref=e448] [cursor=pointer]:
+              - button "Pause incoming data" [ref=e449]:
+                - generic:
+                  - generic:
+                    - img
+            - generic "Remove data" [ref=e450] [cursor=pointer]:
+              - button "Remove data" [ref=e451]:
+                - generic:
+                  - generic:
+                    - img
+                - generic:
+                  - generic:
+                    - img
+          - generic [ref=e452]:
+            - generic:
+              - generic [ref=e453] [cursor=pointer]: Duration
+              - combobox "Duration" [ref=e454]:
+                - generic [ref=e456] [cursor=pointer]:
+                  - generic [ref=e457]: Last 5 minutes
+                  - img [ref=e460]
+                - generic: Last 1 minute
+                - generic: Last 5 minutes
+                - generic: Last 15 minutes
+                - generic: Last 30 minutes
+                - generic: Last hour
+                - generic: Last 3 hours
+                - generic: Last 6 hours
+                - generic: Last 12 hours
+    - main [ref=e462]:
+      - generic [ref=e464]:
+        - tree [ref=e466]:
+          - generic:
+            - treeitem "Microsoft.AspNetCore.Authentication" [expanded] [ref=e467] [cursor=pointer]:
+              - generic [ref=e469]:
+                - generic [ref=e471]:
+                  - img
+                - generic:
+                  - generic: Microsoft.AspNetCore.Authentication
+              - group [ref=e472]:
+                - treeitem "aspnetcore.authentication.authenticate.duration" [ref=e473]:
+                  - generic [ref=e475]:
+                    - generic:
+                      - generic: aspnetcore.authentication.authenticate.duration
+            - treeitem "Microsoft.AspNetCore.Hosting" [expanded] [ref=e476] [cursor=pointer]:
+              - generic [ref=e478]:
+                - generic [ref=e480]:
+                  - img
+                - generic:
+                  - generic: Microsoft.AspNetCore.Hosting
+              - group [ref=e481]:
+                - generic:
+                  - treeitem "http.server.active_requests" [ref=e482]:
+                    - generic [ref=e484]:
+                      - generic:
+                        - generic: http.server.active_requests
+                  - treeitem "http.server.request.duration" [ref=e485]:
+                    - generic [ref=e487]:
+                      - generic:
+                        - generic: http.server.request.duration
+            - treeitem "Microsoft.AspNetCore.MemoryPool" [expanded] [ref=e488] [cursor=pointer]:
+              - generic [ref=e490]:
+                - generic [ref=e492]:
+                  - img
+                - generic:
+                  - generic: Microsoft.AspNetCore.MemoryPool
+              - group [ref=e493]:
+                - generic:
+                  - treeitem "aspnetcore.memory_pool.allocated" [ref=e494]:
+                    - generic [ref=e496]:
+                      - generic:
+                        - generic: aspnetcore.memory_pool.allocated
+                  - treeitem "aspnetcore.memory_pool.evicted" [ref=e497]:
+                    - generic [ref=e499]:
+                      - generic:
+                        - generic: aspnetcore.memory_pool.evicted
+                  - treeitem "aspnetcore.memory_pool.pooled" [ref=e500]:
+                    - generic [ref=e502]:
+                      - generic:
+                        - generic: aspnetcore.memory_pool.pooled
+                  - treeitem "aspnetcore.memory_pool.rented" [ref=e503]:
+                    - generic [ref=e505]:
+                      - generic:
+                        - generic: aspnetcore.memory_pool.rented
+            - treeitem "Microsoft.AspNetCore.Routing" [expanded] [ref=e506] [cursor=pointer]:
+              - generic [ref=e508]:
+                - generic [ref=e510]:
+                  - img
+                - generic:
+                  - generic: Microsoft.AspNetCore.Routing
+              - group [ref=e511]:
+                - treeitem "aspnetcore.routing.match_attempts" [ref=e512]:
+                  - generic [ref=e514]:
+                    - generic:
+                      - generic: aspnetcore.routing.match_attempts
+            - treeitem "Microsoft.AspNetCore.Server.Kestrel" [expanded] [ref=e515] [cursor=pointer]:
+              - generic [ref=e517]:
+                - generic [ref=e519]:
+                  - img
+                - generic:
+                  - generic: Microsoft.AspNetCore.Server.Kestrel
+              - group [ref=e520]:
+                - generic:
+                  - treeitem "kestrel.active_connections" [ref=e521]:
+                    - generic [ref=e523]:
+                      - generic:
+                        - generic: kestrel.active_connections
+                  - treeitem "kestrel.active_tls_handshakes" [ref=e524]:
+                    - generic [ref=e526]:
+                      - generic:
+                        - generic: kestrel.active_tls_handshakes
+                  - treeitem "kestrel.connection.duration" [ref=e527]:
+                    - generic [ref=e529]:
+                      - generic:
+                        - generic: kestrel.connection.duration
+                  - treeitem "kestrel.queued_connections" [ref=e530]:
+                    - generic [ref=e532]:
+                      - generic:
+                        - generic: kestrel.queued_connections
+                  - treeitem "kestrel.tls_handshake.duration" [ref=e533]:
+                    - generic [ref=e535]:
+                      - generic:
+                        - generic: kestrel.tls_handshake.duration
+            - treeitem "OpenTelemetry.Instrumentation.Process" [expanded] [ref=e536] [cursor=pointer]:
+              - generic [ref=e538]:
+                - generic [ref=e540]:
+                  - img
+                - generic:
+                  - generic: OpenTelemetry.Instrumentation.Process
+              - group [ref=e541]:
+                - generic:
+                  - treeitem "process.cpu.count" [ref=e542]:
+                    - generic [ref=e544]:
+                      - generic:
+                        - generic: process.cpu.count
+                  - treeitem "process.cpu.time" [ref=e545]:
+                    - generic [ref=e547]:
+                      - generic:
+                        - generic: process.cpu.time
+                  - treeitem "process.memory.usage" [ref=e548]:
+                    - generic [ref=e550]:
+                      - generic:
+                        - generic: process.memory.usage
+                  - treeitem "process.memory.virtual" [ref=e551]:
+                    - generic [ref=e553]:
+                      - generic:
+                        - generic: process.memory.virtual
+                  - treeitem "process.thread.count" [ref=e554]:
+                    - generic [ref=e556]:
+                      - generic:
+                        - generic: process.thread.count
+            - treeitem "System.Net.Http" [expanded] [ref=e557] [cursor=pointer]:
+              - generic [ref=e559]:
+                - generic [ref=e561]:
+                  - img
+                - generic:
+                  - generic: System.Net.Http
+              - group [ref=e562]:
+                - generic:
+                  - treeitem "http.client.active_requests" [ref=e563]:
+                    - generic [ref=e565]:
+                      - generic:
+                        - generic: http.client.active_requests
+                  - treeitem "http.client.connection.duration" [ref=e566]:
+                    - generic [ref=e568]:
+                      - generic:
+                        - generic: http.client.connection.duration
+                  - treeitem "http.client.open_connections" [ref=e569]:
+                    - generic [ref=e571]:
+                      - generic:
+                        - generic: http.client.open_connections
+                  - treeitem "http.client.request.duration" [ref=e572]:
+                    - generic [ref=e574]:
+                      - generic:
+                        - generic: http.client.request.duration
+                  - treeitem "http.client.request.time_in_queue" [ref=e575]:
+                    - generic [ref=e577]:
+                      - generic:
+                        - generic: http.client.request.time_in_queue
+            - treeitem "System.Net.NameResolution" [expanded] [ref=e578] [cursor=pointer]:
+              - generic [ref=e580]:
+                - generic [ref=e582]:
+                  - img
+                - generic:
+                  - generic: System.Net.NameResolution
+              - group [ref=e583]:
+                - treeitem "dns.lookup.duration" [ref=e584]:
+                  - generic [ref=e586]:
+                    - generic:
+                      - generic: dns.lookup.duration
+            - treeitem "System.Runtime" [expanded] [ref=e587] [cursor=pointer]:
+              - generic [ref=e589]:
+                - generic [ref=e591]:
+                  - img
+                - generic:
+                  - generic: System.Runtime
+              - group [ref=e592]:
+                - generic:
+                  - treeitem "dotnet.assembly.count" [ref=e593]:
+                    - generic [ref=e595]:
+                      - generic:
+                        - generic: dotnet.assembly.count
+                  - treeitem "dotnet.exceptions" [ref=e596]:
+                    - generic [ref=e598]:
+                      - generic:
+                        - generic: dotnet.exceptions
+                  - treeitem "dotnet.gc.collections" [ref=e599]:
+                    - generic [ref=e601]:
+                      - generic:
+                        - generic: dotnet.gc.collections
+                  - treeitem "dotnet.gc.heap.total_allocated" [ref=e602]:
+                    - generic [ref=e604]:
+                      - generic:
+                        - generic: dotnet.gc.heap.total_allocated
+                  - treeitem "dotnet.gc.last_collection.heap.fragmentation.size" [ref=e605]:
+                    - generic [ref=e607]:
+                      - generic:
+                        - generic: dotnet.gc.last_collection.heap.fragmentation.size
+                  - treeitem "dotnet.gc.last_collection.heap.size" [ref=e608]:
+                    - generic [ref=e610]:
+                      - generic:
+                        - generic: dotnet.gc.last_collection.heap.size
+                  - treeitem "dotnet.gc.last_collection.memory.committed_size" [ref=e611]:
+                    - generic [ref=e613]:
+                      - generic:
+                        - generic: dotnet.gc.last_collection.memory.committed_size
+                  - treeitem "dotnet.gc.pause.time" [ref=e614]:
+                    - generic [ref=e616]:
+                      - generic:
+                        - generic: dotnet.gc.pause.time
+                  - treeitem "dotnet.jit.compilation.time" [ref=e617]:
+                    - generic [ref=e619]:
+                      - generic:
+                        - generic: dotnet.jit.compilation.time
+                  - treeitem "dotnet.jit.compiled_il.size" [ref=e620]:
+                    - generic [ref=e622]:
+                      - generic:
+                        - generic: dotnet.jit.compiled_il.size
+                  - treeitem "dotnet.jit.compiled_methods" [ref=e623]:
+                    - generic [ref=e625]:
+                      - generic:
+                        - generic: dotnet.jit.compiled_methods
+                  - treeitem "dotnet.monitor.lock_contentions" [ref=e626]:
+                    - generic [ref=e628]:
+                      - generic:
+                        - generic: dotnet.monitor.lock_contentions
+                  - treeitem "dotnet.process.cpu.count" [ref=e629]:
+                    - generic [ref=e631]:
+                      - generic:
+                        - generic: dotnet.process.cpu.count
+                  - treeitem "dotnet.process.cpu.time" [ref=e632]:
+                    - generic [ref=e634]:
+                      - generic:
+                        - generic: dotnet.process.cpu.time
+                  - treeitem "dotnet.process.memory.working_set" [ref=e635]:
+                    - generic [ref=e637]:
+                      - generic:
+                        - generic: dotnet.process.memory.working_set
+                  - treeitem "dotnet.thread_pool.queue.length" [ref=e638]:
+                    - generic [ref=e640]:
+                      - generic:
+                        - generic: dotnet.thread_pool.queue.length
+                  - treeitem "dotnet.thread_pool.thread.count" [ref=e641]:
+                    - generic [ref=e643]:
+                      - generic:
+                        - generic: dotnet.thread_pool.thread.count
+                  - treeitem "dotnet.thread_pool.work_item.count" [ref=e644]:
+                    - generic [ref=e646]:
+                      - generic:
+                        - generic: dotnet.thread_pool.work_item.count
+                  - treeitem "dotnet.timer.count" [ref=e647]:
+                    - generic [ref=e649]:
+                      - generic:
+                        - generic: dotnet.timer.count
+        - paragraph [ref=e654]: Select instrument.

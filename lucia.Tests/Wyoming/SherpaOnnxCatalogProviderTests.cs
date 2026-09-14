@@ -43,11 +43,13 @@ public sealed class SherpaOnnxCatalogProviderTests
     }
 
     [Fact]
-    public async Task GetModelsAsync_SpeakerEmbedding_ReturnsThreeModels()
+    public async Task GetModelsAsync_SpeakerEmbedding_IncludesSpeakerNetCandidate()
     {
         var models = await _provider.GetModelsAsync(EngineType.SpeakerEmbedding);
 
-        Assert.Equal(3, models.Count);
+        Assert.Contains(models, model =>
+            model.Id == "nemo_en_speakerverification_speakernet"
+            && model.Languages.SequenceEqual(["en"]));
     }
 
     [Fact]
@@ -59,11 +61,16 @@ public sealed class SherpaOnnxCatalogProviderTests
     }
 
     [Fact]
-    public async Task GetModelsAsync_OfflineStt_ReturnsThreeModels()
+    public async Task GetModelsAsync_OfflineStt_DefaultsToParakeetV3()
     {
         var models = await _provider.GetModelsAsync(EngineType.OfflineStt);
 
-        Assert.Equal(3, models.Count);
+        var defaultModel = Assert.Single(models, model => model.IsDefault);
+        Assert.Equal("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", defaultModel.Id);
+        Assert.Contains("uk", defaultModel.Languages);
+        Assert.DoesNotContain(
+            await _provider.GetModelsAsync(EngineType.Stt),
+            model => model.Id == defaultModel.Id);
     }
 
     [Fact]

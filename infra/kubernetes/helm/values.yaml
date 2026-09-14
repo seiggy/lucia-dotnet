@@ -282,12 +282,13 @@ traceCapture:
 
 ## Observability Configuration
 observability:
-  # Enable OpenTelemetry
-  enabled: true
-  # OpenTelemetry trace exporter endpoint
-  traceExporter: "http://jaeger-collector:4317"
-  # OpenTelemetry metrics exporter endpoint
-  metricsExporter: "http://prometheus:8888"
+  # Off, Metrics, Trace, or Profile
+  mode: Trace
+  # Authenticated OTLP/gRPC endpoint. Leave empty to collect without remote export.
+  otlpEndpoint: ""
+  # OTLP headers are stored in the generated Secret, not the ConfigMap.
+  # Prefer an external secret manager for production Helm releases.
+  otlpHeaders: ""
 
 ## A2A Agent Hosts Configuration (plugin agents)
 ## Each agent is built from infra/docker/Dockerfile.a2ahost with a --target stage

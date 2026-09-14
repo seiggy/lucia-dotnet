@@ -170,6 +170,8 @@ services:
     volumes:
       # Model storage: Writable by appuser (1100:1100), persists across container recreation
       - lucia-models:/app/models
+      # Voice clips: Persists enrollment and unknown-speaker recordings for benchmark export
+      - lucia-voice-data:/app/data
     
     environment:
       # ASP.NET Core configuration
@@ -191,6 +193,7 @@ services:
 
       # Wyoming voice platform (models are pre-loaded in the image)
       - Wyoming__Models__HybridStt__Enabled=true
+      - Wyoming__VoiceProfiles__AudioClipBasePath=/app/data/voice-clips
       - ORT_THREADPOOL_SPIN_CONTROL=0
     
     healthcheck:
@@ -250,4 +253,8 @@ volumes:
   # Lucia model storage (writable by appuser, persists across container recreations)
   # Stores STT, VAD, wake-word, speech-enhancement, and speaker-embedding ONNX models
   lucia-models:
+    driver: local
+
+  # Voice recordings used for enrollment review and offline benchmarks
+  lucia-voice-data:
     driver: local

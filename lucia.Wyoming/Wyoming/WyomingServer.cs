@@ -105,7 +105,7 @@ public sealed partial class WyomingServer : IHostedService, IDisposable
         await Task.Yield();
 
         var startedAt = Stopwatch.GetTimestamp();
-        var gracefulTimeout = TimeSpan.FromTicks(ShutdownTimeout.Ticks * 4 / 5);
+        var gracefulTimeout = TimeSpan.FromTicks(ShutdownTimeout.Ticks * 3 / 5);
         TcpListener? listener;
         CancellationTokenSource? cts;
         Task? acceptLoopTask;
@@ -211,17 +211,24 @@ public sealed partial class WyomingServer : IHostedService, IDisposable
 
     private Task AbortSessionsAsync(KeyValuePair<Task, WyomingSession>[] sessions)
     {
-        return Task.WhenAll(sessions.Select(entry => Task.Run(() =>
-        {
-            try
+        return Task.Factory.StartNew(
+            () =>
             {
-                entry.Value.AbortTransport();
-            }
-            catch (Exception ex)
-            {
-                LogSessionCleanupFailure(_logger, entry.Value.Id, ex);
-            }
-        })));
+                foreach (var entry in sessions)
+                {
+                    try
+                    {
+                        entry.Value.AbortTransport();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogSessionCleanupFailure(_logger, entry.Value.Id, ex);
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
     }
 
     private void ObserveLateShutdown(

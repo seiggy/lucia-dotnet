@@ -1,6 +1,6 @@
 # Lucia Dashboard
 
-The Lucia Dashboard is a React management UI for the [Lucia](../README.md) home assistant AI platform. It provides real-time monitoring, agent configuration, trace inspection, and full system administration through a dark-themed, mobile-responsive web interface.
+The Lucia Dashboard is a React management UI for the [Lucia](../README.md) home assistant AI platform. It provides real-time monitoring, agent configuration, trace inspection, and full system administration through a mobile-responsive interface with System, Light, and Dark themes.
 
 ## Tech Stack
 

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>Lucia-PostgreSQL</Name>
+  <Repository>postgres:17</Repository>
+  <Registry>https://hub.docker.com/_/postgres</Registry>
+  <Network>lucia</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/seiggy/lucia-dotnet/issues</Support>
+  <Project>https://github.com/seiggy/lucia-dotnet</Project>
+  <Overview>PostgreSQL storage for Lucia configuration, traces, and tasks. Before installing, run `docker network create lucia` in the Unraid terminal. Install this template before Lucia.</Overview>
+  <Category>HomeAutomation:</Category>
+  <TemplateURL>https://raw.githubusercontent.com/seiggy/lucia-dotnet/master/templates/lucia-postgres.xml</TemplateURL>
+  <ReadMe>https://github.com/seiggy/lucia-dotnet/blob/master/infra/unraid/README.md</ReadMe>
+  <Icon>https://raw.githubusercontent.com/docker-library/docs/master/postgres/logo.png</Icon>
+  <ExtraSearchTerms>lucia database postgres home assistant</ExtraSearchTerms>
+  <ExtraParams>--restart=unless-stopped --health-cmd="pg_isready -U lucia -d postgres" --health-interval=10s --health-timeout=5s --health-retries=5</ExtraParams>
+  <Requires>Before installing, run `docker network create lucia` in the Unraid terminal and install the supplied init.sql file as described in the Lucia Unraid readme.</Requires>
+  <License>PostgreSQL</License>
+  <Config Name="Data" Target="/var/lib/postgresql/data" Default="/mnt/cache/appdata/lucia/postgres" Mode="rw" Description="PostgreSQL data. Use a direct cache-pool path, not an array path." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Initialization" Target="/docker-entrypoint-initdb.d" Default="/mnt/cache/appdata/lucia/postgres-init" Mode="ro" Description="Directory containing the supplied init.sql file. PostgreSQL reads it only when creating a new data directory." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Database user" Target="POSTGRES_USER" Default="lucia" Mode="" Description="Lucia database user." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Database password" Target="POSTGRES_PASSWORD" Default="" Mode="" Description="Use the same password in all three Lucia PostgreSQL connection strings." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Bootstrap database" Target="POSTGRES_DB" Default="postgres" Mode="" Description="Bootstrap database used while init.sql creates Lucia's databases." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Initialization options" Target="POSTGRES_INITDB_ARGS" Default="--data-checksums" Mode="" Description="Options used only when PostgreSQL creates a new data directory." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Timezone" Target="TZ" Default="Etc/UTC" Mode="" Description="Container timezone." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Port" Target="5432" Default="" Mode="tcp" Description="Optional host port for external database tools. Lucia does not need it." Type="Port" Display="advanced" Required="false" Mask="false"/>
+</Container>

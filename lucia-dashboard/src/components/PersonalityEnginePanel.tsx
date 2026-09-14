@@ -225,7 +225,7 @@ export default function PersonalityEnginePanel({
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
               saving || !isDirty()
                 ? 'bg-stone text-dust cursor-not-allowed'
-                : 'bg-amber text-void hover:bg-amber-glow'
+                : 'bg-amber text-on-accent hover:bg-amber-glow'
             }`}
           >
             <Save className="h-4 w-4" />

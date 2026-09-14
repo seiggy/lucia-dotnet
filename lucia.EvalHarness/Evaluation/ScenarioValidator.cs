@@ -7,23 +7,6 @@ using lucia.Tests.TestDoubles;
 namespace lucia.EvalHarness.Evaluation;
 
 /// <summary>
-/// Result of validating a scenario's expected tool calls and state against actual execution.
-/// </summary>
-public sealed class ScenarioValidationResult
-{
-    public required string ScenarioId { get; init; }
-    public required bool Passed { get; init; }
-    public required double Score { get; init; }
-    public required List<string> Issues { get; init; }
-    public required List<string> Successes { get; init; }
-
-    /// <summary>Describes all validation outcomes as a single string.</summary>
-    public string Summary => Passed
-        ? $"PASS ({Successes.Count} checks passed)"
-        : $"FAIL: {string.Join("; ", Issues)}";
-}
-
-/// <summary>
 /// Validates a completed scenario execution against its expected tool calls,
 /// response content, and final entity state.
 /// </summary>
@@ -55,7 +38,12 @@ public static class ScenarioValidator
                     ? fn?.ToString()
                     : null;
 
-                snapshotService.RegisterEntity(entityId, friendlyName);
+                var areaId = setup.Area is null
+                    ? null
+                    : snapshotService.ExactMatchArea(setup.Area)?.AreaId
+                      ?? throw new InvalidOperationException(
+                          $"Scenario '{scenario.Id}' assigns '{entityId}' to unknown snapshot area '{setup.Area}'.");
+                snapshotService.RegisterEntity(entityId, friendlyName, areaId);
             }
         }
     }
@@ -135,6 +123,13 @@ public static class ScenarioValidator
             }
 
             var actual = actualToolCalls[i];
+            var variants = new[] { exp }.Concat(exp.Alternatives).ToList();
+            exp = variants.FirstOrDefault(candidate =>
+                      string.Equals(NormalizeFunctionName(candidate.Tool), NormalizeFunctionName(actual.Name), StringComparison.OrdinalIgnoreCase) &&
+                      candidate.Arguments.All(argument => MatchesArgument(GetArgument(actual, argument.Key), argument.Value)))
+                  ?? variants.FirstOrDefault(candidate =>
+                      string.Equals(NormalizeFunctionName(candidate.Tool), NormalizeFunctionName(actual.Name), StringComparison.OrdinalIgnoreCase))
+                  ?? exp;
 
             // Check tool name — normalize away the "Async" suffix that
             // AIFunctionFactory.Create strips from method names so YAML
@@ -153,13 +148,7 @@ public static class ScenarioValidator
             // Check arguments
             foreach (var (argName, expectedValue) in exp.Arguments)
             {
-                if (actual.Arguments is null || !actual.Arguments.TryGetValue(argName, out var actualValue))
-                {
-                    // Try case-insensitive lookup
-                    var match = actual.Arguments?.FirstOrDefault(
-                        kvp => string.Equals(kvp.Key, argName, StringComparison.OrdinalIgnoreCase));
-                    actualValue = match?.Value;
-                }
+                var actualValue = GetArgument(actual, argName);
 
                 if (actualValue is null)
                 {
@@ -189,6 +178,16 @@ public static class ScenarioValidator
             }
         }
     }
+
+    private static string? GetArgument(ToolCallInfo actual, string name) =>
+        actual.Arguments?.FirstOrDefault(argument =>
+            string.Equals(argument.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
+
+    private static bool MatchesArgument(string? actual, string expected) =>
+        actual is not null && (expected == "*" ||
+            (expected.StartsWith("contains:", StringComparison.OrdinalIgnoreCase)
+                ? actual.Contains(expected["contains:".Length..], StringComparison.OrdinalIgnoreCase)
+                : actual.Equals(expected, StringComparison.OrdinalIgnoreCase)));
 
     private static void ValidateResponse(
         TestScenario scenario,

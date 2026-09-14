@@ -17,6 +17,7 @@
 **/charts
 **/docker-compose*
 **/Dockerfile*
+**/data/voice-clips/**
 **/node_modules
 **/npm-debug.log
 **/obj

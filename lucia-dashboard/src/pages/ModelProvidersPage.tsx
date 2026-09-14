@@ -21,6 +21,7 @@ type FormMode = 'list' | 'create' | 'edit'
 const PROVIDER_TYPES: { value: ProviderType; label: string; hint: string }[] = [
   { value: 'OpenAI', label: 'OpenAI', hint: 'OpenAI API (default endpoint: https://api.openai.com/v1)' },
   { value: 'OpenRouter', label: 'OpenRouter', hint: 'OpenRouter API (recommended endpoint: https://openrouter.ai/api/v1)' },
+  { value: 'LlamaCpp', label: 'llama.cpp', hint: 'Local llama.cpp server (for example: http://localhost:8080)' },
   { value: 'AzureOpenAI', label: 'Azure OpenAI', hint: 'Azure-hosted OpenAI deployments' },
   { value: 'AzureAIInference', label: 'Azure AI Inference', hint: 'Azure AI model inference endpoint' },
   { value: 'Ollama', label: 'Ollama', hint: 'Local Ollama instance (default: http://localhost:11434)' },
@@ -37,7 +38,7 @@ const AUTH_TYPES = [
 ]
 
 function supportsOpenAiCompatibleModelDiscovery(providerType: ProviderType): boolean {
-  return providerType === 'OpenAI' || providerType === 'OpenRouter' || providerType === 'GoogleGemini'
+  return providerType === 'OpenAI' || providerType === 'OpenRouter' || providerType === 'LlamaCpp' || providerType === 'GoogleGemini'
 }
 
 function supportsModelDiscovery(providerType: ProviderType): boolean {
@@ -169,6 +170,10 @@ export default function ModelProvidersPage() {
   const handleSave = async () => {
     try {
       setError(null)
+      if (form.providerType === 'LlamaCpp' && !form.endpoint?.trim()) {
+        setError('llama.cpp requires an endpoint URL')
+        return
+      }
 
       // For Copilot providers, store the selected model metadata
       if (form.providerType === 'GitHubCopilot' && selectedCopilotModel) {
@@ -290,10 +295,11 @@ export default function ModelProvidersPage() {
   const handleLoadOpenAiModels = async () => {
     const auth = form.auth ?? { authType: 'api-key', apiKey: '', useDefaultCredentials: false }
     const endpoint = (form.endpoint ?? '').trim()
-    const providerType: ProviderType = form.providerType === 'OpenRouter'
-      ? 'OpenRouter'
-      : form.providerType === 'GoogleGemini'
-        ? 'GoogleGemini'
+    const providerType: ProviderType =
+      form.providerType === 'OpenRouter' ||
+      form.providerType === 'LlamaCpp' ||
+      form.providerType === 'GoogleGemini'
+        ? form.providerType
         : 'OpenAI'
 
     setOpenAiLoading(true)
@@ -420,22 +426,25 @@ export default function ModelProvidersPage() {
               value={form.providerType ?? 'OpenAI'}
               onChange={value => {
                 const newType = value as ProviderType
+                const usesNoAuthByDefault = newType === 'Ollama' || newType === 'LlamaCpp'
                 setForm(prev => ({
                   ...prev,
                   providerType: newType,
-                  // Reset Copilot-specific fields when switching away
-                  ...(newType === 'GitHubCopilot'
-                    ? { auth: { authType: 'api-key', apiKey: '', useDefaultCredentials: false }, endpoint: '', modelName: '' }
-                    : {}),
+                  endpoint: '',
+                  modelName: '',
+                  copilotMetadata: undefined,
+                  auth: {
+                    authType: usesNoAuthByDefault ? 'none' : 'api-key',
+                    apiKey: '',
+                    useDefaultCredentials: false,
+                  },
                 }))
                 if (newType !== 'GitHubCopilot') resetCopilotState()
                 if (newType !== 'Ollama') {
                   setOllamaModels([])
                   setOllamaError(null)
                 }
-                if (!supportsOpenAiCompatibleModelDiscovery(newType)) {
-                  resetOpenAiModelDiscovery()
-                }
+                resetOpenAiModelDiscovery()
               }}
               className="w-full"
             />
@@ -469,7 +478,7 @@ export default function ModelProvidersPage() {
                 <button
                   onClick={handleCopilotConnect}
                   disabled={copilotConnecting}
-                  className="rounded bg-rose/20 px-4 py-2 text-sm font-medium text-light hover:bg-purple-500 disabled:opacity-50"
+                  className="rounded bg-rose/20 px-4 py-2 text-sm font-medium text-light hover:bg-rose/30 disabled:opacity-50"
                 >
                   {copilotConnecting ? 'Connecting...' : copilotConnected ? '↻ Refresh Models' : '⚡ Connect to Copilot CLI'}
                 </button>
@@ -566,6 +575,7 @@ export default function ModelProvidersPage() {
                 <label className="mb-1 block text-sm text-fog">
                   Endpoint URL
                   {form.providerType === 'Ollama' && <span className="text-dust"> (default: http://localhost:11434)</span>}
+                  {form.providerType === 'LlamaCpp' && <span className="text-dust"> (required)</span>}
                 </label>
                 <input
                   type="text"
@@ -576,6 +586,8 @@ export default function ModelProvidersPage() {
                       ? 'http://localhost:11434'
                       : form.providerType === 'OpenRouter'
                         ? 'https://openrouter.ai/api/v1'
+                        : form.providerType === 'LlamaCpp'
+                          ? 'http://localhost:8080'
                         : form.providerType === 'OpenAI'
                           ? 'Leave blank for api.openai.com, or set custom OpenAI-compatible endpoint'
                           : form.providerType === 'GoogleGemini'
@@ -659,6 +671,10 @@ export default function ModelProvidersPage() {
                       ? 'e.g. llama3.1:8b or use Load models'
                       : form.providerType === 'OpenRouter'
                         ? 'e.g. openai/gpt-4.1-mini or use Load models'
+                        : form.providerType === 'LlamaCpp'
+                          ? form.purpose === 'Embedding'
+                            ? 'e.g. embed-qwen3 or use Load models'
+                            : 'e.g. qwen3.5-9b or use Load models'
                         : form.providerType === 'OpenAI'
                           ? 'e.g. gpt-4o or use Load models'
                           : form.providerType === 'GoogleGemini'
@@ -732,8 +748,11 @@ export default function ModelProvidersPage() {
           <div className="flex gap-3 pt-2">
             <button
               onClick={handleSave}
-              disabled={form.providerType === 'GitHubCopilot' && !selectedCopilotModel && mode === 'create'}
-              className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={
+                (form.providerType === 'GitHubCopilot' && !selectedCopilotModel && mode === 'create') ||
+                (form.providerType === 'LlamaCpp' && !form.endpoint?.trim())
+              }
+              className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {mode === 'create' ? 'Create Provider' : 'Save Changes'}
             </button>
@@ -756,7 +775,7 @@ export default function ModelProvidersPage() {
         <h1 className="font-display text-xl font-semibold text-light">Model Providers</h1>
         <button
           onClick={handleCreate}
-          className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow"
+          className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow"
         >
           + Add Provider
         </button>
@@ -860,7 +879,7 @@ export default function ModelProvidersPage() {
                   {!p.isBuiltIn && (
                     <button
                       onClick={() => handleDelete(p.id)}
-                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-900"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-ember/25"
                     >
                       Delete
                     </button>
@@ -909,7 +928,7 @@ export default function ModelProvidersPage() {
                     <button
                       onClick={handleAssignProviderModel}
                       disabled={providerModelSaving || !providerModelDraft.trim()}
-                      className="rounded bg-amber px-3 py-1.5 text-xs font-medium text-void hover:bg-amber-glow disabled:opacity-50"
+                      className="rounded bg-amber px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50"
                     >
                       {providerModelSaving ? 'Saving…' : 'Save Model'}
                     </button>

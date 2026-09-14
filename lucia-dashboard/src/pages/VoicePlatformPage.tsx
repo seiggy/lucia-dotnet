@@ -104,7 +104,7 @@ function archLabel(value: string | number): string {
   return architectureLabels[value] ?? String(value)
 }
 
-const buttonPrimary = 'inline-flex items-center justify-center gap-2 rounded-xl bg-amber px-4 py-2 text-sm font-semibold text-void transition-colors hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-50'
+const buttonPrimary = 'inline-flex items-center justify-center gap-2 rounded-xl bg-amber px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-50'
 const buttonSecondary = 'inline-flex items-center justify-center gap-2 rounded-xl border border-stone/50 bg-basalt px-4 py-2 text-sm font-medium text-fog transition-colors hover:border-amber/30 hover:text-light disabled:cursor-not-allowed disabled:opacity-50'
 const inputClass = 'w-full rounded-xl border border-stone/50 bg-basalt px-4 py-2.5 text-sm text-light placeholder:text-dust/70 focus:border-amber/40 focus:outline-none'
 const TARGET_SAMPLE_RATE = 16_000

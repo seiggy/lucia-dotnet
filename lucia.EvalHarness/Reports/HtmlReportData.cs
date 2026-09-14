@@ -12,6 +12,12 @@ namespace lucia.EvalHarness.Reports;
 /// </summary>
 public sealed class HtmlReportData
 {
+    [JsonPropertyName("recommendations")]
+    public IReadOnlyList<ModelRecommendation> Recommendations { get; init; } = [];
+
+    [JsonPropertyName("costNote")]
+    public string CostNote => CostReportFormatting.EstimateNote;
+
     [JsonPropertyName("runId")]
     public required string RunId { get; init; }
 
@@ -68,28 +74,43 @@ public sealed class HtmlReportData
                     ModelName = modelGroup.Key,
                     Profiles = modelGroup
                         .GroupBy(m => m.ParameterProfile!.Name)
-                        .Select(pg => new HtmlProfileScore
+                        .Select(pg =>
                         {
-                            ProfileName = pg.Key,
-                            Parameters = new HtmlParameterData
+                            var results = pg.ToList();
+                            var measured = results
+                                .Where(result => result.Performance.RunCount > 0)
+                                .ToList();
+                            var scoredCount = results.Sum(result => result.ScoredTestCaseCount);
+                            var costs = InferenceCostSummary.Aggregate(results.Select(result => result.Cost));
+                            var testCount = results.Sum(result => result.TestCaseResults.Count);
+                            return new HtmlProfileScore
                             {
-                                Name = pg.Key,
-                                Temperature = pg.First().ParameterProfile!.Temperature,
-                                TopK = pg.First().ParameterProfile!.TopK,
-                                TopP = pg.First().ParameterProfile!.TopP,
-                                RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
-                            },
-                            AvgOverall = pg.Average(m => m.OverallScore),
-                            AvgToolSelection = pg.Average(m => m.ToolSelectionScore),
-                            AvgToolSuccess = pg.Average(m => m.ToolSuccessScore),
-                            AvgToolEfficiency = pg.Average(m => m.ToolEfficiencyScore),
-                            AvgTaskCompletion = pg.Average(m => m.TaskCompletionScore),
-                            PassRate = pg.Sum(m => m.TestCaseCount) > 0
-                                ? (double)pg.Sum(m => m.PassedCount) / pg.Sum(m => m.TestCaseCount)
-                                : 0,
-                            AvgLatencyMs = pg.Average(m => m.Performance.MeanLatency.TotalMilliseconds)
+                                ProfileName = pg.Key,
+                                Cost = costs,
+                                MeanTestCostUsd = testCount > 0 ? costs.EstimatedUsd / testCount : null,
+                                Parameters = new HtmlParameterData
+                                {
+                                    Name = pg.Key,
+                                    Temperature = pg.First().ParameterProfile!.Temperature,
+                                    TopK = pg.First().ParameterProfile!.TopK,
+                                    TopP = pg.First().ParameterProfile!.TopP,
+                                    RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
+                                },
+                                AvgOverall = Average(results.Select(m => m.OverallScore)),
+                                AvgToolSelection = Average(results.Select(m => m.ToolSelectionScore)),
+                                AvgToolSuccess = Average(results.Select(m => m.ToolSuccessScore)),
+                                AvgToolEfficiency = Average(results.Select(m => m.ToolEfficiencyScore)),
+                                AvgTaskCompletion = Average(results.Select(m => m.TaskCompletionScore)),
+                                PassRate = scoredCount > 0
+                                    ? (double)results.Sum(m => m.PassedCount) / scoredCount
+                                    : null,
+                                AvgLatencyMs = Average(measured
+                                    .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))
+                            };
                         })
                         .OrderByDescending(p => p.AvgOverall)
+                        .ThenBy(p => p.MeanTestCostUsd ?? decimal.MaxValue)
+                        .ThenBy(p => p.ProfileName, StringComparer.Ordinal)
                         .ToList()
                 })
                 .ToList();
@@ -98,6 +119,7 @@ public sealed class HtmlReportData
         return new HtmlReportData
         {
             RunId = result.RunId,
+            Recommendations = ModelRecommendation.Rank(result),
             StartedAt = result.StartedAt.ToString("o"),
             CompletedAt = result.CompletedAt.ToString("o"),
             DurationSeconds = (result.CompletedAt - result.StartedAt).TotalSeconds,
@@ -113,12 +135,18 @@ public sealed class HtmlReportData
                 Models = a.ModelResults.Select(m => new HtmlModelData
                 {
                     ModelName = m.ModelName,
+                    Cost = m.Cost,
                     OverallScore = m.OverallScore,
+                    OverallScoreStatus = m.OverallScoreStatus,
+                    OverallScoreReason = m.OverallScoreReason,
                     ToolSelectionScore = m.ToolSelectionScore,
                     ToolSuccessScore = m.ToolSuccessScore,
                     ToolEfficiencyScore = m.ToolEfficiencyScore,
                     TaskCompletionScore = m.TaskCompletionScore,
+                    TaskCompletionStatus = m.TaskCompletionStatus,
+                    TaskCompletionReason = m.TaskCompletionReason,
                     TestCaseCount = m.TestCaseCount,
+                    ScoredTestCaseCount = m.ScoredTestCaseCount,
                     PassedCount = m.PassedCount,
                     Parameters = m.ParameterProfile is not null
                         ? new HtmlParameterData
@@ -133,6 +161,7 @@ public sealed class HtmlReportData
                         : null,
                     Performance = new HtmlPerformanceData
                     {
+                        RunCount = m.Performance.RunCount,
                         MeanLatencyMs = m.Performance.MeanLatency.TotalMilliseconds,
                         MedianLatencyMs = m.Performance.MedianLatency.TotalMilliseconds,
                         P95LatencyMs = m.Performance.P95Latency.TotalMilliseconds,
@@ -142,9 +171,12 @@ public sealed class HtmlReportData
                     TestCases = m.TestCaseResults.Select(tc => new HtmlTestCaseData
                     {
                         Id = tc.TestCaseId,
+                        Cost = tc.Cost,
                         Passed = tc.Passed,
                         TimedOut = tc.TimedOut,
                         Score = tc.Score,
+                        JudgeStatus = tc.JudgeStatus,
+                        JudgeReason = tc.JudgeReason,
                         LatencyMs = tc.Latency.TotalMilliseconds,
                         FailureReason = tc.FailureReason,
                         Conversation = tc.ConversationHistory?.Select(turn => new HtmlConversationTurn
@@ -162,5 +194,11 @@ public sealed class HtmlReportData
             }).ToList(),
             ProfileComparison = profileComparison
         };
+    }
+
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
     }
 }

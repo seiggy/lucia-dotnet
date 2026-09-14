@@ -132,7 +132,7 @@ Writes standard 16-bit PCM mono WAV files from float32 samples.
 **New option** in `VoiceProfileOptions`:
 ```csharp
 public string AudioClipBasePath { get; set; } = "./data/voice-clips";
-public int MaxClipsPerProfile { get; set; } = 20;
+public int MaxClipsPerProfile { get; set; } = 5;
 ```
 
 #### Integration Point
@@ -156,7 +156,7 @@ public sealed class AudioClipService
 }
 ```
 
-**Clip rotation**: `SaveClipAsync` enforces `MaxClipsPerProfile` (default 3). When saving a new clip to a profile that already has the maximum, the oldest clip (by `CapturedAt` timestamp) is deleted before the new one is written. This keeps only the 3 most recent voice samples per profile.
+**Clip rotation**: `SaveClipAsync` enforces `MaxClipsPerProfile` (default 5). When saving a new clip to a profile that already has the maximum, the oldest clip (by `CapturedAt` timestamp) is deleted before the new one is written. This keeps only the 5 most recent voice samples per profile.
 
 **Auto-profile cap awareness**: The caller (`UnknownSpeakerTracker`) checks the current provisional profile count against `MaxAutoProfiles` before calling `SaveClipAsync`. Profiles beyond the cap are tracked for interaction counting only — no audio clips, no stored embeddings.
 
@@ -384,7 +384,7 @@ public sealed record AudioClipInfo
 ```csharp
 public bool AutoCreateProvisionalProfiles { get; set; } = true;
 public string AudioClipBasePath { get; set; } = "./data/voice-clips";
-public int MaxClipsPerProfile { get; set; } = 3;
+public int MaxClipsPerProfile { get; set; } = 5;
 public int MaxAutoProfiles { get; set; } = 10;
 ```
 

@@ -14,9 +14,11 @@ public sealed class SpeakerVerificationFilter(
             return true;
         }
 
-        if (speaker is null)
+        if (speaker is null || !speaker.IsAuthorized)
         {
-            logger.LogDebug("Ignoring command from unknown speaker (ignore_unknown_voices=true)");
+            logger.LogDebug(
+                "Ignoring command from {SpeakerType} speaker (ignore_unknown_voices=true)",
+                speaker is null ? "unknown" : "unauthorized");
             return false;
         }
 

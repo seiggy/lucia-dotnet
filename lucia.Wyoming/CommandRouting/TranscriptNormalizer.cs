@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using lucia.Agents.Integration;
 
 namespace lucia.Wyoming.CommandRouting;
 
@@ -57,9 +58,6 @@ public static partial class TranscriptNormalizer
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultipleSpaces();
 
-    [GeneratedRegex(@"[^\w\s]")]
-    private static partial Regex Punctuation();
-
     /// <summary>
     /// Normalize transcript for pattern matching.
     /// </summary>
@@ -69,7 +67,8 @@ public static partial class TranscriptNormalizer
             return string.Empty;
 
         var result = transcript.ToLowerInvariant().Trim();
-        result = Punctuation().Replace(result, "");
+        result = CommandTextNormalizer.NormalizePunctuation(result);
+        result = MultipleSpaces().Replace(result, " ").Trim();
 
         // Apply phrase-level STT corrections before word filtering
         foreach (var (pattern, replacement) in PhraseCorrections)

@@ -50,9 +50,9 @@ public static class OptimizationExporter
         {
             sb.AppendLine($"## {result.AgentName} × {result.TargetModel}");
             sb.AppendLine();
-            sb.AppendLine($"- **Current Score:** {result.CurrentScore:F1}");
-            sb.AppendLine($"- **Baseline Target:** {result.BaselineScore:F1}");
-            sb.AppendLine($"- **Gap:** {result.BaselineScore - result.CurrentScore:F1}");
+            sb.AppendLine($"- **Current Score:** {FormatScore(result.CurrentScore)}");
+            sb.AppendLine($"- **Baseline Target:** {FormatScore(result.BaselineScore)}");
+            sb.AppendLine($"- **Gap:** {FormatGap(result.CurrentScore, result.BaselineScore)}");
             sb.AppendLine();
 
             if (result.Analysis is not null)
@@ -126,4 +126,12 @@ public static class OptimizationExporter
             suggestedPrompt = r.SuggestedPrompt,
             originalPrompt = r.OriginalPrompt
         }).ToList();
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
+
+    private static string FormatGap(double? current, double? baseline) =>
+        current.HasValue && baseline.HasValue
+            ? (baseline.Value - current.Value).ToString("F1")
+            : "N/A";
 }

@@ -168,6 +168,8 @@ public sealed class SceneAgent : ILuciaAgent, ISkillConfigProvider
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
+            AIContextProviders = _tracingFactory.AIContextProviders,
+            ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for activating scenes in Home Assistant",

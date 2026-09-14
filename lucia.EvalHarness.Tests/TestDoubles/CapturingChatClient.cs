@@ -11,6 +11,7 @@ namespace lucia.EvalHarness.Tests.TestDoubles;
 internal sealed class CapturingChatClient : IChatClient
 {
     public ChatOptions? CapturedOptions { get; private set; }
+    public IReadOnlyList<ChatMessage> CapturedMessages { get; private set; } = [];
 
     public Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -18,6 +19,7 @@ internal sealed class CapturingChatClient : IChatClient
         CancellationToken cancellationToken = default)
     {
         CapturedOptions = options;
+        CapturedMessages = messages.ToList();
         return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok")));
     }
 
@@ -27,6 +29,7 @@ internal sealed class CapturingChatClient : IChatClient
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         CapturedOptions = options;
+        CapturedMessages = messages.ToList();
         yield return new ChatResponseUpdate(ChatRole.Assistant, "ok");
         await Task.CompletedTask;
     }

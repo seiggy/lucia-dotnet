@@ -11,32 +11,57 @@ scenarios:
   - id: set_temperature_72
     description: "Set thermostat to 72 degrees"
     category: control
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "heat"
         attributes:
           friendly_name: "Living Room Thermostat"
           temperature: 68
           current_temperature: 67
           hvac_modes: ["off", "heat", "cool", "auto"]
+      climate.bedroom_thermostat:
+        area: "Bedroom"
+        state: "cool"
+        attributes:
+          friendly_name: "Bedroom Thermostat"
+          temperature: 74
+          current_temperature: 75
+          hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Set the thermostat to 72 degrees"
     expected_tool_calls:
-      - tool: FindClimateDevice
+      - tool: FindClimateDevicesByArea
         arguments:
-          searchTerm: "contains:thermostat"
+          areaName: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevice
+            arguments:
+              searchTerm: "contains:living room"
       - tool: SetClimateTemperature
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
           temperature: "*"
     response_must_contain:
       - "72"
+    expected_final_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          temperature: "72"
+      climate.bedroom_thermostat:
+        state: "cool"
+        attributes:
+          temperature: "74"
 
   # --- Control: Set Temperature (bedroom) ---
   - id: set_bedroom_temp_70
     description: "Set bedroom thermostat to 70 degrees"
     category: control
+    device_area: "Living Room"
     initial_state:
       climate.bedroom_thermostat:
+        area: "Bedroom"
         state: "cool"
         attributes:
           friendly_name: "Bedroom Thermostat"
@@ -48,19 +73,30 @@ scenarios:
       - tool: FindClimateDevice
         arguments:
           searchTerm: "contains:bedroom"
+        alternatives:
+          - tool: FindClimateDevicesByArea
+            arguments:
+              areaName: "contains:bedroom"
       - tool: SetClimateTemperature
         arguments:
-          entityId: "*"
+          entityId: "climate.bedroom_thermostat"
           temperature: "*"
     response_must_contain:
       - "70"
+    expected_final_state:
+      climate.bedroom_thermostat:
+        state: "cool"
+        attributes:
+          temperature: "70"
 
   # --- STT Robustness: Misspelled temperature command ---
   - id: stt_set_thermometer_72
     description: "Handle STT transcription errors (thermometer instead of thermostat)"
     category: stt-robustness
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "heat"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -71,18 +107,29 @@ scenarios:
     expected_tool_calls:
       - tool: FindClimateDevice
         arguments:
-          searchTerm: "*"
+          searchTerm: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevicesByArea
+            arguments:
+              areaName: "contains:living room"
       - tool: SetClimateTemperature
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
           temperature: "*"
+    expected_final_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          temperature: "72"
 
   # --- Query: Get Current Temperature ---
   - id: query_living_room_temp
     description: "Ask about the current temperature"
     category: query
+    device_area: "Bedroom"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "heat"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -93,10 +140,14 @@ scenarios:
     expected_tool_calls:
       - tool: FindClimateDevicesByArea
         arguments:
-          area: "contains:living room"
+          areaName: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevice
+            arguments:
+              searchTerm: "contains:living room"
       - tool: GetClimateState
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
     response_must_contain:
       - "69"
 
@@ -104,8 +155,10 @@ scenarios:
   - id: query_thermostat_state
     description: "Ask what mode the thermostat is in"
     category: query
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "cool"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -116,17 +169,23 @@ scenarios:
     expected_tool_calls:
       - tool: FindClimateDevice
         arguments:
-          searchTerm: "contains:thermostat"
+          searchTerm: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevicesByArea
+            arguments:
+              areaName: "contains:living room"
       - tool: GetClimateState
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
 
   # --- Control: Set HVAC Mode (heat) ---
   - id: set_hvac_mode_heat
     description: "Switch thermostat to heat mode"
     category: control
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "cool"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -137,18 +196,27 @@ scenarios:
     expected_tool_calls:
       - tool: FindClimateDevice
         arguments:
-          searchTerm: "contains:thermostat"
+          searchTerm: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevicesByArea
+            arguments:
+              areaName: "contains:living room"
       - tool: SetClimateHvacMode
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
           hvacMode: "contains:heat"
+    expected_final_state:
+      climate.living_room_thermostat:
+        state: "heat"
 
   # --- Control: Set HVAC Mode (off) ---
   - id: set_hvac_mode_off
     description: "Turn off the thermostat"
     category: control
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "heat"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -159,18 +227,27 @@ scenarios:
     expected_tool_calls:
       - tool: FindClimateDevice
         arguments:
-          searchTerm: "contains:thermostat"
+          searchTerm: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevicesByArea
+            arguments:
+              areaName: "contains:living room"
       - tool: SetClimateHvacMode
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
           hvacMode: "contains:off"
+    expected_final_state:
+      climate.living_room_thermostat:
+        state: "off"
 
   # --- Control: Set HVAC Mode (cool) ---
   - id: set_hvac_mode_cool
     description: "Switch thermostat to cooling mode"
     category: control
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "heat"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -181,18 +258,27 @@ scenarios:
     expected_tool_calls:
       - tool: FindClimateDevice
         arguments:
-          searchTerm: "contains:thermostat"
+          searchTerm: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevicesByArea
+            arguments:
+              areaName: "contains:living room"
       - tool: SetClimateHvacMode
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
           hvacMode: "contains:cool"
+    expected_final_state:
+      climate.living_room_thermostat:
+        state: "cool"
 
   # --- Comfort Adjustment: I'm cold ---
   - id: comfort_im_cold
     description: "User says they're cold — agent should raise temperature"
     category: control
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "heat"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -203,17 +289,34 @@ scenarios:
     expected_tool_calls:
       - tool: GetComfortAdjustment
         arguments: {}
+      - tool: FindClimateDevicesByArea
+        arguments:
+          areaName: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevice
+            arguments:
+              searchTerm: "contains:living room"
+      - tool: GetClimateState
+        arguments:
+          entityId: "climate.living_room_thermostat"
       - tool: SetClimateTemperature
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
           temperature: "*"
+    expected_final_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          temperature: "69"
 
   # --- Control: Set Fan Speed ---
   - id: set_fan_speed_high
     description: "Set the fan speed to high"
     category: control
+    device_area: "Living Room"
     initial_state:
       climate.living_room_thermostat:
+        area: "Living Room"
         state: "cool"
         attributes:
           friendly_name: "Living Room Thermostat"
@@ -222,12 +325,24 @@ scenarios:
           fan_mode: "low"
           fan_modes: ["low", "medium", "high", "auto"]
           hvac_modes: ["off", "heat", "cool", "auto"]
-    user_prompt: "Set the fan to high"
+    user_prompt: "Set the thermostat fan to high"
     expected_tool_calls:
+      - tool: FindClimateDevicesByArea
+        arguments:
+          areaName: "contains:living room"
+        alternatives:
+          - tool: FindClimateDevice
+            arguments:
+              searchTerm: "contains:living room"
       - tool: SetClimateFanMode
         arguments:
-          entityId: "*"
+          entityId: "climate.living_room_thermostat"
           fanMode: "contains:high"
+    expected_final_state:
+      climate.living_room_thermostat:
+        state: "cool"
+        attributes:
+          fan_mode: "high"
 
   # --- Out of Domain: Music request ---
   - id: out_of_domain_music

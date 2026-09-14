@@ -24,6 +24,10 @@ merge. Any new commit after approval invalidates it and requires a fresh review.
 Vasquez runs on **GPT-5.6 Sol only** (locked in `.squad/config.json`); a review on
 any other model is not valid.
 
+The review must also verify that the PR updates every affected documentation
+surface, including repository README files. If no documentation is affected,
+Vasquez records that conclusion in the verdict before approving.
+
 ## Routing Table
 
 | Work Type | Route To | Examples |
@@ -116,3 +120,4 @@ any other model is not valid.
 6. **Anticipate downstream work.** If a feature is being built, spawn the tester to write test cases from requirements simultaneously.
 7. **Issue-labeled work** — when a `squad:{member}` label is applied to an issue, route to that member. Ripley handles all `squad` (base label) triage.
 8. **Pre-push review gate is mandatory.** Never let an agent push a `squad/*` branch or open a PR before Vasquez has reviewed it and recorded an APPROVE. On REQUEST-CHANGES, the branch author fixes and Vasquez re-reviews. The git `pre-push` hook mechanically blocks the push — the prerequisite for any PR — as a backstop. Vasquez is model-locked to `gpt-5.6-sol`.
+9. **Impeccable is mandatory for UI work.** Any agent working on frontend, UI, UX, or visual design must invoke the `impeccable` skill first and follow `.github/skills/impeccable/SKILL.md`.

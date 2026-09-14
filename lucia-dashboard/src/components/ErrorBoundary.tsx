@@ -61,7 +61,7 @@ class ErrorBoundary extends Component<Props, State> {
               </button>
               <button
                 onClick={this.handleReload}
-                className="flex items-center gap-2 px-4 py-2 bg-amber-glow text-light text-sm rounded-lg hover:opacity-90 transition-opacity"
+                className="flex items-center gap-2 px-4 py-2 bg-amber-glow text-on-accent text-sm rounded-lg hover:opacity-90 transition-opacity"
               >
                 Reload page
               </button>

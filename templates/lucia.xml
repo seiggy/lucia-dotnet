@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>Lucia</Name>
+  <Repository>seiggy/lucia-agenthost:latest</Repository>
+  <Registry>https://hub.docker.com/r/seiggy/lucia-agenthost</Registry>
+  <Network>lucia</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/seiggy/lucia-dotnet/issues</Support>
+  <Project>https://luciahome.net/</Project>
+  <Overview>Privacy-first Home Assistant agent platform with its dashboard and Wyoming voice server. Before installing, run `docker network create lucia` in the Unraid terminal, then install the Lucia PostgreSQL and Redis templates.</Overview>
+  <Category>HomeAutomation:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/seiggy/lucia-dotnet/master/templates/lucia.xml</TemplateURL>
+  <ReadMe>https://github.com/seiggy/lucia-dotnet/blob/master/infra/unraid/README.md</ReadMe>
+  <Icon>https://raw.githubusercontent.com/seiggy/lucia-dotnet/master/lucia.png</Icon>
+  <ExtraSearchTerms>home assistant ai agent wyoming voice automation</ExtraSearchTerms>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <Requires>Before installing, run `docker network create lucia` in the Unraid terminal. Install Lucia-PostgreSQL and Lucia-Redis first. The PostgreSQL password must match all three connection strings.</Requires>
+  <License>MIT</License>
+  <Config Name="Web UI" Target="8080" Default="7233" Mode="tcp" Description="Lucia dashboard and API." Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="Wyoming" Target="10400" Default="10400" Mode="tcp" Description="Wyoming voice server." Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="Models" Target="/app/models" Default="/mnt/cache/appdata/lucia/models" Mode="rw" Description="Downloaded speech and wake-word models. The container runs as UID 1100." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Environment" Target="ASPNETCORE_ENVIRONMENT" Default="Production" Mode="" Description="ASP.NET Core environment." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Listen URL" Target="ASPNETCORE_URLS" Default="http://+:8080" Mode="" Description="Internal HTTP listener." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Store provider" Target="DataProvider__Store" Default="PostgreSQL" Mode="" Description="Persistent store provider." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Cache provider" Target="DataProvider__Cache" Default="Redis" Mode="" Description="Cache provider." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Deployment mode" Target="Deployment__Mode" Default="standalone" Mode="" Description="Standalone runs all bundled agents in this container." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Configuration database" Target="ConnectionStrings__luciaconfig" Default="Host=Lucia-PostgreSQL;Port=5432;Database=luciaconfig;Username=lucia;Password=CHANGE_ME" Mode="" Description="Replace CHANGE_ME with the Lucia-PostgreSQL password." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Trace database" Target="ConnectionStrings__luciatraces" Default="Host=Lucia-PostgreSQL;Port=5432;Database=luciatraces;Username=lucia;Password=CHANGE_ME" Mode="" Description="Replace CHANGE_ME with the Lucia-PostgreSQL password." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Task database" Target="ConnectionStrings__luciatasks" Default="Host=Lucia-PostgreSQL;Port=5432;Database=luciatasks;Username=lucia;Password=CHANGE_ME" Mode="" Description="Replace CHANGE_ME with the Lucia-PostgreSQL password." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Redis" Target="ConnectionStrings__redis" Default="Lucia-Redis:6379" Mode="" Description="Redis endpoint on the Lucia Docker network." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Dashboard API key" Target="DASHBOARD_API_KEY" Default="" Mode="" Description="Optional fixed dashboard login key for headless setup." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Home Assistant URL" Target="HOMEASSISTANT__BASEURL" Default="" Mode="" Description="Optional Home Assistant URL for headless setup, such as http://192.168.1.100:8123." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Home Assistant token" Target="HOMEASSISTANT__ACCESSTOKEN" Default="" Mode="" Description="Optional Home Assistant long-lived access token for headless setup." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Chat model" Target="ConnectionStrings__chat-model" Default="" Mode="" Description="Optional headless model connection string: Endpoint=...;AccessKey=...;Model=...;Provider=..." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Embedding model" Target="ConnectionStrings__embedding-model" Default="" Mode="" Description="Optional embedding model connection string for semantic search." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="SearXNG URL" Target="SEARXNG_URL" Default="" Mode="" Description="Optional SearXNG endpoint used by the web-search plugin." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="MetaMCP URL" Target="METAMCP_URL" Default="" Mode="" Description="Optional MetaMCP endpoint." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="MetaMCP API key" Target="METAMCP_API_KEY" Default="" Mode="" Description="Optional MetaMCP API key." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Observability mode" Target="Observability__Mode" Default="Off" Mode="" Description="Telemetry mode: Off, Metrics, Trace, or Profile." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="OTLP endpoint" Target="OTEL_EXPORTER_OTLP_ENDPOINT" Default="" Mode="" Description="Optional OpenTelemetry collector endpoint." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="OTLP headers" Target="OTEL_EXPORTER_OTLP_HEADERS" Default="" Mode="" Description="Optional OpenTelemetry exporter authentication headers." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Timezone" Target="TZ" Default="Etc/UTC" Mode="" Description="Container timezone." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+</Container>

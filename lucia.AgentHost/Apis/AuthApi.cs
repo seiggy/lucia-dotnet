@@ -42,7 +42,12 @@ public static class AuthApi
         }
 
         var options = authOptions.Value;
-        var cookieValue = sessionService.CreateSession(entry.Id, entry.Name);
+        var cookieValue = sessionService.CreateSession(
+            entry.Id,
+            entry.Name,
+            entry.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal));
 
         httpContext.Response.Cookies.Append(options.CookieName, cookieValue, new CookieOptions
         {

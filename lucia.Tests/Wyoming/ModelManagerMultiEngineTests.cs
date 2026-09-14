@@ -23,6 +23,17 @@ public sealed class ModelManagerMultiEngineTests : IDisposable
     }
 
     [Fact]
+    public void GetActiveModelId_OfflineStt_FreshInstallReturnsCatalogDefault()
+    {
+        var manager = CreateManager();
+
+        Assert.Equal(
+            "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+            manager.GetActiveModelId(EngineType.OfflineStt));
+        Assert.Equal(EngineType.OfflineStt, manager.PreferredSttEngineType);
+    }
+
+    [Fact]
     public void GetActiveModelId_Vad_ReturnsConfiguredDefault()
     {
         var manager = CreateManager(vadActiveModel: "my-vad-model");

@@ -279,6 +279,8 @@ public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
+            AIContextProviders = _tracingFactory.AIContextProviders,
+            ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for controlling HVAC systems and fans in Home Assistant",

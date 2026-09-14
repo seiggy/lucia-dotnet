@@ -1,0 +1,364 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Latency, throughput, and stage usage for the Lucia Wyoming speech pipeline.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "asDropdown": false, "icon": "dashboard", "includeVars": true, "keepTime": true, "tags": [], "targetBlank": false, "title": "Service health", "tooltip": "Open application service health", "type": "link", "url": "/d/lucia-service-health" },
+    { "asDropdown": false, "icon": "dashboard", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": false, "title": "Jetson host", "tooltip": "Open Jetson host health", "type": "link", "url": "/d/lucia-jetson-host" },
+    { "asDropdown": false, "icon": "dashboard", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": false, "title": "PostgreSQL", "tooltip": "Open PostgreSQL health", "type": "link", "url": "/d/lucia-postgresql" },
+    { "asDropdown": false, "icon": "dashboard", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": false, "title": "Redis", "tooltip": "Open Redis health", "type": "link", "url": "/d/lucia-redis" }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(increase(wyoming_speech_stt_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__range]))",
+          "instant": true,
+          "legendFormat": "Utterances",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Utterances",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green" },
+              { "color": "yellow", "value": 250 },
+              { "color": "red", "value": 1000 }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_stt_queue_wait_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "instant": true,
+          "legendFormat": "Queue wait p95",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Queue wait p95",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green" },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 3000 }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_stt_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "instant": true,
+          "legendFormat": "STT p95",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "STT p95",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green" },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 500 }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_transcript_write_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "instant": true,
+          "legendFormat": "Write p95",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Transcript write p95",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_stt_queue_wait_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Queue wait", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_stt_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "STT", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_enhancement_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Enhancement", "range": true, "refId": "C" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_enhanced_retranscription_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Enhanced retranscription", "range": true, "refId": "D" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_diarization_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Diarization", "range": true, "refId": "E" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(wyoming_speech_transcript_write_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Transcript write", "range": true, "refId": "F" }
+      ],
+      "title": "Stage latency p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(wyoming_speech_stt_queue_wait_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Queue wait", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(wyoming_speech_stt_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "STT", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(wyoming_speech_enhancement_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Enhancement", "range": true, "refId": "C" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(wyoming_speech_enhanced_retranscription_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Enhanced retranscription", "range": true, "refId": "D" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(wyoming_speech_diarization_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Diarization", "range": true, "refId": "E" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(wyoming_speech_transcript_write_duration_milliseconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "Transcript write", "range": true, "refId": "F" }
+      ],
+      "title": "Stage latency median",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "ms" },
+        "overrides": []
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(rate(wyoming_speech_stt_queue_wait_duration_milliseconds_sum{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(wyoming_speech_stt_queue_wait_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "Queue wait", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum(rate(wyoming_speech_stt_duration_milliseconds_sum{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(wyoming_speech_stt_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "STT", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "sum(rate(wyoming_speech_enhancement_duration_milliseconds_sum{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(wyoming_speech_enhancement_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "Enhancement", "range": true, "refId": "C" },
+        { "editorMode": "code", "expr": "sum(rate(wyoming_speech_enhanced_retranscription_duration_milliseconds_sum{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(wyoming_speech_enhanced_retranscription_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "Enhanced retranscription", "range": true, "refId": "D" },
+        { "editorMode": "code", "expr": "sum(rate(wyoming_speech_diarization_duration_milliseconds_sum{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(wyoming_speech_diarization_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "Diarization", "range": true, "refId": "E" },
+        { "editorMode": "code", "expr": "sum(rate(wyoming_speech_transcript_write_duration_milliseconds_sum{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(wyoming_speech_transcript_write_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "Transcript write", "range": true, "refId": "F" }
+      ],
+      "title": "Stage latency mean",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "continuous-GrYlRd" }, "decimals": 0, "min": 0, "unit": "short" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "id": 8,
+      "options": {
+        "displayMode": "gradient",
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(increase(wyoming_speech_stt_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__range]))", "instant": true, "legendFormat": "STT", "range": false, "refId": "A" },
+        { "editorMode": "code", "expr": "sum(increase(wyoming_speech_enhancement_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__range]))", "instant": true, "legendFormat": "Enhancement", "range": false, "refId": "B" },
+        { "editorMode": "code", "expr": "sum(increase(wyoming_speech_enhanced_retranscription_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__range]))", "instant": true, "legendFormat": "Enhanced retranscription", "range": false, "refId": "C" },
+        { "editorMode": "code", "expr": "sum(increase(wyoming_speech_diarization_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__range]))", "instant": true, "legendFormat": "Diarization", "range": false, "refId": "D" },
+        { "editorMode": "code", "expr": "sum(increase(wyoming_speech_transcript_write_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__range]))", "instant": true, "legendFormat": "Transcript write", "range": false, "refId": "E" }
+      ],
+      "title": "Stage observations",
+      "type": "bargauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "decimals": 2, "min": 0, "unit": "rpm" },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "id": 9,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "hideZeros": false, "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(wyoming_speech_stt_duration_milliseconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60",
+          "legendFormat": "Utterances/min",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Speech throughput",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["lucia", "speech", "jetson"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(wyoming_speech_stt_duration_milliseconds_count, job)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "job",
+        "options": [],
+        "query": { "query": "label_values(wyoming_speech_stt_duration_milliseconds_count, job)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(wyoming_speech_stt_duration_milliseconds_count{job=~\"$job\"}, instance)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Instance",
+        "multi": true,
+        "name": "instance",
+        "options": [],
+        "query": { "query": "label_values(wyoming_speech_stt_duration_milliseconds_count{job=~\"$job\"}, instance)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Lucia speech pipeline",
+  "uid": "lucia-speech-pipeline",
+  "version": 1,
+  "weekStart": ""
+}

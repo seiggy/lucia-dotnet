@@ -1,10 +1,8 @@
 # lucia .NET Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2025-10-13
-
 ## Active Technologies
 
-- C# 14 / .NET 10 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10 (001-multi-agent-orchestration)
+- C# 14 / .NET 10 + Microsoft.Agents.AI.Workflows, StackExchange.Redis, OpenTelemetry.NET (001-multi-agent-orchestration)
 - Redis 7.x (task persistence with 24h TTL) (001-multi-agent-orchestration)
 
 ## Code Style
@@ -28,7 +26,11 @@ Auto-generated from all feature plans. Last updated: 2025-10-13
 - Always lookup documentation for 3rd party libraries using the `context7` MCP
 - Always lookup documentation for Microsoft related technologies, libraries, and SDKs using `microsoft.docs` MCP
 - If coding standards do not exist in the `.docs/standards` directory, create the folder and run the `create_standards` task.
+- Preserve the hardware-tested `Lucia-Setup` captive Wi-Fi fallback. Device-derived SSIDs are optional and must never prevent the installer access point from starting.
+- Do not accept security review suggestions that remove hardware-tested installer recovery paths unless they address a demonstrated exploit and preserve an offline setup path.
+- Keep the ephemeral installer host on the hardware-tested root and direct-control path. A replacement privilege boundary requires validation from the final image on Jetson hardware.
+- Privileged appliance helpers and their sudoers rules must be owned by root in the final image. Source-checkout ownership is not a valid proxy.
 
 ***IMPORTANT***: ONLY ONE CLASS PER FILE!!! NEVER PUT MORE THAN ONE CLASS IN A FILE !!!IMPORTANT!!!
-
+Always use the `unslop` skill when writing any docs, prose, or response to the user.
 <!-- MANUAL ADDITIONS END -->

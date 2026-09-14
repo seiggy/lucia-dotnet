@@ -4,12 +4,12 @@ namespace lucia.AgentHost.Conversation.Models;
 
 /// <summary>
 /// Response from the /api/conversation endpoint.
-/// Type indicates whether the command was parsed locally or handled by the LLM.
+/// Type distinguishes local commands, voice onboarding, errors, and LLM responses.
 /// </summary>
 public sealed record ConversationResponse
 {
     /// <summary>
-    /// "command" for pattern-matched fast-path, "llm" for LLM fallback.
+    /// "command", "onboarding", "error", or "llm".
     /// </summary>
     [JsonPropertyName("type")]
     public required string Type { get; init; }

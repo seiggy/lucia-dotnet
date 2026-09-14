@@ -1,0 +1,749 @@
+import { useCallback, useEffect, useState } from 'react'
+import {
+  Activity,
+  CheckCircle2,
+  CloudDownload,
+  Cpu,
+  ExternalLink,
+  HardDrive,
+  Loader2,
+  Power,
+  RefreshCw,
+  RotateCw,
+  Server,
+  Wifi,
+} from 'lucide-react'
+import ConfirmDialog from '../components/ConfirmDialog'
+import ToggleSwitch from '../components/ToggleSwitch'
+import {
+  checkApplianceUpdates,
+  fetchApplianceStatus,
+  fetchApplianceTelemetry,
+  fetchApplianceUpdateOperation,
+  installApplianceUpdate,
+  rebootAppliance,
+  restartApplianceService,
+  rollbackApplianceUpdate,
+  updateApplianceTelemetry,
+} from '../appliance-api'
+import type {
+  ApplianceServiceStatus,
+  ApplianceStatus,
+  ApplianceTelemetryStatus,
+  ApplianceUpdateStatus,
+  ApplianceUpdateOperationStatus,
+} from '../appliance-api'
+
+const primaryButton = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber px-4 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-amber-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60 disabled:cursor-not-allowed disabled:opacity-40'
+const secondaryButton = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone bg-basalt px-4 py-2.5 text-sm font-medium text-fog transition-colors hover:border-amber/30 hover:text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60 disabled:cursor-not-allowed disabled:opacity-40'
+const inputStyle = 'min-h-11 w-full rounded-xl border border-stone bg-basalt px-3 py-2.5 text-base text-light placeholder:text-dust input-focus'
+
+const serviceLabels: Record<string, { label: string; detail: string }> = {
+  agenthost: {
+    label: 'Lucia AgentHost',
+    detail: 'Dashboard, agents, voice, and integrations',
+  },
+  redis: {
+    label: 'Redis',
+    detail: 'Active task and session persistence',
+  },
+  collector: {
+    label: 'OpenTelemetry Collector',
+    detail: 'Metrics, traces, and logs export',
+  },
+  'redis-exporter': {
+    label: 'Redis exporter',
+    detail: 'Redis health and performance metrics',
+  },
+}
+
+export default function AppliancePage() {
+  const [status, setStatus] = useState<ApplianceStatus | null>(null)
+  const [telemetry, setTelemetry] = useState<ApplianceTelemetryStatus | null>(null)
+  const [updates, setUpdates] = useState<ApplianceUpdateStatus | null>(null)
+  const [updateOperation, setUpdateOperation] = useState<ApplianceUpdateOperationStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [checkingUpdates, setCheckingUpdates] = useState(false)
+  const [stagingUpdate, setStagingUpdate] = useState<'lucia' | 'os' | null>(null)
+  const [submittingRollback, setSubmittingRollback] = useState<'lucia' | 'os' | null>(null)
+  const [busyService, setBusyService] = useState<string | null>(null)
+  const [showReboot, setShowReboot] = useState(false)
+  const [pendingUpdate, setPendingUpdate] = useState<'lucia' | 'os' | null>(null)
+  const [pendingRollback, setPendingRollback] = useState<'lucia' | 'os' | null>(null)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const isUpdateBusy = stagingUpdate !== null
+    || submittingRollback !== null
+    || updateOperation?.status === 'queued'
+    || updateOperation?.status === 'running'
+  const canInterruptOsValidation = updateOperation?.action === 'apply'
+    && updateOperation.channel === 'os'
+    && updateOperation.status === 'running'
+    && updateOperation.osRollbackAvailable
+
+  const load = useCallback(async () => {
+    setError('')
+    try {
+      const [nextStatus, nextTelemetry, nextOperation] = await Promise.all([
+        fetchApplianceStatus(),
+        fetchApplianceTelemetry(),
+        fetchApplianceUpdateOperation(),
+      ])
+      setStatus(nextStatus)
+      setTelemetry(nextTelemetry)
+      setUpdateOperation(nextOperation)
+    } catch (loadError: unknown) {
+      setError(loadError instanceof Error ? loadError.message : 'Appliance status is unavailable.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  useEffect(() => {
+    if (updateOperation?.status !== 'queued' && updateOperation?.status !== 'running') return
+    let stopped = false
+    let timer = 0
+    async function poll() {
+      try {
+        const operation = await fetchApplianceUpdateOperation(updateOperation?.operationId)
+        if (!stopped) {
+          setUpdateOperation(operation)
+          if (operation.status === 'failed') {
+            setError(operation.message ?? 'Update failed. Rollback is available when a backup exists.')
+          }
+          if (operation.status === 'succeeded') {
+            setUpdates(null)
+            setNotice(operation.action === 'rollback'
+              ? operation.channel === 'os'
+                ? 'OS rollback completed.'
+                : 'Lucia rollback completed. Services are restarting.'
+              : operation.channel === 'os'
+                ? 'OS update installed and passed boot validation.'
+                : 'Lucia update installed. Services are restarting.')
+            void load()
+          }
+        }
+      } catch (pollError: unknown) {
+        if (!stopped) {
+          setError(pollError instanceof Error
+            ? pollError.message
+            : 'Update status is unavailable.')
+        }
+      } finally {
+        if (!stopped) timer = window.setTimeout(() => void poll(), 2000)
+      }
+    }
+    timer = window.setTimeout(() => void poll(), 2000)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
+  }, [load, updateOperation?.operationId, updateOperation?.status])
+
+  async function handleCheckUpdates() {
+    setCheckingUpdates(true)
+    setError('')
+    try {
+      setUpdates(await checkApplianceUpdates())
+    } catch (updateError: unknown) {
+      setError(updateError instanceof Error ? updateError.message : 'Update check failed.')
+    } finally {
+      setCheckingUpdates(false)
+    }
+  }
+
+  async function handleRestart(service: string) {
+    setBusyService(service)
+    setError('')
+    try {
+      await restartApplianceService(service)
+      setNotice(`${serviceLabels[service]?.label ?? service} restart requested.`)
+      if (service !== 'agenthost') await load()
+    } catch (restartError: unknown) {
+      setError(restartError instanceof Error ? restartError.message : 'Service restart failed.')
+    } finally {
+      setBusyService(null)
+    }
+  }
+
+  async function handleReboot() {
+    setShowReboot(false)
+    setError('')
+    try {
+      await rebootAppliance()
+      setNotice('Jetson reboot requested. The dashboard will disconnect briefly.')
+    } catch (rebootError: unknown) {
+      setError(rebootError instanceof Error ? rebootError.message : 'Jetson reboot failed.')
+    }
+  }
+
+  async function handleInstall(channel: 'lucia' | 'os') {
+    setPendingUpdate(null)
+    setError('')
+    setStagingUpdate(channel)
+    try {
+      if (!updates?.releaseTag) {
+        throw new Error('Check for updates again before installing.')
+      }
+      setUpdateOperation(await installApplianceUpdate(channel, updates.releaseTag))
+      setNotice(channel === 'os'
+        ? 'Downloading and verifying the OS update. The Jetson will reboot when it is staged.'
+        : 'Downloading and verifying the Lucia update. The dashboard will reconnect after services restart.')
+    } catch (updateError: unknown) {
+      setError(updateError instanceof Error ? updateError.message : 'Update installation failed.')
+    } finally {
+      setStagingUpdate(null)
+    }
+  }
+
+  async function handleRollback(channel: 'lucia' | 'os') {
+    setSubmittingRollback(channel)
+    setError('')
+    try {
+      setUpdateOperation(await rollbackApplianceUpdate(channel))
+      setNotice(channel === 'os'
+        ? 'OS rollback requested. The Jetson will reboot into the previous slot.'
+        : 'Lucia rollback requested. Services are restarting.')
+    } catch (rollbackError: unknown) {
+      setError(rollbackError instanceof Error ? rollbackError.message : 'Rollback failed.')
+    } finally {
+      setSubmittingRollback(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center gap-3 text-fog">
+        <Loader2 className="h-5 w-5 animate-spin text-amber" />
+        Loading appliance...
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto max-w-6xl space-y-6">
+      <header className="flex flex-col gap-4 border-b border-stone pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-light">
+            {status?.hostname ?? 'Lucia appliance'}
+          </h1>
+          <p className="mt-1 text-sm text-fog">
+            Jetson appliance health, updates, telemetry, and host controls
+          </p>
+        </div>
+        <button type="button" onClick={() => void load()} className={secondaryButton}>
+          <RefreshCw className="h-4 w-4" />
+          Refresh status
+        </button>
+      </header>
+
+      {error && (
+        <p role="alert" className="rounded-xl border border-rose/30 bg-rose/8 px-4 py-3 text-sm text-rose">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="rounded-xl border border-sage/30 bg-sage/8 px-4 py-3 text-sm text-sage">
+          {notice}
+        </p>
+      )}
+
+      {status && <IdentityStrip status={status} />}
+
+      <section className="rounded-2xl border border-stone bg-charcoal">
+        <div className="flex flex-col gap-3 border-b border-stone p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-display text-xl font-semibold text-light">Release channels</h2>
+            <p className="mt-1 text-sm text-fog">Lucia and Jetson OS update independently.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCheckUpdates}
+            disabled={checkingUpdates}
+            className={primaryButton}
+          >
+            {checkingUpdates
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <CloudDownload className="h-4 w-4" />}
+            {checkingUpdates ? 'Checking GitHub...' : 'Check for updates'}
+          </button>
+        </div>
+        <div className={checkingUpdates ? 'appliance-update-scan' : ''}>
+          <UpdateRail
+            icon={Cpu}
+            title="Lucia"
+            current={updates?.currentLuciaVersion ?? status?.luciaVersion ?? 'unknown'}
+            latest={updates?.latestLuciaVersion}
+            available={updates?.luciaUpdateAvailable ?? false}
+            newerDiscovered={updates?.luciaNewerDiscovered ?? false}
+            manifestAvailable={updates?.manifestAvailable ?? false}
+            compatible={updates?.luciaCompatible ?? true}
+            checked={updates !== null}
+            busy={isUpdateBusy}
+            rollbackBusy={isUpdateBusy}
+            rollbackAvailable={updateOperation?.luciaRollbackAvailable ?? false}
+            onInstall={() => setPendingUpdate('lucia')}
+            onRollback={() => setPendingRollback('lucia')}
+          />
+          <UpdateRail
+            icon={HardDrive}
+            title="Jetson OS"
+            current={updates?.currentOsVersion ?? status?.os.imageVersion ?? 'unknown'}
+            latest={updates?.latestOsVersion}
+            available={updates?.osUpdateAvailable ?? false}
+            newerDiscovered={updates?.osNewerDiscovered ?? false}
+            manifestAvailable={updates?.manifestAvailable ?? false}
+            compatible={updates?.osCompatible ?? true}
+            checked={updates !== null}
+            busy={isUpdateBusy}
+            rollbackBusy={submittingRollback !== null
+              || (isUpdateBusy && !canInterruptOsValidation)}
+            rollbackAvailable={updateOperation?.osRollbackAvailable ?? false}
+            onInstall={() => setPendingUpdate('os')}
+            onRollback={() => setPendingRollback('os')}
+          />
+        </div>
+        {updates?.message && (
+          <p className="border-t border-stone px-5 py-3 text-sm text-amber">
+            {updates.message}
+          </p>
+        )}
+        {(stagingUpdate || (updateOperation && updateOperation.status !== 'idle')) && (
+          <p
+            role={updateOperation?.status === 'failed' ? 'alert' : 'status'}
+            className="border-t border-stone px-5 py-3 text-sm text-fog"
+          >
+            {stagingUpdate
+              ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />Downloading signed {stagingUpdate} update...</>
+              : updateOperation?.status === 'queued' || updateOperation?.status === 'running'
+                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />{updateOperation.action === 'rollback'
+                    ? `Validating ${updateOperation.channel} rollback...`
+                    : `Verifying and applying ${updateOperation.channel} update...`}</>
+                : updateOperation?.message ?? `${updateOperation?.channel} ${updateOperation?.action} ${updateOperation?.status}.`}
+          </p>
+        )}
+        {updates?.releaseUrl && (
+          <a
+            href={updates.releaseUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-11 items-center gap-2 px-5 py-3 text-sm text-fog hover:text-light"
+          >
+            View GitHub release <ExternalLink className="h-4 w-4" />
+          </a>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-stone bg-charcoal">
+        <div className="border-b border-stone p-5">
+          <h2 className="font-display text-xl font-semibold text-light">Host services</h2>
+          <p className="mt-1 text-sm text-fog">Restart one process without rebooting the Jetson.</p>
+        </div>
+        <div className="divide-y divide-stone">
+          {status?.services.map((service) => (
+            <ServiceRow
+              key={service.id}
+              service={service}
+              busy={isUpdateBusy || busyService === service.id}
+              canRestart={service.id === 'agenthost'
+                || service.id === 'redis'
+                || (telemetry?.enabled === true
+                  && (service.id === 'collector' || service.id === 'redis-exporter'))}
+              onRestart={() => handleRestart(service.id)}
+            />
+          ))}
+        </div>
+      </section>
+
+      {telemetry && (
+        <TelemetryPanel
+          key={`${telemetry.enabled}:${telemetry.endpoint}:${telemetry.insecureSkipVerify}`}
+          telemetry={telemetry}
+          busy={isUpdateBusy}
+          onSaved={(nextTelemetry) => {
+            setTelemetry(nextTelemetry)
+            setNotice(nextTelemetry.enabled
+              ? 'Telemetry configuration saved and enabled.'
+              : 'Telemetry configuration saved and disabled.')
+          }}
+          onError={setError}
+        />
+      )}
+
+      <section className="flex flex-col gap-4 rounded-2xl border border-rose/25 bg-rose/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="font-display text-lg font-semibold text-light">Restart Jetson OS</h2>
+          <p className="mt-1 text-sm text-fog">
+            Active conversations and voice processing will stop until the appliance returns.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowReboot(true)}
+          disabled={isUpdateBusy}
+          className={secondaryButton}
+        >
+          <Power className="h-4 w-4 text-rose" />
+          Reboot Jetson
+        </button>
+      </section>
+
+      <ConfirmDialog
+        open={showReboot}
+        title="Reboot the Jetson?"
+        message="Lucia will disconnect for several minutes. Persistent tasks and configuration will remain."
+        confirmLabel="Reboot Jetson"
+        onConfirm={() => void handleReboot()}
+        onCancel={() => setShowReboot(false)}
+      />
+      <ConfirmDialog
+        open={pendingUpdate !== null}
+        title={pendingUpdate === 'os' ? 'Install Jetson OS update?' : 'Install Lucia update?'}
+        message={pendingUpdate === 'os'
+          ? 'Lucia will verify every release part, write only the inactive OS slot, and reboot. The previous slot remains available for rollback.'
+          : 'Lucia will verify every release part, back up Redis and SQLite, switch releases atomically, and restart services.'}
+        confirmLabel="Verify and install"
+        onConfirm={() => pendingUpdate && void handleInstall(pendingUpdate)}
+        onCancel={() => setPendingUpdate(null)}
+      />
+      <ConfirmDialog
+        open={pendingRollback !== null}
+        title={pendingRollback === 'os' ? 'Roll back Jetson OS?' : 'Roll back Lucia?'}
+        message={pendingRollback === 'os'
+          ? 'The Jetson will select the previous OS slot and reboot.'
+          : 'Lucia will restore the previous release and its Redis and SQLite backup, then restart services.'}
+        confirmLabel="Roll back"
+        onConfirm={() => {
+          if (pendingRollback) {
+            const channel = pendingRollback
+            setPendingRollback(null)
+            void handleRollback(channel)
+          }
+        }}
+        onCancel={() => setPendingRollback(null)}
+      />
+    </div>
+  )
+}
+
+function IdentityStrip({ status }: { status: ApplianceStatus }) {
+  const activeServices = status.services.filter((service) => service.activeState === 'active').length
+  return (
+    <section className="grid gap-px overflow-hidden rounded-2xl border border-stone bg-stone sm:grid-cols-2 lg:grid-cols-4">
+      <IdentityCell icon={CheckCircle2} label="Services" value={`${activeServices}/${status.services.length} active`} />
+      <IdentityCell icon={Server} label="Lucia" value={status.luciaVersion} />
+      <IdentityCell icon={HardDrive} label="Jetson Linux" value={status.os.jetsonLinuxVersion} />
+      <IdentityCell
+        icon={Wifi}
+        label="Wi-Fi"
+        value={status.network.signal === null
+          ? status.network.ssid
+          : `${status.network.ssid} · ${status.network.signal}%`}
+      />
+    </section>
+  )
+}
+
+function IdentityCell({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Activity
+  label: string
+  value: string
+}) {
+  return (
+    <div className="flex items-center gap-3 bg-charcoal px-4 py-4">
+      <Icon className="h-4 w-4 shrink-0 text-amber" />
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wider text-dust">{label}</p>
+        <p className="mt-0.5 text-sm font-semibold text-light">{value}</p>
+      </div>
+    </div>
+  )
+}
+
+function UpdateRail({
+  icon: Icon,
+  title,
+  current,
+  latest,
+  available,
+  newerDiscovered,
+  manifestAvailable,
+  compatible,
+  checked,
+  busy,
+  rollbackBusy,
+  rollbackAvailable,
+  onInstall,
+  onRollback,
+}: {
+  icon: typeof Cpu
+  title: string
+  current: string
+  latest?: string | null
+  available: boolean
+  newerDiscovered: boolean
+  manifestAvailable: boolean
+  compatible: boolean
+  checked: boolean
+  busy: boolean
+  rollbackBusy: boolean
+  rollbackAvailable: boolean
+  onInstall: () => void
+  onRollback: () => void
+}) {
+  const verificationRequired = checked && newerDiscovered
+  const unavailable = checked && !manifestAvailable
+  const incompatible = checked && manifestAvailable && !compatible
+  return (
+    <div className="grid gap-4 border-b border-stone p-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-basalt text-amber">
+          <Icon className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <h3 className="font-display text-base font-semibold text-light">{title}</h3>
+          <p className="mt-1 text-sm text-fog">
+            Installed {current}
+            {latest && ` · Latest ${latest}`}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className={`text-sm font-medium ${
+          available || verificationRequired
+            ? 'text-amber'
+            : unavailable
+              ? 'text-dust'
+              : checked
+                ? 'text-sage'
+                : 'text-dust'
+        }`}>
+          {available
+            ? 'Update available'
+            : unavailable
+              ? 'No appliance manifest'
+              : incompatible
+                ? 'Incompatible'
+                : verificationRequired
+                  ? 'Verification required'
+                  : checked
+                    ? 'Current'
+                    : 'Not checked'}
+        </span>
+        {(available || rollbackAvailable) && (
+          <div className="flex gap-2">
+          {rollbackAvailable && (
+            <button
+              type="button"
+              onClick={onRollback}
+              aria-label={`Roll back ${title}`}
+              disabled={rollbackBusy}
+              className={secondaryButton}
+            >
+              Roll back
+            </button>
+          )}
+          {available && (
+          <button
+            type="button"
+            onClick={onInstall}
+            aria-label={`Install ${title}`}
+            disabled={busy}
+            className={secondaryButton}
+          >
+            Install
+          </button>
+          )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ServiceRow({
+  service,
+  busy,
+  canRestart,
+  onRestart,
+}: {
+  service: ApplianceServiceStatus
+  busy: boolean
+  canRestart: boolean
+  onRestart: () => void
+}) {
+  const labels = serviceLabels[service.id] ?? {
+    label: service.id,
+    detail: 'Appliance process',
+  }
+  const isActive = service.activeState === 'active'
+  return (
+    <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-start gap-3">
+        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
+          isActive ? 'bg-sage' : 'bg-dust'
+        }`} />
+        <div>
+          <h3 className="text-sm font-semibold text-light">{labels.label}</h3>
+          <p className="mt-0.5 text-sm text-fog">{labels.detail}</p>
+          <p className="mt-1 text-xs text-dust">
+            {service.activeState} · {service.unitFileState}
+          </p>
+        </div>
+      </div>
+      {canRestart && (
+        <button
+          type="button"
+          onClick={onRestart}
+          disabled={busy}
+          className={secondaryButton}
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+          Restart
+        </button>
+      )}
+    </div>
+  )
+}
+
+function TelemetryPanel({
+  telemetry,
+  busy,
+  onSaved,
+  onError,
+}: {
+  telemetry: ApplianceTelemetryStatus
+  busy: boolean
+  onSaved: (telemetry: ApplianceTelemetryStatus) => void
+  onError: (message: string) => void
+}) {
+  const [enabled, setEnabled] = useState(telemetry.enabled)
+  const [endpoint, setEndpoint] = useState(telemetry.endpoint)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [clearAuthorization, setClearAuthorization] = useState(false)
+  const [insecureSkipVerify, setInsecureSkipVerify] = useState(telemetry.insecureSkipVerify)
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    onError('')
+    try {
+      onSaved(await updateApplianceTelemetry({
+        enabled,
+        endpoint,
+        username: username || null,
+        password: password || null,
+        clearAuthorization,
+        insecureSkipVerify,
+      }))
+      setUsername('')
+      setPassword('')
+      setClearAuthorization(false)
+    } catch (saveError: unknown) {
+      onError(saveError instanceof Error ? saveError.message : 'Telemetry configuration failed.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-stone bg-charcoal">
+      <div className="flex items-center justify-between gap-4 border-b border-stone p-5">
+        <div>
+          <h2 className="font-display text-xl font-semibold text-light">OpenTelemetry</h2>
+          <p className="mt-1 text-sm text-fog">Export Jetson and Redis infrastructure metrics.</p>
+        </div>
+        <ToggleSwitch
+          checked={enabled}
+          onChange={setEnabled}
+          disabled={busy}
+          label="Telemetry enabled"
+        />
+      </div>
+      <div className="grid gap-5 p-5 sm:grid-cols-2">
+        <label className="sm:col-span-2">
+          <span className="mb-2 block text-sm font-medium text-light">OTLP endpoint</span>
+          <input
+            type="url"
+            value={endpoint}
+            onChange={(event) => setEndpoint(event.target.value)}
+            disabled={busy}
+            placeholder="https://telemetry.example:4317"
+            className={inputStyle}
+          />
+        </label>
+        <label>
+          <span className="mb-2 block text-sm font-medium text-light">Basic auth username</span>
+          <input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            disabled={busy || clearAuthorization}
+            autoComplete="username"
+            className={inputStyle}
+          />
+        </label>
+        <label>
+          <span className="mb-2 block text-sm font-medium text-light">Basic auth password</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            disabled={busy || clearAuthorization}
+            autoComplete="new-password"
+            placeholder={telemetry.hasAuthorization ? 'Saved; enter to replace' : ''}
+            className={inputStyle}
+          />
+        </label>
+        <label className="flex min-h-11 items-center gap-3 text-sm text-fog">
+          <input
+            type="checkbox"
+            checked={clearAuthorization}
+            disabled={busy}
+            onChange={(event) => {
+              setClearAuthorization(event.target.checked)
+              if (event.target.checked) {
+                setUsername('')
+                setPassword('')
+              }
+            }}
+            className="h-4 w-4 accent-amber"
+          />
+          Remove saved authorization
+        </label>
+        <label className="flex min-h-11 items-start gap-3 rounded-xl border border-rose/25 bg-rose/5 p-3 text-sm text-fog">
+          <input
+            type="checkbox"
+            checked={insecureSkipVerify}
+            disabled={busy}
+            onChange={(event) => setInsecureSkipVerify(event.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-rose"
+          />
+          <span>
+            Skip TLS certificate verification
+            <span className="mt-1 block text-xs text-rose">Use only for a trusted lab endpoint.</span>
+          </span>
+        </label>
+      </div>
+      <div className="flex justify-end border-t border-stone p-5">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={busy || saving || !endpoint}
+          className={primaryButton}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+          {saving ? 'Applying...' : 'Save telemetry'}
+        </button>
+      </div>
+    </section>
+  )
+}

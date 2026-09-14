@@ -227,6 +227,7 @@ public sealed class CommandPatternMatcherTests
     [InlineData("turn on the garage lights")]
     [InlineData("turn off the garage light")]
     [InlineData("turn on the fan light")]
+    [InlineData("turn off Zach's light")]
     public void LightDevice_StillMatchesLightPattern(string transcript)
     {
         var matcher = CreateMatcher(LightPattern);

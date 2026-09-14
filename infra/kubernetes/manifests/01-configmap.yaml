@@ -65,10 +65,9 @@ data:
   Features__MultiAgentOrchestration: "true"
   Features__ContextPreservation: "true"
 
-  # Observability
-  Observability__Enabled: "true"
-  OpenTelemetry__TraceExporter: "http://jaeger-collector:4317"
-  OpenTelemetry__MetricsExporter: "http://prometheus:8888"
+  # Observability: Off, Metrics, Trace, or Profile.
+  # Add OTEL_EXPORTER_OTLP_ENDPOINT after installing the management-host CA.
+  Observability__Mode: "Off"
 
   # Environment
   Environment: "production"

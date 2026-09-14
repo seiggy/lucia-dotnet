@@ -8,10 +8,14 @@ branch and recorded an approval for the exact commit being pushed.
 
 1. **The hook** — the gate lives in the version-controlled `.githooks/pre-push`,
    which is the repo's active pre-push hook (see *Installing* below). It runs the
-   review gate first and then the stock **Git LFS** `pre-push` step, so LFS keeps
+   review gate, the provider-free unit tests under CI-equivalent invariant
+   globalization, and then the stock **Git LFS** `pre-push` step, so LFS keeps
    working. It blocks any push whose **destination** ref is `refs/heads/squad/*`
    and whose commit SHA has no approval marker. `master` and non-`squad/*`
-   branches are never gated.
+   branches are never review-gated. To ensure the tested commit is the pushed
+   commit, non-deletion updates must point to the worktree's checked-out `HEAD`.
+   The worktree must also be clean so local tracked or untracked files cannot
+   influence the test result.
 
    > The gate classifies by the *destination* (remote) ref, so
    > `git push origin HEAD:refs/heads/squad/foo` is gated even though the local
@@ -76,7 +80,9 @@ $env:SQUAD_GATE_BYPASS = "1"; git push; Remove-Item Env:SQUAD_GATE_BYPASS
 ## The rule
 
 No `squad/*` branch is pushed, turned into a PR, or merged to `master` until
-Vasquez has reviewed the branch diff and every blocking problem is resolved.
+Vasquez has reviewed the branch diff, verified that all affected documentation
+and README files are updated (or documented why none are affected), and every
+blocking problem is resolved.
 This is enforced by the coordinator (governance — see `routing.md` and
 `decisions.md`); the `.githooks/pre-push` hook is the mechanical backstop that
 blocks the push itself — the prerequisite for any PR or merge.

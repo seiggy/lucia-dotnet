@@ -27,11 +27,11 @@
       "size_approx": "80MB"
     },
     "stt-parakeet-tdt": {
-      "version": "0.6b-v2-int8",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
+      "version": "0.6b-v3-int8",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
       "format": "tar.bz2",
       "output_dir": "/assets/models/stt",
-      "size_approx": "460MB"
+      "size_approx": "487MB"
     },
     "vad-silero-v5": {
       "version": "v5",
@@ -54,7 +54,7 @@
       "format": "raw",
       "output_dir": "/assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
       "output_filename": "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
-      "size_approx": "25MB"
+      "size_approx": "40MB"
     },
     "speech-enhancement-gtcrn": {
       "version": "simple",

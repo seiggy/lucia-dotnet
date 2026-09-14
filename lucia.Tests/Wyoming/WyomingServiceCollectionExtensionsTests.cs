@@ -130,6 +130,27 @@ public sealed class WyomingServiceCollectionExtensionsTests
         Assert.Contains(patterns, pattern => pattern.Id == "test-skill-pattern");
     }
 
+    [Fact]
+    public void AddWyomingServer_DoesNotRegisterDisabledVadAndWakeWordPipelines()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration.AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["FeatureManagement:VadPipeline"] = "false",
+                ["FeatureManagement:WakeWordPipeline"] = "false",
+            });
+
+        builder.AddWyomingServer();
+
+        Assert.DoesNotContain(
+            builder.Services,
+            descriptor => descriptor.ServiceType == typeof(lucia.Wyoming.Vad.IVadEngine));
+        Assert.DoesNotContain(
+            builder.Services,
+            descriptor => descriptor.ServiceType == typeof(IWakeWordDetector));
+    }
+
     private sealed class TestOptimizablePatternSkill : IOptimizableSkill, ICommandPatternProvider
     {
         public string SkillDisplayName => "Test Skill";

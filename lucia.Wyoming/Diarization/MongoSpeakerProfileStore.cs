@@ -9,7 +9,7 @@ namespace lucia.Wyoming.Diarization;
 /// MongoDB-backed persistent speaker profile store.
 /// Falls back to <see cref="InMemorySpeakerProfileStore"/> when no MongoDB connection is configured.
 /// </summary>
-public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
+public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private const string CollectionName = "speaker_profiles";
 
@@ -85,10 +85,14 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        var filter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, profile.Id);
-        var result = await _collection.ReplaceOneAsync(filter, profile, cancellationToken: ct).ConfigureAwait(false);
-
-        if (result.MatchedCount == 0)
+        if (await UpdateAtomicAsync(
+                profile.Id,
+                existing =>
+                {
+                    SpeakerProfileUpdate.EnsureNotClaimed(existing);
+                    return profile;
+                },
+                ct).ConfigureAwait(false) is null)
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
@@ -102,23 +106,36 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(transform);
 
-        var filter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id);
-        var existing = await _collection.Find(filter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
-
-        if (existing is null)
+        const int MaxAttempts = 5;
+        var idFilter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id);
+        for (var attempt = 0; attempt < MaxAttempts; attempt++)
         {
-            throw new InvalidOperationException($"Profile '{id}' not found");
+            var existing = await _collection.Find(idFilter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            if (existing is null)
+            {
+                return null;
+            }
+
+            var transformed = SpeakerProfileUpdate.ApplyAtomic(existing, transform);
+            var updated = transformed with { Revision = existing.Revision + 1 };
+            var options = new FindOneAndReplaceOptions<SpeakerProfile>
+            {
+                ReturnDocument = ReturnDocument.After,
+            };
+            var concurrencyFilter = Builders<SpeakerProfile>.Filter.And(
+                idFilter,
+                BuildRevisionFilter(existing.Revision));
+
+            var result = await _collection.FindOneAndReplaceAsync(concurrencyFilter, updated, options, ct)
+                .ConfigureAwait(false);
+            if (result is not null)
+            {
+                return result;
+            }
         }
 
-        var updated = transform(existing);
-        var options = new FindOneAndReplaceOptions<SpeakerProfile>
-        {
-            ReturnDocument = ReturnDocument.After,
-        };
-
-        return await _collection
-            .FindOneAndReplaceAsync(filter, updated, options, ct)
-            .ConfigureAwait(false);
+        throw new InvalidOperationException(
+            $"Profile '{id}' could not be updated after {MaxAttempts} concurrent attempts.");
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct)
@@ -127,6 +144,19 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
 
         var filter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id);
         await _collection.DeleteOneAsync(filter, ct).ConfigureAwait(false);
+    }
+
+    public async Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        var filter = Builders<SpeakerProfile>.Filter.And(
+            Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id),
+            Builders<SpeakerProfile>.Filter.Eq(p => p.IsProvisional, true),
+            Builders<SpeakerProfile>.Filter.Lt(p => p.LastSeenAt, cutoff));
+        var result = await _collection.DeleteOneAsync(filter, ct).ConfigureAwait(false);
+        return result.DeletedCount == 1;
     }
 
     public async Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(
@@ -165,5 +195,15 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         {
             _logger.LogWarning(ex, "Failed to create speaker profile indexes — they may already exist");
         }
+    }
+
+    private static FilterDefinition<SpeakerProfile> BuildRevisionFilter(long revision)
+    {
+        var revisionFilter = Builders<SpeakerProfile>.Filter.Eq(p => p.Revision, revision);
+        return revision == 0
+            ? Builders<SpeakerProfile>.Filter.Or(
+                revisionFilter,
+                Builders<SpeakerProfile>.Filter.Exists(p => p.Revision, false))
+            : revisionFilter;
     }
 }

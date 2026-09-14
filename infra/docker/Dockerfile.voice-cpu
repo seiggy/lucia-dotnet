@@ -19,12 +19,12 @@
 #   BUILD_CONFIGURATION    — Debug or Release (default: Release)
 #   BUILD_TARGET_FRAMEWORK — Target framework version (default: net10.0)
 #
-# Pre-loaded model inventory (~585MB total):
+# Pre-loaded model inventory (~605MB total):
 #   STT:     sherpa-onnx-streaming-zipformer-en-2023-06-26      (~80MB)
-#   STT:     sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8         (~460MB, offline, 0% WER)
+#   STT:     sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8         (~487MB, multilingual offline)
 #   VAD:     silero_vad                                          (~2MB)
 #   KWS:     sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 (~10MB)
-#   Speaker: 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k (~25MB)
+#   Speaker: 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k (~40MB)
 #   SE:      gtcrn_simple (streaming)                              (~535KB)
 #
 # CPU-only mode:
@@ -87,9 +87,10 @@ RUN mkdir -p /app/models/stt \
               /app/models/kws \
               /app/models/speech-enhancement \
               /app/models/speaker-embedding \
+              /app/data/voice-clips \
               /app/plugins \
-    && chown -R appuser:appuser /app/models /app/plugins \
-    && chmod 775 /app/models /app/plugins
+    && chown -R appuser:appuser /app/models /app/data /app/plugins \
+    && chmod 775 /app/models /app/data /app/plugins
 
 # Expose ports
 EXPOSE 8080 8081 10400
@@ -230,8 +231,9 @@ ENV Wyoming__Models__Stt__ModelBasePath=/app/models/stt \
 
 # Volume declarations for persistent storage
 # /app/models: Writable model cache (HuggingFace downloads, dynamic model switches)
+# /app/data: Persistent voice recordings and other runtime data
 # /app/plugins: Plugin directory (future-proofing for runtime plugin management)
-VOLUME ["/app/models", "/app/plugins"]
+VOLUME ["/app/models", "/app/data", "/app/plugins"]
 
 # Switch to non-root user for runtime security
 USER appuser
@@ -259,10 +261,10 @@ ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
 #   # Build without voice models (use base Dockerfile instead)
 #   docker build -t lucia:latest -f infra/docker/Dockerfile .
 #
-# Pre-loaded models (~585MB total):
+# Pre-loaded models (~605MB total):
 #   STT:     sherpa-onnx-streaming-zipformer-en-2023-06-26 (English streaming, ~80MB)
-#   STT:     sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 (English offline, ~460MB)
+#   STT:     sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8 (multilingual offline, ~487MB)
 #   VAD:     silero_vad v5 (universal voice activity detection, ~2.3MB)
 #   KWS:     sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 (English keywords, ~10MB)
-#   Speaker: 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k (voice enrollment, ~25MB)
+#   Speaker: 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k (voice enrollment, ~40MB)
 #   SE:      gtcrn_simple (streaming speech enhancement, ~535KB)

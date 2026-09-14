@@ -1,133 +1,217 @@
+using System.Globalization;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text.Json.Serialization;
+using System.Text.Json;
+using Azure.Core;
+using Azure.Identity;
+using lucia.Agents.Providers;
 using lucia.EvalHarness.Configuration;
 
 namespace lucia.EvalHarness.Providers;
 
-/// <summary>
-/// Discovers available models from any supported inference backend.
-/// Ollama backends use <c>/api/tags</c>; OpenAI-compatible backends use <c>/v1/models</c>.
-/// </summary>
-public sealed class BackendModelDiscovery
+public sealed class BackendModelDiscovery(HttpClient httpClient, TokenCredential? credential = null)
 {
-    private readonly HttpClient _httpClient;
+    private readonly TokenCredential _credential = credential ?? new AzureCliCredential();
 
-    public BackendModelDiscovery(HttpClient httpClient)
-    {
-        _httpClient = httpClient;
-    }
-
-    /// <summary>
-    /// Lists models available on the specified backend.
-    /// </summary>
     public async Task<IReadOnlyList<DiscoveredModel>> ListModelsAsync(
         InferenceBackend backend, CancellationToken ct = default)
     {
-        return backend.Type switch
+        if (backend.Type == InferenceBackendType.AzureFoundry)
         {
-            InferenceBackendType.Ollama => await ListOllamaModelsAsync(backend.Endpoint, ct),
-            InferenceBackendType.OpenAICompat => await ListOpenAICompatModelsAsync(backend.Endpoint, ct),
-            _ => []
+            return await ListFoundryDeploymentsAsync(backend, ct);
+        }
+
+        var url = backend.Type switch
+        {
+            InferenceBackendType.Ollama => backend.Endpoint.TrimEnd('/') + "/api/tags",
+            InferenceBackendType.OpenAICompat => LlamaCppEndpoint.Normalize(backend.Endpoint).AbsoluteUri.TrimEnd('/') + "/models",
+            InferenceBackendType.OpenRouter => LlamaCppEndpoint.Normalize(backend.Endpoint).AbsoluteUri.TrimEnd('/') + "/models",
+            _ => throw new InvalidOperationException($"Unsupported backend type: {backend.Type}")
         };
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        if (!string.IsNullOrWhiteSpace(backend.ApiKey))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", backend.ApiKey);
+        }
+
+        var root = await GetJsonAsync(request, ct);
+        var property = backend.Type == InferenceBackendType.Ollama ? "models" : "data";
+        var models = ReadArray(root, property);
+        var result = new List<DiscoveredModel>();
+        foreach (var model in models.EnumerateArray())
+        {
+            if (backend.Type == InferenceBackendType.Ollama)
+            {
+                var details = model.TryGetProperty("details", out var nested) ? nested : model;
+                result.Add(new DiscoveredModel
+                {
+                    Name = ReadName(model, "name"),
+                    Size = model.TryGetProperty("size", out var size) ? size.GetInt64() : 0,
+                    ParameterSize = details.TryGetProperty("parameter_size", out var parameters) ? parameters.GetString() : null,
+                    QuantizationLevel = details.TryGetProperty("quantization_level", out var quantization) ? quantization.GetString() : null
+                });
+            }
+            else if (!IsEmbeddingModel(model) &&
+                     (backend.Type != InferenceBackendType.OpenRouter || HasTextOutput(model)))
+            {
+                result.Add(new DiscoveredModel
+                {
+                    Name = ReadName(model, "id"),
+                    Pricing = backend.Type == InferenceBackendType.OpenRouter &&
+                              model.TryGetProperty("pricing", out var pricing)
+                        ? ReadPricing(pricing)
+                        : null
+                });
+            }
+        }
+
+        return result;
     }
 
-    /// <summary>
-    /// Tests connectivity to the specified backend.
-    /// </summary>
     public async Task<bool> IsAvailableAsync(InferenceBackend backend, CancellationToken ct = default)
     {
         try
         {
-            var url = backend.Type switch
-            {
-                InferenceBackendType.Ollama => backend.Endpoint.TrimEnd('/') + "/api/tags",
-                InferenceBackendType.OpenAICompat => backend.Endpoint.TrimEnd('/') + "/v1/models",
-                _ => backend.Endpoint
-            };
-
-            var response = await _httpClient.GetAsync(url, ct);
-            return response.IsSuccessStatusCode;
+            await ListModelsAsync(backend, ct);
+            return true;
         }
-        catch
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or AuthenticationFailedException ||
+                                          exception is OperationCanceledException && !ct.IsCancellationRequested)
         {
+            Console.Error.WriteLine($"Backend '{backend.Name}' discovery failed: {exception.Message}");
             return false;
         }
     }
 
-    private async Task<IReadOnlyList<DiscoveredModel>> ListOllamaModelsAsync(
-        string endpoint, CancellationToken ct)
+    private async Task<IReadOnlyList<DiscoveredModel>> ListFoundryDeploymentsAsync(
+        InferenceBackend backend, CancellationToken ct)
     {
-        var url = endpoint.TrimEnd('/') + "/api/tags";
-        var response = await _httpClient.GetFromJsonAsync<OllamaTagsResponse>(url, ct);
-
-        return response?.Models?.Select(m => new DiscoveredModel
+        var parts = backend.AzureResourceId?.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts is not { Length: 8 } ||
+            !parts[0].Equals("subscriptions", StringComparison.OrdinalIgnoreCase) ||
+            !parts[2].Equals("resourceGroups", StringComparison.OrdinalIgnoreCase) ||
+            !parts[4].Equals("providers", StringComparison.OrdinalIgnoreCase) ||
+            !parts[5].Equals("Microsoft.CognitiveServices", StringComparison.OrdinalIgnoreCase) ||
+            !parts[6].Equals("accounts", StringComparison.OrdinalIgnoreCase))
         {
-            Name = m.Name,
-            Size = m.Size,
-            ParameterSize = m.ParameterSize,
-            QuantizationLevel = m.QuantizationLevel
-        }).ToList() ?? [];
-    }
+            throw new InvalidOperationException($"Backend '{backend.Name}' requires an AzureResourceId for a Foundry account.");
+        }
 
-    private async Task<IReadOnlyList<DiscoveredModel>> ListOpenAICompatModelsAsync(
-        string endpoint, CancellationToken ct)
-    {
-        try
+        var resourcePath = "/" + string.Join("/", parts.Select(Uri.EscapeDataString));
+        Uri? next = new($"https://management.azure.com{resourcePath}/deployments?api-version=2024-10-01");
+        var token = await _credential.GetTokenAsync(
+            new TokenRequestContext(["https://management.azure.com/.default"]), ct);
+        var visited = new HashSet<Uri>();
+        var result = new List<DiscoveredModel>();
+
+        while (next is not null)
         {
-            var url = endpoint.TrimEnd('/') + "/v1/models";
-            var response = await _httpClient.GetFromJsonAsync<OpenAIModelsResponse>(url, ct);
-
-            return response?.Data?.Select(m => new DiscoveredModel
+            if (next.Scheme != Uri.UriSchemeHttps || next.Host != "management.azure.com" ||
+                !next.IsDefaultPort || !string.IsNullOrEmpty(next.UserInfo) ||
+                !next.AbsolutePath.StartsWith(resourcePath + "/deployments", StringComparison.OrdinalIgnoreCase) ||
+                !visited.Add(next))
             {
-                Name = m.Id
-            }).ToList() ?? [];
+                throw new JsonException("Foundry returned an invalid deployment continuation URL.");
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, next);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token.Token);
+            var root = await GetJsonAsync(request, ct);
+            foreach (var deployment in ReadArray(root, "value").EnumerateArray())
+            {
+                var properties = deployment.GetProperty("properties");
+                if (properties.GetProperty("provisioningState").GetString() == "Succeeded" &&
+                    properties.TryGetProperty("capabilities", out var capabilities) &&
+                    capabilities.TryGetProperty("responses", out var responses) &&
+                    responses.ToString().Equals("true", StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(new DiscoveredModel { Name = ReadName(deployment, "name") });
+                }
+            }
+
+            next = root.TryGetProperty("nextLink", out var nextLink) &&
+                   nextLink.ValueKind == JsonValueKind.String &&
+                   !string.IsNullOrWhiteSpace(nextLink.GetString())
+                ? new Uri(nextLink.GetString()!, UriKind.Absolute)
+                : null;
         }
-        catch (HttpRequestException)
-        {
-            return [];
-        }
+
+        return result;
     }
-}
 
-/// <summary>
-/// A model discovered from any inference backend, normalized to a common shape.
-/// </summary>
-public sealed class DiscoveredModel
-{
-    public string Name { get; init; } = string.Empty;
-    public long Size { get; init; }
-    public string? ParameterSize { get; init; }
-    public string? QuantizationLevel { get; init; }
-
-    public string DisplayName
+    private async Task<JsonElement> GetJsonAsync(HttpRequestMessage request, CancellationToken ct)
     {
-        get
-        {
-            var parts = new List<string> { Name };
-            var meta = new List<string>();
-            if (!string.IsNullOrEmpty(ParameterSize)) meta.Add(ParameterSize);
-            if (!string.IsNullOrEmpty(QuantizationLevel)) meta.Add(QuantizationLevel);
-            if (Size > 0) meta.Add($"{Size / (1024.0 * 1024 * 1024):F1} GB");
-            if (meta.Count > 0) parts.Add($"({string.Join(", ", meta)})");
-            return string.Join(" ", parts);
-        }
+        using var response = await httpClient.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
     }
-}
 
-/// <summary>
-/// Response shape from the OpenAI-compatible <c>/v1/models</c> endpoint.
-/// </summary>
-internal sealed class OpenAIModelsResponse
-{
-    [JsonPropertyName("data")]
-    public List<OpenAIModelEntry>? Data { get; set; }
-}
+    private static JsonElement ReadArray(JsonElement root, string name) =>
+        root.TryGetProperty(name, out var array) && array.ValueKind == JsonValueKind.Array
+            ? array
+            : throw new JsonException($"Model discovery response must contain a '{name}' array.");
 
-/// <summary>
-/// A single model entry from the OpenAI-compatible models list.
-/// </summary>
-internal sealed class OpenAIModelEntry
-{
-    [JsonPropertyName("id")]
-    public string Id { get; set; } = string.Empty;
+    private static string ReadName(JsonElement model, string property) =>
+        model.TryGetProperty(property, out var name) && name.ValueKind == JsonValueKind.String &&
+        !string.IsNullOrWhiteSpace(name.GetString())
+            ? name.GetString()!
+            : throw new JsonException($"Discovered model is missing '{property}'.");
+
+    private static bool IsEmbeddingModel(JsonElement model) =>
+        model.TryGetProperty("status", out var status) &&
+        status.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array &&
+        args.EnumerateArray().Any(arg => arg.GetString() is "--embeddings" or "--embedding" or "--embd");
+
+    private static bool HasTextOutput(JsonElement model) =>
+        model.TryGetProperty("architecture", out var architecture) &&
+        architecture.TryGetProperty("output_modalities", out var outputs) &&
+        outputs.ValueKind == JsonValueKind.Array &&
+        outputs.EnumerateArray().Any(output => output.GetString() == "text");
+
+    private static ModelPricing ReadPricing(JsonElement pricing)
+    {
+        var tiers = new List<ModelPricing>();
+        if (pricing.TryGetProperty("overrides", out var overrides))
+        {
+            foreach (var tier in overrides.EnumerateArray())
+            {
+                // Time-dependent prices need the provider's actual bill, not a base-rate guess.
+                if (tier.TryGetProperty("utc_start", out _) || tier.TryGetProperty("utc_end", out _) ||
+                    tier.TryGetProperty("utc_days", out _))
+                {
+                    return new ModelPricing();
+                }
+
+                tiers.Add(ReadRates(tier) with
+                {
+                    MinimumInputTokens = checked(tier.GetProperty("min_prompt_tokens").GetInt64() + 1)
+                });
+            }
+        }
+
+        return ReadRates(pricing) with { ContextTiers = tiers };
+    }
+
+    private static ModelPricing ReadRates(JsonElement pricing) => new()
+    {
+        InputUsdPerMillionTokens = ReadPrice(pricing, "prompt") * 1_000_000m,
+        OutputUsdPerMillionTokens = ReadPrice(pricing, "completion") * 1_000_000m,
+        CachedInputUsdPerMillionTokens = ReadPrice(pricing, "input_cache_read") * 1_000_000m,
+        RequestUsd = ReadPrice(pricing, "request") ?? 0m
+    };
+
+    private static decimal? ReadPrice(JsonElement pricing, string property)
+    {
+        if (!pricing.TryGetProperty(property, out var value))
+        {
+            return null;
+        }
+
+        if (!decimal.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var price))
+        {
+            throw new JsonException($"OpenRouter returned an invalid '{property}' price.");
+        }
+
+        return price >= 0 ? price : null;
+    }
 }

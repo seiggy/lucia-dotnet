@@ -12,6 +12,9 @@
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="lucia.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="A2A" />
     <PackageReference Include="A2A.AspNetCore" />
     <PackageReference Include="Aspire.StackExchange.Redis" />
@@ -36,6 +39,11 @@
     <Compile Remove="Apis\WyomingModelApi.cs" />
     <Compile Remove="Apis\WyomingSessionApi.cs" />
     <Compile Remove="Apis\WyomingStatusApi.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="data\voice-clips\**\*" />
+    <None Remove="data\voice-clips\**\*" />
   </ItemGroup>
 
   <ItemGroup>

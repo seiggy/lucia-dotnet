@@ -1,0 +1,339 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Process, .NET runtime, inbound HTTP, and outbound dependency health for Lucia services.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "asDropdown": false, "icon": "dashboard", "includeVars": true, "keepTime": true, "tags": [], "targetBlank": false, "title": "Speech pipeline", "tooltip": "Open speech pipeline performance", "type": "link", "url": "/d/lucia-speech-pipeline" },
+    { "asDropdown": false, "icon": "dashboard", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": false, "title": "Jetson host", "tooltip": "Open Jetson host health", "type": "link", "url": "/d/lucia-jetson-host" },
+    { "asDropdown": false, "icon": "dashboard", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": false, "title": "PostgreSQL", "tooltip": "Open PostgreSQL health", "type": "link", "url": "/d/lucia-postgresql" },
+    { "asDropdown": false, "icon": "dashboard", "includeVars": false, "keepTime": true, "tags": [], "targetBlank": false, "title": "Redis", "tooltip": "Open Redis health", "type": "link", "url": "/d/lucia-redis" },
+    { "asDropdown": false, "icon": "compass", "includeVars": true, "keepTime": true, "tags": [], "targetBlank": false, "title": "Explore", "tooltip": "Open Grafana Explore", "type": "link", "url": "/explore" }
+  ],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 1,
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }] },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "100 * sum(rate(process_cpu_time_seconds_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(process_cpu_count{job=~\"$job\",instance=~\"$instance\"})", "instant": true, "legendFormat": "CPU", "range": false, "refId": "A" }],
+      "title": "CPU utilization",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 1,
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(process_memory_usage_bytes{job=~\"$job\",instance=~\"$instance\"})", "instant": true, "legendFormat": "Working set", "range": false, "refId": "A" }],
+      "title": "Working set",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "decimals": 1, "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue" }] }, "unit": "short" },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(rate(http_server_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60", "instant": true, "legendFormat": "Requests", "range": false, "refId": "A" }],
+      "title": "Inbound requests / min",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 2,
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 5 }] },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "100 * sum(rate(http_server_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",http_response_status_code=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_server_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])), 0.000001) or vector(0)", "instant": true, "legendFormat": "5xx", "range": false, "refId": "A" }],
+      "title": "Server error ratio",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 3,
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.5 }, { "color": "red", "value": 2 }] },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "id": 5,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "instant": true, "legendFormat": "p95", "range": false, "refId": "A" }],
+      "title": "Request latency p95",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "decimals": 2,
+          "min": 0,
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green" }, { "color": "yellow", "value": 0.1 }, { "color": "red", "value": 5 }] },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "id": 6,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [{ "editorMode": "code", "expr": "sum(rate(dotnet_exceptions_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60", "instant": true, "legendFormat": "Exceptions", "range": false, "refId": "A" }],
+      "title": "Exceptions / min",
+      "type": "stat"
+    },
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 }, "id": 7, "panels": [], "title": "Process and runtime pressure", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 5 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "100 * sum by (instance) (rate(process_cpu_time_seconds_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum by (instance) (process_cpu_count{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "CPU utilization by instance",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "bytes" },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "custom.axisPlacement", "value": "right" }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 5 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum by (instance) (process_memory_usage_bytes{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "Working set {{instance}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum by (instance) (dotnet_gc_last_collection_heap_size_bytes{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "GC heap {{instance}}", "range": true, "refId": "B" }
+      ],
+      "title": "Process and managed memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "Bps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 5 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (instance) (rate(dotnet_gc_heap_allocated_bytes_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))", "legendFormat": "{{instance}}", "range": true, "refId": "A" }],
+      "title": "Managed allocation rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 2, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
+      "id": 11,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (gc_heap_generation) (rate(dotnet_gc_collections_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60", "legendFormat": "{{gc_heap_generation}}", "range": true, "refId": "A" }],
+      "title": "GC collections / min",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
+      "id": 12,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(dotnet_thread_pool_queue_length_total{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "Queued work", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum(dotnet_thread_pool_thread_count_total{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "Worker threads", "range": true, "refId": "B" }
+      ],
+      "title": "Thread pool pressure",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 2, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
+      "id": 13,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(8, sum by (error_type) (rate(dotnet_exceptions_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60)", "legendFormat": "{{error_type}}", "range": true, "refId": "A" }],
+      "title": "Exceptions by type / min",
+      "type": "timeseries"
+    },
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 }, "id": 14, "panels": [], "title": "Inbound HTTP", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 22 },
+      "id": 15,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(10, sum by (http_route, http_request_method) (rate(http_server_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60)", "legendFormat": "{{http_request_method}} {{http_route}}", "range": true, "refId": "A" }],
+      "title": "Request throughput / min by route",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 3, "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 22 },
+      "id": 16,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "topk(10, histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))))", "legendFormat": "{{http_route}}", "range": true, "refId": "A" }],
+      "title": "Request latency p95 by route",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "id": 17,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60", "legendFormat": "HTTP {{http_response_status_code}}", "range": true, "refId": "A" }],
+      "title": "Responses / min by status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "id": 18,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(http_server_active_requests{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "Active requests", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "sum(kestrel_active_connections{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "Active connections", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "sum(kestrel_queued_connections{job=~\"$job\",instance=~\"$instance\"})", "legendFormat": "Queued connections", "range": true, "refId": "C" }
+      ],
+      "title": "Server concurrency",
+      "type": "timeseries"
+    },
+    { "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 }, "id": 19, "panels": [], "title": "Outbound dependencies", "type": "row" },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 1, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 0, "y": 40 },
+      "id": 20,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "sum by (server_address) (rate(http_client_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) * 60", "legendFormat": "{{server_address}}", "range": true, "refId": "A" }],
+      "title": "Outbound requests / min",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 3, "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 8, "y": 40 },
+      "id": 21,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [{ "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le, server_address) (rate(http_client_request_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))", "legendFormat": "{{server_address}}", "range": true, "refId": "A" }],
+      "title": "Outbound latency p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "decimals": 2, "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 40 },
+      "id": 22,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "(sum by (server_address) (rate(http_client_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",error_type!=\"\"}[$__rate_interval])) + sum by (server_address) (rate(http_client_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",http_response_status_code=~\"5..\"}[$__rate_interval]))) * 60", "legendFormat": "{{server_address}}", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "vector(0) unless on() ((sum by (server_address) (rate(http_client_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",error_type!=\"\"}[$__rate_interval])) + sum by (server_address) (rate(http_client_request_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",http_response_status_code=~\"5..\"}[$__rate_interval]))) * 60)", "legendFormat": "No failures", "range": true, "refId": "B" }
+      ],
+      "title": "Outbound failures / min",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["lucia", "service-health", "runtime", "http"],
+  "templating": {
+    "list": [
+      {
+        "allValue": ".*",
+        "current": { "text": "lucia.AgentHost", "value": "lucia.AgentHost" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(target_info, job)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "job",
+        "options": [],
+        "query": { "query": "label_values(target_info, job)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(target_info{job=~\"$job\"}, instance)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Instance",
+        "multi": true,
+        "name": "instance",
+        "options": [],
+        "query": { "query": "label_values(target_info{job=~\"$job\"}, instance)", "refId": "PrometheusVariableQueryEditor-VariableQuery" },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Lucia service health",
+  "uid": "lucia-service-health",
+  "version": 1,
+  "weekStart": ""
+}

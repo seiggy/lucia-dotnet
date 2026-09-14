@@ -44,7 +44,7 @@ public sealed class TestDiarizationEngine : IDiarizationEngine
 
         return new SpeakerEmbedding
         {
-            Vector = _testEmbedding,
+            Vector = [.. _testEmbedding],
             Duration = TimeSpan.FromSeconds((double)audioSamples.Length / sampleRate),
         };
     }

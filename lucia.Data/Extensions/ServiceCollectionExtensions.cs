@@ -70,31 +70,27 @@ public static class ServiceCollectionExtensions
         var options = new DataProviderOptions();
         builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(options);
 
-        // Derive three database file paths from the configured base path.
-        // e.g. "./data/lucia.db" → "./data/lucia-config.db", "./data/lucia-traces.db", "./data/lucia-tasks.db"
         var basePath = options.SqlitePath;
-        var dir = Path.GetDirectoryName(basePath) ?? ".";
-        var name = Path.GetFileNameWithoutExtension(basePath);
-        var ext = Path.GetExtension(basePath);
-
-        var configPath = Path.Combine(dir, $"{name}-config{ext}");
-        var tracesPath = Path.Combine(dir, $"{name}-traces{ext}");
-        var tasksPath = Path.Combine(dir, $"{name}-tasks{ext}");
 
         // Register three keyed SqliteConnectionFactory instances.
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Config, (_, _) =>
-            new SqliteConnectionFactory(configPath));
+            new SqliteConnectionFactory(SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Config)));
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Traces, (_, _) =>
-            new SqliteConnectionFactory(tracesPath));
+            new SqliteConnectionFactory(SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Traces)));
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Tasks, (_, _) =>
-            new SqliteConnectionFactory(tasksPath));
+            new SqliteConnectionFactory(SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Tasks)));
 
         // Non-keyed factory for backward compat (migration runner, config provider).
         builder.Services.TryAddSingleton<SqliteConnectionFactory>(sp =>
             sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Config));
 
         // Schema migration (registered as itself for direct resolution + as IHostedService)
-        builder.Services.AddSingleton<SqliteMigrationRunner>();
+        builder.Services.AddSingleton(sp => new SqliteMigrationRunner(
+            sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Config),
+            sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Traces),
+            sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Tasks),
+            sp.GetRequiredService<ILogger<SqliteMigrationRunner>>(),
+            basePath));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SqliteMigrationRunner>());
 
         // luciaconfig repositories

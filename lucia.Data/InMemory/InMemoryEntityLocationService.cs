@@ -19,7 +19,7 @@ namespace lucia.Data.InMemory;
 /// and stores all location data in-process without any Redis persistence.
 /// Designed for lightweight/mono-container deployments where cross-process cache sharing is not needed.
 /// </summary>
-public sealed class InMemoryEntityLocationService : IEntityLocationService
+public sealed class InMemoryEntityLocationService : IEntityLocationService, IAgentFilteredEntityLocationService
 {
     private const int EmbeddingBatchSize = 25;
     private const int EmbeddingBatchMaxAttempts = 3;
@@ -230,11 +230,27 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
             query, _snapshot.Floors, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
     }
 
-    public async Task<HierarchicalSearchResult> SearchHierarchyAsync(
+    public Task<HierarchicalSearchResult> SearchHierarchyAsync(
         string query,
         HybridMatchOptions? options = null,
         IReadOnlyList<string>? domainFilter = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId: null, ct);
+
+    public Task<HierarchicalSearchResult> SearchHierarchyForAgentAsync(
+        string query,
+        HybridMatchOptions? options,
+        IReadOnlyList<string>? domainFilter,
+        string callerAgentId,
+        CancellationToken ct = default) =>
+        SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId, ct);
+
+    private async Task<HierarchicalSearchResult> SearchHierarchyCoreAsync(
+        string query,
+        HybridMatchOptions? options,
+        IReadOnlyList<string>? domainFilter,
+        string? callerAgentId,
+        CancellationToken ct)
     {
         await EnsureLoadedAsync(ct).ConfigureAwait(false);
 
@@ -252,6 +268,13 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
                     (e.IncludeForAgent == null || e.IncludeForAgent.Count > 0))
                 .ToList()
             : (IReadOnlyList<HomeAssistantEntity>)snap.Entities;
+        if (callerAgentId is not null)
+        {
+            filteredEntities = filteredEntities
+                .Where(entity => entity.IncludeForAgent is null
+                    || entity.IncludeForAgent.Contains(callerAgentId))
+                .ToList();
+        }
 
         if (embeddingService is not null)
         {

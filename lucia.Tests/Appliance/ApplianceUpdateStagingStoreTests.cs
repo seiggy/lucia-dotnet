@@ -1,0 +1,130 @@
+using lucia.AgentHost.Appliance;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace lucia.Tests.Appliance;
+
+public sealed class ApplianceUpdateStagingStoreTests
+{
+    [Fact]
+    public void TryStart_SerializesAndPersistsStagingOperations()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-staging-{Guid.NewGuid():N}");
+        try
+        {
+            var orphan = Path.Combine(root, ".v1.4.0.deadbeef.partial");
+            Directory.CreateDirectory(orphan);
+            var store = CreateStore(root);
+
+            var accepted = store.TryStart("lucia", "v1.5.0");
+            var rejected = store.TryStart("os", "v1.5.0");
+            var abandonedFinal = Path.Combine(root, "v1.5.0");
+            Directory.CreateDirectory(abandonedFinal);
+            var recovered = CreateStore(root).GetStatus();
+
+            Assert.NotNull(accepted);
+            Assert.True(Guid.TryParseExact(
+                accepted.OperationId,
+                "D",
+                out _));
+            Assert.Null(rejected);
+            Assert.False(Directory.Exists(orphan));
+            Assert.False(Directory.Exists(abandonedFinal));
+            Assert.Equal("failed", recovered.Status);
+            Assert.Equal(
+                "AgentHost restarted while staging the update.",
+                recovered.Message);
+
+            store.SetHandedOff("lucia", "v1.5.0");
+            Assert.Null(store.TryStart("os", "v1.5.0"));
+            Assert.Equal("running", CreateStore(root).GetStatus().Status);
+
+            store.SetHandingOff("os", "v1.6.0");
+            Assert.True(store.IsHandoffRequestActive);
+            Assert.Null(store.TryStart("lucia", "v1.6.0"));
+            store.CompleteHandoffAttempt();
+            Assert.False(store.IsHandoffRequestActive);
+            Assert.Equal("handoff", CreateStore(root).GetStatus().Action);
+
+            var finalized = Path.Combine(root, "v1.6.0");
+            Directory.CreateDirectory(finalized);
+            store.Clear();
+            Assert.False(Directory.Exists(finalized));
+
+            store.SetFailed("lucia", "v1.7.0", "rejected");
+            var rejectedFinal = Path.Combine(root, "v1.7.0");
+            Directory.CreateDirectory(rejectedFinal);
+            Assert.NotNull(store.TryStart("os", "v1.8.0"));
+            Assert.False(Directory.Exists(rejectedFinal));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void TryStart_PersistenceFailureKeepsIdleState()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-staging-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(Path.Combine(root, "operation.json"));
+        try
+        {
+            var store = CreateStore(root);
+
+            var exception = Record.Exception(
+                () => store.TryStart("lucia", "v1.5.0"));
+            Assert.True(
+                exception is IOException or UnauthorizedAccessException,
+                exception?.ToString());
+            Assert.Equal("idle", store.GetStatus().Status);
+
+            Directory.Delete(Path.Combine(root, "operation.json"));
+            Assert.NotNull(store.TryStart("lucia", "v1.5.0"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SetRunning_PersistenceFailureCanTransitionToFailed()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-staging-{Guid.NewGuid():N}");
+        try
+        {
+            var store = CreateStore(root);
+            Assert.NotNull(store.TryStart("lucia", "v1.5.0"));
+            Directory.CreateDirectory(Path.Combine(root, "operation.json.tmp"));
+
+            var exception = Record.Exception(
+                () => store.SetRunning("lucia", "v1.5.0"));
+            Assert.True(
+                exception is IOException or UnauthorizedAccessException,
+                exception?.ToString());
+            Assert.Equal("queued", store.GetStatus().Status);
+
+            store.SetFailedInMemory(
+                "lucia",
+                "v1.5.0",
+                "persistence failed");
+            Assert.Equal("failed", store.GetStatus().Status);
+            Directory.Delete(Path.Combine(root, "operation.json.tmp"));
+            Assert.NotNull(store.TryStart("os", "v1.6.0"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static ApplianceUpdateStagingStore CreateStore(string root) =>
+        new(root, NullLogger<ApplianceUpdateStagingStore>.Instance);
+}

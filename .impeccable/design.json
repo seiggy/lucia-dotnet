@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-20T00:00:00.000Z",
+  "title": "Design System: Lucia Observatory",
+  "extensions": {
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Login, setup, and major page headings."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Setup steps and primary section titles."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Navigation, instructions, forms, and operational content."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Primary actions and high-emphasis controls."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels and compact shell captions."
+      }
+    },
+    "shadows": [
+      {
+        "name": "identity-glow",
+        "value": "0 0 20px -5px color-mix(in srgb, var(--color-amber) 15%, transparent)",
+        "purpose": "Lucia marks on public screens."
+      },
+      {
+        "name": "panel-glow",
+        "value": "0 0 10px -3px color-mix(in srgb, var(--color-amber) 12%, transparent)",
+        "purpose": "Login and setup glass panels."
+      },
+      {
+        "name": "active-state-glow",
+        "value": "0 0 12px current-state-border-at-25%-alpha",
+        "purpose": "Processing mesh nodes only."
+      }
+    ],
+    "motion": [
+      {
+        "name": "sidebar-transform",
+        "value": "300ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Open and close the mobile navigation drawer."
+      },
+      {
+        "name": "sidebar-opacity",
+        "value": "200ms ease",
+        "purpose": "Fade sidebar-related state changes."
+      },
+      {
+        "name": "mesh-state",
+        "value": "300ms",
+        "purpose": "Transition agent nodes between operational states."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Runs the main action in a compact workflow.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Save Connection</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; background: var(--color-amber); color: var(--color-on-accent); padding: 10px 20px; font: 600 14px/20px 'DM Sans', system-ui, sans-serif; transition: background-color 150ms ease, opacity 150ms ease; } .ds-btn-primary:hover { background: var(--color-amber-glow); } .ds-btn-primary:focus-visible { outline: auto; outline-offset: 2px; } .ds-btn-primary:disabled { cursor: not-allowed; opacity: 0.4; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Offers a reversible or lower-priority action beside the primary action.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">Cancel</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--color-stone); border-radius: 12px; background: var(--color-basalt); color: var(--color-fog); padding: 10px 20px; font: 500 14px/20px 'DM Sans', system-ui, sans-serif; transition: border-color 150ms ease, color 150ms ease; } .ds-btn-secondary:hover { border-color: color-mix(in srgb, var(--color-amber) 30%, transparent); color: var(--color-light); } .ds-btn-secondary:focus-visible { outline: auto; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Collects credentials, endpoints, and configuration values.",
+      "html": "<label class=\"ds-field-label\" for=\"ds-endpoint\">Endpoint URL</label><input class=\"ds-input\" id=\"ds-endpoint\" type=\"url\" placeholder=\"http://homeassistant.local:8123\">",
+      "css": ".ds-field-label { display: block; margin-bottom: 6px; color: var(--color-dust); font: 500 12px/16px 'DM Sans', system-ui, sans-serif; letter-spacing: 0.05em; text-transform: uppercase; } .ds-input { width: 100%; border: 1px solid var(--color-stone); border-radius: 12px; background: var(--color-basalt); color: var(--color-light); padding: 12px 16px; font: 400 14px/20px 'DM Sans', system-ui, sans-serif; transition: border-color 150ms ease, box-shadow 150ms ease; } .ds-input::placeholder { color: color-mix(in srgb, var(--color-dust) 60%, transparent); } .ds-input:hover { border-color: var(--color-ash); } .ds-input:focus { border-color: var(--color-amber); box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-amber) 30%, transparent); outline: none; }"
+    },
+    {
+      "name": "Active Navigation Item",
+      "kind": "nav",
+      "refersTo": "navigation-item",
+      "description": "Marks the current authenticated route without overpowering the page.",
+      "html": "<a class=\"ds-nav-item ds-nav-item-active\" href=\"#\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3 3v18h18\"/><path d=\"m7 16 4-4 4 2 5-6\"/></svg><span>Activity</span></a>",
+      "css": ".ds-nav-item { position: relative; display: flex; align-items: center; gap: 12px; border-radius: 8px; color: var(--color-fog); padding: 10px 12px; font: 500 14px/20px 'DM Sans', system-ui, sans-serif; text-decoration: none; transition: color 150ms ease, background-color 150ms ease; } .ds-nav-item:hover { background: color-mix(in srgb, var(--color-stone) 40%, transparent); color: var(--color-cloud); } .ds-nav-item:focus-visible { outline: auto; outline-offset: 2px; } .ds-nav-item-active { background: color-mix(in srgb, var(--color-amber) 8%, transparent); color: var(--color-amber); } .ds-nav-item-active::before { content: ''; position: absolute; inset: 4px auto 4px 0; width: 3px; border-radius: 0 2px 2px 0; background: var(--color-amber); }"
+    },
+    {
+      "name": "Theme Selector",
+      "kind": "custom",
+      "refersTo": "theme-selector",
+      "description": "Stores a System, Light, or Dark preference at the shell edge.",
+      "html": "<div class=\"ds-theme-selector\" role=\"group\" aria-label=\"Theme\"><button class=\"ds-theme-option\" type=\"button\" aria-label=\"Use system theme\" aria-pressed=\"true\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"12\" rx=\"2\"/><path d=\"M8 20h8M12 16v4\"/></svg><span>System</span></button><button class=\"ds-theme-option\" type=\"button\" aria-label=\"Use light theme\" aria-pressed=\"false\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41\"/></svg><span>Light</span></button><button class=\"ds-theme-option\" type=\"button\" aria-label=\"Use dark theme\" aria-pressed=\"false\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><path d=\"M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z\"/></svg><span>Dark</span></button></div>",
+      "css": ".ds-theme-selector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; width: 170px; border: 1px solid color-mix(in srgb, var(--color-stone) 60%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-basalt) 80%, transparent); padding: 4px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.08); } .ds-theme-option { display: flex; min-width: 0; flex-direction: column; align-items: center; gap: 4px; border: 0; border-radius: 6px; background: transparent; color: var(--color-dust); padding: 6px 8px; font: 500 10px/14px 'DM Sans', system-ui, sans-serif; transition: color 150ms ease, background-color 150ms ease; } .ds-theme-option svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; } .ds-theme-option:hover { background: color-mix(in srgb, var(--color-stone) 40%, transparent); color: var(--color-light); } .ds-theme-option:focus-visible { outline: 2px solid color-mix(in srgb, var(--color-amber) 60%, transparent); outline-offset: 0; } .ds-theme-option[aria-pressed='true'] { background: var(--color-obsidian); color: var(--color-amber); box-shadow: 0 1px 2px rgb(0 0 0 / 0.08); }"
+    },
+    {
+      "name": "Glass Panel",
+      "kind": "card",
+      "description": "Frames login and setup content over the observatory canvas.",
+      "html": "<section class=\"ds-glass-panel\"><h2>Configure Lucia</h2><p>Connect the dashboard to Home Assistant.</p></section>",
+      "css": ".ds-glass-panel { border: 1px solid color-mix(in srgb, var(--color-stone) 60%, transparent); border-radius: 16px; background: color-mix(in srgb, var(--color-basalt) 80%, transparent); color: var(--color-cloud); padding: 24px; box-shadow: 0 0 10px -3px color-mix(in srgb, var(--color-amber) 12%, transparent); backdrop-filter: blur(12px); } .ds-glass-panel:hover { border-color: color-mix(in srgb, var(--color-amber) 25%, transparent); background: color-mix(in srgb, var(--color-basalt) 90%, transparent); } .ds-glass-panel:focus-within { border-color: color-mix(in srgb, var(--color-amber) 25%, transparent); } .ds-glass-panel h2 { margin: 0; color: var(--color-light); font: 600 20px/28px 'Outfit', system-ui, sans-serif; } .ds-glass-panel p { margin: 8px 0 0; color: var(--color-fog); font: 400 14px/20px 'DM Sans', system-ui, sans-serif; }"
+    },
+    {
+      "name": "Success Status",
+      "kind": "custom",
+      "description": "Confirms a connection or completed setup step without using the primary accent.",
+      "html": "<div class=\"ds-status-success\" role=\"status\">Connected to Home Assistant</div>",
+      "css": ".ds-status-success { border: 1px solid color-mix(in srgb, var(--color-sage) 30%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--color-sage) 10%, transparent); color: var(--color-sage); padding: 12px; font: 400 14px/20px 'DM Sans', system-ui, sans-serif; } .ds-status-success:hover { border-color: color-mix(in srgb, var(--color-sage) 45%, transparent); } .ds-status-success:focus-visible { outline: auto; outline-offset: 2px; }"
+    },
+    {
+      "name": "Active Agent Node",
+      "kind": "custom",
+      "description": "Shows a processing agent inside the live mesh graph.",
+      "html": "<div class=\"ds-agent-node\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"11\" width=\"18\" height=\"10\" rx=\"2\"/><circle cx=\"9\" cy=\"16\" r=\"1\"/><circle cx=\"15\" cy=\"16\" r=\"1\"/><path d=\"M8 11V7a4 4 0 0 1 8 0v4M12 3V1\"/></svg><span><strong>Orchestrator</strong><small>Processing Prompt...</small></span></div>",
+      "css": ".ds-agent-node { display: inline-flex; min-width: 120px; align-items: center; gap: 8px; border: 1px solid var(--color-amber-dim); border-radius: 12px; background: color-mix(in srgb, var(--color-amber) 14%, transparent); color: var(--color-amber); padding: 8px 12px; box-shadow: 0 0 12px color-mix(in srgb, var(--color-amber-dim) 25%, transparent); font-family: 'DM Sans', system-ui, sans-serif; transition: all 300ms; } .ds-agent-node:hover { border-color: var(--color-amber); } .ds-agent-node:focus-visible { outline: auto; outline-offset: 2px; } .ds-agent-node span { display: flex; min-width: 0; flex-direction: column; } .ds-agent-node strong { color: var(--color-amber); font-size: 14px; font-weight: 500; line-height: 20px; } .ds-agent-node small { color: var(--color-amber); font-size: 10px; line-height: 14px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Daylight Observatory",
+    "overview": "Lucia Observatory is an Operate-mode system for long technical sessions. It keeps the authenticated dashboard dense and predictable while warm mineral neutrals, amber focus, and small changes in depth preserve the product's identity in both bright and dim rooms.\n\nTheme choice extends the existing shell instead of becoming a separate destination. System, Light, and Dark use one semantic role vocabulary, so setup, login, navigation, charts, dialogs, and operational pages keep the same hierarchy when the resolved mode changes.",
+    "keyCharacteristics": [
+      "Compact operational controls and route-first composition",
+      "Warm neutral surfaces with amber reserved for focus, selection, and progress",
+      "One semantic token vocabulary across light and dark modes",
+      "Borders, translucency, and low glows instead of heavy elevation"
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Remap Rule",
+        "body": "Page and component code uses semantic tokens such as `void`, `basalt`, `fog`, `light`, `amber`, `sage`, and `rose`. Only the root theme definition changes their values; page components do not carry light-specific or dark-specific classes.",
+        "section": "colors"
+      },
+      {
+        "name": "The Amber Restraint Rule",
+        "body": "Amber marks focus, selection, primary action, progress, or active system state. Neutral surfaces carry ordinary structure.",
+        "section": "colors"
+      },
+      {
+        "name": "The Compact Type Rule",
+        "body": "Operational text stays between `0.625rem` and `1.5rem`. Larger display type is absent from the shipped dashboard.",
+        "section": "typography"
+      },
+      {
+        "name": "The Route-First Rule",
+        "body": "Theme controls stay at the shell edge. They do not displace the current workflow or become a page-level feature.",
+        "section": "layout"
+      },
+      {
+        "name": "The Restrained Depth Rule",
+        "body": "Borders and tonal layering do the structural work. Glow identifies a live or branded focal point; it does not decorate ordinary containers.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the semantic color roles from `index.css` in every page and component.",
+      "Do keep the System, Light, and Dark options together and preserve their storage, pre-render resolution, and operating-system behavior.",
+      "Do place the selector at the upper-right edge on public screens and in the sidebar footer after authentication.",
+      "Do expose selection with `aria-pressed`, label icon-only controls, hide decorative icons from assistive technology, and retain visible keyboard focus.",
+      "Do reserve amber for focus, selection, primary action, progress, and active system state."
+    ],
+    "donts": [
+      "Don't add mode-specific classes or raw light/dark palette values to page components; remap semantic tokens at the root.",
+      "Don't promote appearance controls into the primary route content.",
+      "Don't use heavy shadows or broad glows on ordinary operational cards.",
+      "Don't replace semantic success, error, information, and progress states with amber alone."
+    ]
+  }
+}

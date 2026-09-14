@@ -39,6 +39,7 @@ from .conversation_tracker import ConversationTracker
 from .fast_conversation import send_conversation
 
 _LOGGER = logging.getLogger(__name__)
+VOICE_ONBOARDING_PREFIX = "voice-onboarding:"
 
 
 class _NoOpChatLog:
@@ -87,8 +88,10 @@ class LuciaConversationEntity(conversation.ConversationEntity):
     ) -> ConversationResult:
         """Process a sentence. Required by HA versions where this is the abstract method."""
         try:
+            from homeassistant.components.conversation.chat_log import (
+                async_get_chat_log,
+            )
             from homeassistant.helpers.chat_session import async_get_chat_session
-            from homeassistant.components.conversation.chat_log import async_get_chat_log
 
             with (
                 async_get_chat_session(self.hass, user_input.conversation_id) as session,
@@ -131,13 +134,16 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 continue_conversation=False,
             )
 
-        # Resolve conversation ID from tracker or create new
-        tracked = None
-        if user_input.conversation_id:
-            tracked = self._tracker.get(user_input.conversation_id)
-
-        conversation_id = tracked.context_id if tracked else None
-        ha_conversation_id = user_input.conversation_id or ""
+        ha_conversation_id = (
+            user_input.conversation_id
+            or getattr(chat_log, "conversation_id", None)
+            or uuid.uuid4().hex
+        )
+        tracked = self._tracker.get(ha_conversation_id)
+        # The HA-visible marker survives cache expiry or an integration restart.
+        conversation_id = tracked.context_id if tracked else (
+            ha_conversation_id if ha_conversation_id.startswith(VOICE_ONBOARDING_PREFIX) else None
+        )
 
         # Generate a stable conversation ID for the first turn
         if not conversation_id:
@@ -196,9 +202,19 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             # Update tracker with returned conversationId for multi-turn
             returned_conv_id = result.conversation_id or conversation_id
             if returned_conv_id and ha_conversation_id:
+                previous_ha_id = ha_conversation_id
+                if returned_conv_id.startswith(VOICE_ONBOARDING_PREFIX):
+                    if not ha_conversation_id.startswith(VOICE_ONBOARDING_PREFIX):
+                        ha_conversation_id = VOICE_ONBOARDING_PREFIX + ha_conversation_id
+                else:
+                    ha_conversation_id = ha_conversation_id.removeprefix(VOICE_ONBOARDING_PREFIX)
+                if previous_ha_id != ha_conversation_id:
+                    self._tracker.remove(previous_ha_id)
                 self._tracker.store(
                     ha_conversation_id,
                     context_id=returned_conv_id,
+                    # Match VoiceOnboardingWorkflow's ten-minute idle timeout.
+                    ttl_seconds=600.0 if returned_conv_id.startswith(VOICE_ONBOARDING_PREFIX) else None,
                 )
 
             _LOGGER.debug(
@@ -241,7 +257,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             )
 
         except Exception as err:
-            _LOGGER.error("Error processing conversation: %s", err, exc_info=True)
+            _LOGGER.exception("Error processing conversation")
 
             error_text = f"I encountered an error while processing your request: {err}"
             if _HAS_CHAT_LOG_API and AssistantContent:

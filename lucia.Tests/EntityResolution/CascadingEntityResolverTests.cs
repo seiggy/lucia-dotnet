@@ -220,6 +220,189 @@ public sealed class CascadingEntityResolverTests
         Assert.Contains("light.zack_light", result.ResolvedEntityIds);
     }
 
+    [Fact]
+    public void Resolve_TurnOffNamedLight_MatchesEntityInsteadOfArea()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.zacks_light", "Zach's Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off Zach's light",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.zacks_light", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_TurnOffNamedEntityWithoutDeviceType_MatchesEntity()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.chandelier", "Chandelier", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off the chandelier",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.chandelier", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_NamedLight_DoesNotAlsoResolveGenericLight()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.kitchen", "Kitchen Light", areaId: null),
+            CreateEntity("light.generic", "Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off kitchen light",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.kitchen", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_EntityNamedLikeComfortAction_MatchesEntity()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.cooler", "Cooler Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off cooler light",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.cooler", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_EntityNamedLikeCommandVerb_MatchesEntity()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.activate", "Activate Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off activate light",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.activate", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_DimNamedLightWithoutTo_IgnoresBrightnessTarget()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.kitchen", "Kitchen Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "dim the kitchen light 50 percent",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.kitchen", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_SetOfficeTemperature_IgnoresTargetValueWhenGroundingArea()
+    {
+        var office = CreateArea("office", "Office");
+        var entities = new[]
+        {
+            CreateEntity("climate.office", "Office Thermostat", "office")
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [office], entities: entities));
+
+        var result = resolver.Resolve(
+            "set the office to 72.5 degrees",
+            callerArea: null,
+            speakerId: null,
+            domains: ["climate"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("climate.office", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_MakeOfficeWarmer_RecognizesComfortAction()
+    {
+        var office = CreateArea("office", "Office");
+        var entities = new[]
+        {
+            CreateEntity("climate.office", "Office Thermostat", "office")
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [office], entities: entities));
+
+        var result = resolver.Resolve(
+            "make it warmer in the office",
+            callerArea: null,
+            speakerId: null,
+            domains: ["climate"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("climate.office", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
+    public void Resolve_ActivateNamedScene_RecognizesSceneAction()
+    {
+        var entities = new[]
+        {
+            CreateEntity("scene.welcome_2026", "Welcome to 2026 Scene", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "activate welcome to 2026 scene",
+            callerArea: null,
+            speakerId: null,
+            domains: ["scene"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("scene.welcome_2026", Assert.Single(result.ResolvedEntityIds));
+    }
+
     // ── Floor-level resolution ─────────────────────────────────
 
     [Fact]

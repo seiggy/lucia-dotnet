@@ -88,13 +88,6 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
         }
 
         var grounded = GroundLocation(intent, callerArea, speakerId, snapshot);
-        if (intent.ExplicitLocation is not null && grounded is null)
-        {
-            return Bail(
-                BailReason.NoMatch,
-                $"Explicit location '{intent.ExplicitLocation}' not found in cache");
-        }
-
         var candidates = FilterByDomain(intent, grounded, domains, snapshot, callerAgentId);
         if (candidates.Count == 0)
         {
@@ -105,6 +98,20 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
         }
 
         var candidateNames = intent.CandidateEntityNames;
+        if (grounded is null
+            && intent.ExplicitLocation is not null)
+        {
+            var candidateName = intent.DeviceType is null
+                ? intent.ExplicitLocation
+                : $"{intent.ExplicitLocation} {intent.DeviceType}";
+            candidateNames =
+            [
+                candidateName,
+                .. candidateNames.Where(name => intent.DeviceType is null
+                    || !string.Equals(name, intent.DeviceType, StringComparison.OrdinalIgnoreCase)),
+            ];
+        }
+
         if (IsAreaOnlyCommand(intent, candidateNames, grounded))
         {
             return ResolveFromCandidates(candidates, grounded);

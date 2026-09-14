@@ -1,3 +1,5 @@
+using lucia.EvalHarness.Evaluation;
+
 namespace lucia.EvalHarness.Personality;
 
 /// <summary>
@@ -15,7 +17,9 @@ public sealed class PersonalityScenarioResult
     /// <summary>
     /// Combined score from LLM judge (1–5 scale, average of personality + meaning).
     /// </summary>
-    public required double Score { get; init; }
+    public required double? Score { get; init; }
+    public string? JudgeStatus { get; init; }
+    public string? JudgeReason { get; init; }
     public required string LlmResponse { get; init; }
     public required long DurationMs { get; init; }
 
@@ -40,4 +44,5 @@ public sealed class PersonalityScenarioResult
     /// exceeded its configured deadline, as opposed to an ordinary failure.
     /// </summary>
     public bool TimedOut { get; init; }
+    public InferenceCostSummary Cost { get; init; } = InferenceCostSummary.Untracked;
 }

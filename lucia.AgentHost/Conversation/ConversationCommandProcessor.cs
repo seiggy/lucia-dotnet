@@ -10,6 +10,7 @@ using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Services;
 using lucia.Wyoming.CommandRouting;
+using lucia.Wyoming.Diarization;
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -35,6 +36,9 @@ public sealed partial class ConversationCommandProcessor
     private readonly ILogger<ConversationCommandProcessor> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly ChatHistoryProvider? _chatHistoryProvider;
+    private readonly VoiceTurnStore? _voiceTurns;
+    private readonly ISpeakerProfileStore? _speakerProfiles;
+    private readonly VoiceOnboardingWorkflow? _onboarding;
 
     public ConversationCommandProcessor(
         ICommandRouter commandRouter,
@@ -49,7 +53,10 @@ public sealed partial class ConversationCommandProcessor
         IOptionsMonitor<CommandRoutingOptions> routingOptions,
         IOptionsMonitor<PersonalityPromptOptions> personalityOptions,
         IPersonalityResponseRenderer? personalityRenderer = null,
-        ChatHistoryProvider? chatHistoryProvider = null)
+        ChatHistoryProvider? chatHistoryProvider = null,
+        VoiceTurnStore? voiceTurns = null,
+        ISpeakerProfileStore? speakerProfiles = null,
+        VoiceOnboardingWorkflow? onboarding = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
@@ -64,6 +71,9 @@ public sealed partial class ConversationCommandProcessor
         _serviceProvider = serviceProvider;
         _logger = logger;
         _chatHistoryProvider = chatHistoryProvider;
+        _voiceTurns = voiceTurns;
+        _speakerProfiles = speakerProfiles;
+        _onboarding = onboarding;
     }
 
     /// <summary>
@@ -79,15 +89,65 @@ public sealed partial class ConversationCommandProcessor
         LogProcessingStart(request.Text, request.Context.DeviceArea);
 
         // Strip optional speaker identification tag from voice platform
-        var (speakerId, cleanText) = SpeakerTagParser.Parse(request.Text);
-        var context = speakerId is not null
-            ? request.Context with { SpeakerId = speakerId }
-            : request.Context;
-        var cleanRequest = request with { Text = cleanText, Context = context };
+        var (voiceToken, _) = VoiceTurnStore.Parse(request.Text);
+        var voiceTurn = voiceToken is null ? null : _voiceTurns?.Consume(voiceToken);
+        var (speakerId, cleanText) = SpeakerTagParser.Parse(voiceTurn?.Text ?? request.Text);
+        var context = request.Context with
+        {
+            SpeakerId = speakerId ?? request.Context.SpeakerId,
+            EnrolledProfileId = null,
+            IsVoiceRequest = voiceToken is not null || speakerId is not null,
+        };
 
         // Ensure a stable conversationId for multi-turn continuity
         var conversationId = context.ConversationId
             ?? Guid.NewGuid().ToString("N");
+
+        if (voiceToken is not null && voiceTurn is null)
+        {
+            return ProcessingResult.CommandHandled(new ConversationResponse
+            {
+                Type = "error",
+                Text = "That voice turn expired or was already used. Please say it again.",
+                ConversationId = conversationId,
+                NeedsInput = true,
+            });
+        }
+        if (voiceTurn is not null)
+        {
+            cleanText = voiceTurn.Text;
+            context = context with { SpeakerId = null };
+            if (voiceTurn.Speaker is { IsAuthorized: true } detected
+                && float.IsFinite(detected.Similarity)
+                && _speakerProfiles is not null)
+            {
+                var profile = await _speakerProfiles.GetAsync(detected.ProfileId, ct).ConfigureAwait(false);
+                if (profile is { IsProvisional: false, IsAuthorized: true })
+                {
+                    context = context with { EnrolledProfileId = profile.Id, SpeakerId = profile.Name };
+                }
+            }
+        }
+        var cleanRequest = request with { Text = cleanText, Context = context with { ConversationId = conversationId } };
+        var onboardingResponse = _onboarding is null
+            ? null
+            : await _onboarding.TryProcessAsync(conversationId, context.DeviceId, cleanText, voiceTurn, ct).ConfigureAwait(false);
+        if (onboardingResponse is not null)
+        {
+            activity?.SetTag("conversation.routing_path", "voice_onboarding");
+            return ProcessingResult.CommandHandled(onboardingResponse);
+        }
+        if (VoiceOnboardingWorkflow.IsStartRequest(cleanText) || VoiceOnboardingWorkflow.IsOnboardingConversation(conversationId))
+        {
+            return ProcessingResult.CommandHandled(new ConversationResponse
+            {
+                Type = "onboarding",
+                Text = "Voice onboarding needs Lucia speech-to-text and an active speaker recognition model on this server.",
+                ConversationId = VoiceOnboardingWorkflow.IsOnboardingConversation(conversationId)
+                    ? Guid.NewGuid().ToString("N")
+                    : conversationId,
+            });
+        }
 
         // Step 1: Try command pattern matching (on clean text, without speaker tag)
         var routeResult = await _commandRouter.RouteAsync(cleanText, ct).ConfigureAwait(false);
@@ -207,6 +267,17 @@ public sealed partial class ConversationCommandProcessor
         LogLlmFallback(request.Text);
 
         var prompt = await _contextReconstructor.ReconstructAsync(request, ct).ConfigureAwait(false);
+        // A shared satellite conversation must not replay another speaker's personal context.
+        var engineSessionId = request.Context.IsVoiceRequest
+            ? $"voice:{conversationId}:{request.Context.EnrolledProfileId ?? "anonymous"}"
+            : conversationId;
+        var speakerContext = new SpeakerContext
+        {
+            SpeakerId = request.Context.SpeakerId,
+            EnrolledProfileId = request.Context.EnrolledProfileId,
+            DeviceArea = request.Context.DeviceArea,
+            Location = request.Context.Location,
+        };
         var engine = _serviceProvider.GetService(typeof(LuciaEngine)) as LuciaEngine;
         if (engine is null)
         {
@@ -219,20 +290,17 @@ public sealed partial class ConversationCommandProcessor
             return ProcessingResult.LlmFallback(
                 conversationId,
                 prompt,
-                request.Text);
+                request.Text) with
+            {
+                EngineSessionId = engineSessionId,
+                SpeakerContext = speakerContext,
+            };
         }
-
-        var speakerContext = new SpeakerContext
-        {
-            SpeakerId = request.Context.SpeakerId,
-            DeviceArea = request.Context.DeviceArea,
-            Location = request.Context.Location,
-        };
 
         var result = await engine
             .ProcessRequestAsync(
                 prompt,
-                sessionId: conversationId,
+                sessionId: engineSessionId,
                 speakerContext: speakerContext,
                 originalUserText: request.Text,
                 cancellationToken: ct)
@@ -262,8 +330,9 @@ public sealed partial class ConversationCommandProcessor
             return;
         }
 
-        // Use voiceprint-identified speaker as effective identity when no auth-based UserId exists.
-        var effectiveUserId = request.Context.UserId ?? request.Context.SpeakerId;
+        var effectiveUserId = request.Context.IsVoiceRequest
+            ? request.Context.EnrolledProfileId
+            : request.Context.UserId;
         if (string.IsNullOrWhiteSpace(effectiveUserId))
         {
             return;

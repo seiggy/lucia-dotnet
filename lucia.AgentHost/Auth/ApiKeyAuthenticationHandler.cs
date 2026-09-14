@@ -47,7 +47,8 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
         if (Request.Cookies.TryGetValue(authOptions.CookieName, out var cookieValue)
             && !string.IsNullOrWhiteSpace(cookieValue))
         {
-            return ValidateSessionCookie(cookieValue);
+            return await ValidateSessionCookieAsync(cookieValue)
+                .ConfigureAwait(false);
         }
 
         return AuthenticateResult.NoResult();
@@ -61,13 +62,21 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
             return AuthenticateResult.Fail("Invalid or revoked API key.");
         }
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, entry.Id),
             new Claim(ClaimTypes.Name, entry.Name),
             new Claim("auth_method", "api_key"),
             new Claim("key_prefix", entry.KeyPrefix),
         };
+        if (entry.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal))
+        {
+            claims.Add(new Claim(
+                ClaimTypes.Role,
+                AuthOptions.AdministratorRole));
+        }
 
         var identity = new ClaimsIdentity(claims, AuthOptions.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
@@ -76,7 +85,8 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
         return AuthenticateResult.Success(ticket);
     }
 
-    private AuthenticateResult ValidateSessionCookie(string cookieValue)
+    private async Task<AuthenticateResult> ValidateSessionCookieAsync(
+        string cookieValue)
     {
         var claims = _sessionService.ValidateSession(cookieValue);
         if (claims is null)
@@ -84,7 +94,31 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
             return AuthenticateResult.Fail("Invalid or expired session.");
         }
 
-        var identity = new ClaimsIdentity(claims, AuthOptions.AuthenticationScheme);
+        var claimList = claims.ToList();
+        if (claimList.Any(claim =>
+                claim.Type == ClaimTypes.Role
+                && claim.Value == AuthOptions.AdministratorRole))
+        {
+            var keyId = claimList.FirstOrDefault(
+                claim => claim.Type == ClaimTypes.NameIdentifier)?.Value;
+            var key = await _apiKeyService
+                .GetKeyAsync(keyId ?? string.Empty, Context.RequestAborted)
+                .ConfigureAwait(false);
+            if (key is null
+                || key.IsRevoked
+                || key.ExpiresAt <= DateTime.UtcNow
+                || !key.Scopes.Contains(
+                    AuthOptions.AdministratorScope,
+                    StringComparer.Ordinal))
+            {
+                return AuthenticateResult.Fail(
+                    "Administrator session key is revoked, expired, or no longer authorized.");
+            }
+        }
+
+        var identity = new ClaimsIdentity(
+            claimList,
+            AuthOptions.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
         var ticket = new AuthenticationTicket(principal, AuthOptions.AuthenticationScheme);
 

@@ -16,10 +16,13 @@ public sealed class PromptOptimizer
     private readonly TimeSpan _judgeTimeout;
     private readonly TimeProvider _timeProvider;
 
-    public PromptOptimizer(IChatClient judgeChatClient, TimeSpan judgeTimeout, TimeProvider? timeProvider = null)
+    public PromptOptimizer(
+        IChatClient judgeChatClient,
+        TimeSpan? judgeTimeout = null,
+        TimeProvider? timeProvider = null)
     {
         _judgeChatClient = judgeChatClient;
-        _judgeTimeout = judgeTimeout;
+        _judgeTimeout = judgeTimeout ?? TimeSpan.FromSeconds(120);
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -59,8 +62,8 @@ public sealed class PromptOptimizer
 
         return ParseResponse(
             agentName, targetModel, currentSystemPrompt,
-            targetResult?.OverallScore ?? 0,
-            baselineResult?.OverallScore ?? 0,
+            targetResult?.OverallScore,
+            baselineResult?.OverallScore,
             responseText);
     }
 
@@ -68,8 +71,8 @@ public sealed class PromptOptimizer
         string agentName,
         string targetModel,
         string currentSystemPrompt,
-        double currentScore,
-        double baselineScore,
+        double? currentScore,
+        double? baselineScore,
         string responseText)
     {
         try

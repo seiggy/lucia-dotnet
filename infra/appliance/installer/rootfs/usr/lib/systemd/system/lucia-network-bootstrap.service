@@ -1,0 +1,23 @@
+[Unit]
+Description=Create the Lucia captive setup network
+After=NetworkManager.service
+Wants=NetworkManager.service
+Before=lucia-installer-host.service
+ConditionPathExists=/etc/lucia-installer/bootstrap.env
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/lucia/lucia-network-bootstrap
+RemainAfterExit=true
+TimeoutStartSec=60s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

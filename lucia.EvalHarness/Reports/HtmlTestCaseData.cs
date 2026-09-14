@@ -1,9 +1,13 @@
 using System.Text.Json.Serialization;
+using lucia.EvalHarness.Evaluation;
 
 namespace lucia.EvalHarness.Reports;
 
 public sealed class HtmlTestCaseData
 {
+    [JsonPropertyName("cost")]
+    public InferenceCostSummary Cost { get; init; } = InferenceCostSummary.Untracked;
+
     [JsonPropertyName("id")]
     public required string Id { get; init; }
 
@@ -14,7 +18,13 @@ public sealed class HtmlTestCaseData
     public bool TimedOut { get; init; }
 
     [JsonPropertyName("score")]
-    public double Score { get; init; }
+    public double? Score { get; init; }
+
+    [JsonPropertyName("judgeStatus")]
+    public string? JudgeStatus { get; init; }
+
+    [JsonPropertyName("judgeReason")]
+    public string? JudgeReason { get; init; }
 
     [JsonPropertyName("latencyMs")]
     public double LatencyMs { get; init; }

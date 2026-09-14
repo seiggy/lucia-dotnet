@@ -1,0 +1,33 @@
+[Unit]
+Description=Lucia OpenTelemetry Collector
+Documentation=https://opentelemetry.io/docs/collector/
+After=network-online.target lucia-redis-exporter.service
+Wants=network-online.target lucia-redis-exporter.service
+RequiresMountsFor=/opt/lucia /var/lib/lucia
+
+[Service]
+Type=simple
+User=lucia-telemetry
+Group=lucia-telemetry
+ExecStart=/opt/lucia/current/telemetry/bin/otelcol-contrib --config=/etc/lucia/otelcol.yaml
+EnvironmentFile=/var/lib/lucia/config/telemetry.env
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+ReadWritePaths=/var/lib/lucia/otelcol
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

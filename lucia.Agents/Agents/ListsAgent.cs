@@ -149,6 +149,8 @@ public sealed class ListsAgent : ILuciaAgent
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
+            AIContextProviders = _tracingFactory.AIContextProviders,
+            ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for adding items to shopping and todo lists",

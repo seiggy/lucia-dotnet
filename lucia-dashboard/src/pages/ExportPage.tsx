@@ -143,7 +143,7 @@ export default function ExportPage() {
         <button
           onClick={handleExport}
           disabled={mutation.isPending}
-          className="mt-5 flex items-center gap-2 rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-void transition-all hover:bg-amber-glow disabled:opacity-40"
+          className="mt-5 flex items-center gap-2 rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-on-accent transition-all hover:bg-amber-glow disabled:opacity-40"
         >
           <FileDown className="h-4 w-4" />
           {mutation.isPending ? 'Generating…' : 'Generate Export'}

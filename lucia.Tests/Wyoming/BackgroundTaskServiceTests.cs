@@ -76,6 +76,25 @@ public sealed class BackgroundTaskServiceTests
         Assert.Null(tracker.GetTask(handle.TaskId));
     }
 
+    [Fact]
+    public async Task WaitForChangeAsync_CanceledWaitDoesNotCancelLaterWait()
+    {
+        var (tracker, _, _) = CreateServices();
+        using var cancellation = new CancellationTokenSource();
+
+        var canceledWait = tracker.WaitForChangeAsync(tracker.Version, cancellation.Token);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledWait);
+
+        var laterWait = tracker.WaitForChangeAsync(tracker.Version, CancellationToken.None);
+
+        Assert.False(laterWait.IsCompleted);
+
+        tracker.CreateTask("Test task", ["Working"]);
+        await laterWait;
+    }
+
     private static (BackgroundTaskTracker tracker, IBackgroundTaskQueue queue, BackgroundTaskProcessor processor) CreateServices()
     {
         var tracker = new BackgroundTaskTracker(NullLogger<BackgroundTaskTracker>.Instance);

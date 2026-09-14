@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
+using lucia.Agents.Integration;
 using lucia.Agents.Models;
 
 namespace lucia.Agents.Services;
@@ -7,12 +9,13 @@ internal sealed partial class QueryDecomposer
 {
     private static readonly HashSet<string> ActionTokens = new(StringComparer.OrdinalIgnoreCase)
     {
-        "turn", "switch", "set", "toggle", "dim", "brighten", "increase", "decrease"
+        "turn", "switch", "set", "toggle", "dim", "brighten", "increase", "decrease", "make", "activate"
     };
 
     private static readonly HashSet<string> ActionValues = new(StringComparer.OrdinalIgnoreCase)
     {
-        "on", "off", "toggle", "dim", "brighten", "set", "increase", "decrease"
+        "on", "off", "toggle", "dim", "brighten", "set", "increase", "decrease",
+        "warmer", "cooler", "hotter", "colder", "activate"
     };
 
     private static readonly HashSet<string> DeviceTypeTokens = new(StringComparer.OrdinalIgnoreCase)
@@ -24,7 +27,12 @@ internal sealed partial class QueryDecomposer
 
     private static readonly HashSet<string> IgnoreTokens = new(StringComparer.OrdinalIgnoreCase)
     {
-        "the", "a", "an", "in", "on", "of", "to", "for", "please", "my"
+        "the", "a", "an", "in", "on", "of", "to", "for", "please", "my", "it"
+    };
+
+    private static readonly HashSet<string> s_targetUnitTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "degree", "degrees", "percent", "percentage"
     };
 
     private static readonly HashSet<string> ConjunctionTokens = new(StringComparer.OrdinalIgnoreCase)
@@ -51,12 +59,13 @@ internal sealed partial class QueryDecomposer
 
         var action = ExtractAction(tokens);
         var deviceType = ExtractDeviceType(tokens);
-        var explicitLocation = ExtractExplicitLocation(tokens, deviceType);
+        var explicitLocation = ExtractExplicitLocation(tokens, action, deviceType);
 
         var (isComplex, complexityReason) = DetectComplexity(tokens, normalized);
 
         var candidateAreas = BuildCandidateAreas(explicitLocation, hasMy, speakerId);
-        var candidateEntities = BuildCandidateEntities(tokens, explicitLocation, deviceType, hasMy, speakerId);
+        var candidateEntities = BuildCandidateEntities(
+            tokens, action, explicitLocation, deviceType, hasMy, speakerId);
 
         return new QueryIntent
         {
@@ -102,7 +111,10 @@ internal sealed partial class QueryDecomposer
         return null;
     }
 
-    private static string? ExtractExplicitLocation(IReadOnlyList<string> tokens, string? deviceType)
+    private static string? ExtractExplicitLocation(
+        IReadOnlyList<string> tokens,
+        string? action,
+        string? deviceType)
     {
         if (tokens.Count == 0)
             return null;
@@ -118,12 +130,12 @@ internal sealed partial class QueryDecomposer
             if (start < tokens.Count && (tokens[start] is "the" or "my"))
                 start++;
 
-            return BuildPhrase(tokens, start, tokens.Count - 1, deviceType);
+            return BuildPhrase(tokens, start, tokens.Count - 1, action, deviceType);
         }
 
         if (deviceTypeIndex > 0)
         {
-            var phrase = BuildPhrase(tokens, 0, deviceTypeIndex - 1, deviceType);
+            var phrase = BuildPhrase(tokens, 0, deviceTypeIndex - 1, action, deviceType);
             if (!string.IsNullOrWhiteSpace(phrase))
                 return phrase;
         }
@@ -131,7 +143,7 @@ internal sealed partial class QueryDecomposer
         var myIndex = IndexOf(tokens, "my");
         if (myIndex >= 0 && myIndex < tokens.Count - 1)
         {
-            var phrase = BuildPhrase(tokens, myIndex + 1, tokens.Count - 1, deviceType);
+            var phrase = BuildPhrase(tokens, myIndex + 1, tokens.Count - 1, action, deviceType);
             if (!string.IsNullOrWhiteSpace(phrase))
                 return phrase;
         }
@@ -139,7 +151,7 @@ internal sealed partial class QueryDecomposer
         var theIndex = IndexOf(tokens, "the");
         if (theIndex >= 0 && theIndex < tokens.Count - 1)
         {
-            var phrase = BuildPhrase(tokens, theIndex + 1, tokens.Count - 1, deviceType);
+            var phrase = BuildPhrase(tokens, theIndex + 1, tokens.Count - 1, action, deviceType);
             if (!string.IsNullOrWhiteSpace(phrase))
                 return phrase;
         }
@@ -181,6 +193,7 @@ internal sealed partial class QueryDecomposer
 
     private static IReadOnlyList<string> BuildCandidateEntities(
         IReadOnlyList<string> tokens,
+        string? action,
         string? explicitLocation,
         string? deviceType,
         bool hasMy,
@@ -192,11 +205,17 @@ internal sealed partial class QueryDecomposer
             : explicitLocation.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         var remaining = tokens
-            .Where(t => !ActionTokens.Contains(t))
-            .Where(t => !ActionValues.Contains(t))
-            .Where(t => !IgnoreTokens.Contains(t))
-            .Where(t => explicitTokens.Length == 0 || !explicitTokens.Contains(t, StringComparer.OrdinalIgnoreCase))
-            .Where(t => deviceType is null || !string.Equals(t, deviceType, StringComparison.OrdinalIgnoreCase))
+            .Select(static (token, index) => (Token: token, Index: index))
+            .Where(item => !IsLeadingCommandVerb(tokens, item.Index))
+            .Where(item => !string.Equals(item.Token, action, StringComparison.OrdinalIgnoreCase))
+            .Where(item => !IgnoreTokens.Contains(item.Token))
+            .Where(item => explicitTokens.Length == 0
+                || !explicitTokens.Contains(item.Token, StringComparer.OrdinalIgnoreCase))
+            .Where(item => deviceType is null
+                || !string.Equals(item.Token, deviceType, StringComparison.OrdinalIgnoreCase))
+            .Where(item => !IsTargetValueToken(tokens, item.Index, action))
+            .Where(item => !IsTargetUnitToken(tokens, item.Index, action))
+            .Select(static item => item.Token)
             .ToArray();
 
         if (remaining.Length > 0)
@@ -217,7 +236,12 @@ internal sealed partial class QueryDecomposer
         return candidates;
     }
 
-    private static string? BuildPhrase(IReadOnlyList<string> tokens, int start, int end, string? deviceType)
+    private static string? BuildPhrase(
+        IReadOnlyList<string> tokens,
+        int start,
+        int end,
+        string? action,
+        string? deviceType)
     {
         if (start < 0 || end < start || start >= tokens.Count)
             return null;
@@ -226,13 +250,25 @@ internal sealed partial class QueryDecomposer
         for (var i = start; i <= end && i < tokens.Count; i++)
         {
             var token = tokens[i];
+            if (string.Equals(token, "to", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i < end && IsTargetValueToken(tokens, i + 1, action))
+                {
+                    break;
+                }
+
+                phraseTokens.Add(token);
+                continue;
+            }
+
             if (IgnoreTokens.Contains(token))
                 continue;
 
             if (deviceType is not null && string.Equals(token, deviceType, StringComparison.OrdinalIgnoreCase))
                 break;
 
-            if (ActionTokens.Contains(token) || ActionValues.Contains(token))
+            if (IsLeadingCommandVerb(tokens, i)
+                || string.Equals(token, action, StringComparison.OrdinalIgnoreCase))
                 continue;
 
             phraseTokens.Add(token);
@@ -241,6 +277,46 @@ internal sealed partial class QueryDecomposer
         return phraseTokens.Count == 0
             ? null
             : string.Join(' ', phraseTokens);
+    }
+
+    private static bool IsTargetValueToken(
+        IReadOnlyList<string> tokens,
+        int index,
+        string? action)
+    {
+        if (action is not ("set" or "dim" or "brighten" or "increase" or "decrease")
+            || !double.TryParse(tokens[index], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        {
+            return false;
+        }
+
+        var followsTo = index > 0
+            && string.Equals(tokens[index - 1], "to", StringComparison.OrdinalIgnoreCase);
+        var isTrailingValue = index == tokens.Count - 1
+            || (index == tokens.Count - 2 && s_targetUnitTokens.Contains(tokens[index + 1]));
+        return followsTo || isTrailingValue;
+    }
+
+    private static bool IsTargetUnitToken(
+        IReadOnlyList<string> tokens,
+        int index,
+        string? action) =>
+        index > 0
+        && s_targetUnitTokens.Contains(tokens[index])
+        && IsTargetValueToken(tokens, index - 1, action);
+
+    private static bool IsLeadingCommandVerb(IReadOnlyList<string> tokens, int index)
+    {
+        if (!ActionTokens.Contains(tokens[index]))
+            return false;
+
+        for (var precedingIndex = 0; precedingIndex < index; precedingIndex++)
+        {
+            if (!IgnoreTokens.Contains(tokens[precedingIndex]))
+                return false;
+        }
+
+        return true;
     }
 
     private static int IndexOf(IReadOnlyList<string> tokens, string value)
@@ -260,7 +336,7 @@ internal sealed partial class QueryDecomposer
             return string.Empty;
 
         var result = transcript.ToLowerInvariant().Trim();
-        result = Punctuation().Replace(result, "");
+        result = CommandTextNormalizer.NormalizePunctuation(result);
         result = MultipleSpaces().Replace(result, " ").Trim();
         return result;
     }
@@ -275,9 +351,6 @@ internal sealed partial class QueryDecomposer
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultipleSpaces();
-
-    [GeneratedRegex(@"[^\w\s]")]
-    private static partial Regex Punctuation();
 
     [GeneratedRegex(@"\b(in|after|before)\s+\d+|\b\d+\s*(seconds?|minutes?|hours?)\b|\bat\s+\d+|\btomorrow\b|\btonight\b",
         RegexOptions.IgnoreCase,

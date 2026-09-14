@@ -74,7 +74,8 @@ else if (usePostgres)
 else
 {
     // SQLite configuration provider (replaces MongoDB config source)
-    var sqliteFactory = new SqliteConnectionFactory(dataProviderOptions.SqlitePath);
+    var sqliteFactory = new SqliteConnectionFactory(
+        SqliteDbNames.GetConfigPath(dataProviderOptions.SqlitePath));
     builder.Services.AddSingleton(sqliteFactory);
     builder.Configuration.AddSqliteConfiguration(sqliteFactory);
 

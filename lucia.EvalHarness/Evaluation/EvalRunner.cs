@@ -1,7 +1,10 @@
+using System.ClientModel;
 using AgentEval.Core;
 using AgentEval.MAF;
 using AgentEval.Metrics.Agentic;
 using AgentEval.Models;
+using Azure;
+using Azure.Identity;
 using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Infrastructure;
@@ -10,102 +13,6 @@ using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Evaluation;
-
-/// <summary>
-/// Result of a full evaluation run across selected models and agents.
-/// </summary>
-public sealed class EvalRunResult
-{
-    public required string RunId { get; init; }
-    public required DateTimeOffset StartedAt { get; init; }
-    public required DateTimeOffset CompletedAt { get; init; }
-    public required IReadOnlyList<AgentEvalResult> AgentResults { get; init; }
-}
-
-/// <summary>
-/// Results for a single agent evaluated across multiple models.
-/// </summary>
-public sealed class AgentEvalResult
-{
-    public required string AgentName { get; init; }
-    public required IReadOnlyList<ModelEvalResult> ModelResults { get; init; }
-}
-
-/// <summary>
-/// Results for a single model on a single agent's test suite.
-/// </summary>
-public sealed class ModelEvalResult
-{
-    public required string ModelName { get; init; }
-    public required string AgentName { get; init; }
-    public required double ToolSelectionScore { get; init; }
-    public required double ToolSuccessScore { get; init; }
-    public required double ToolEfficiencyScore { get; init; }
-    public required double TaskCompletionScore { get; init; }
-    public required double OverallScore { get; init; }
-    public required int TestCaseCount { get; init; }
-    public required int PassedCount { get; init; }
-    public required ModelPerformanceSummary Performance { get; init; }
-    public required IReadOnlyList<TestCaseResult> TestCaseResults { get; init; }
-
-    /// <summary>
-    /// The inference parameter profile used for this evaluation.
-    /// </summary>
-    public ModelParameterProfile? ParameterProfile { get; init; }
-}
-
-/// <summary>
-/// Result of a single test case evaluation.
-/// </summary>
-public sealed class TestCaseResult
-{
-    public required string TestCaseId { get; init; }
-    public required bool Passed { get; init; }
-    public required double Score { get; init; }
-    public required TimeSpan Latency { get; init; }
-    public string? FailureReason { get; init; }
-
-    /// <summary>
-    /// True when this test case failed because an LLM call exceeded its configured
-    /// deadline. Distinguishes a genuine timeout from an ordinary zero-score failure.
-    /// </summary>
-    public bool TimedOut { get; init; }
-
-    /// <summary>
-    /// The agent's full text response for this test case.
-    /// </summary>
-    public string? AgentOutput { get; init; }
-
-    /// <summary>
-    /// The user input that was sent to the agent.
-    /// </summary>
-    public string? Input { get; init; }
-
-    /// <summary>
-    /// Raw tool call records captured during execution.
-    /// Only populated when trace capture is enabled.
-    /// </summary>
-    public IReadOnlyList<ToolCallTrace>? ToolCalls { get; init; }
-
-    /// <summary>
-    /// Full ordered conversation history: system prompt, user input, assistant
-    /// responses, tool calls, and tool results. Populated when tracing is enabled.
-    /// </summary>
-    public IReadOnlyList<ConversationTurn>? ConversationHistory { get; init; }
-}
-
-/// <summary>
-/// Captured tool call details for trace export.
-/// </summary>
-public sealed class ToolCallTrace
-{
-    public required string ToolName { get; init; }
-    public required int Order { get; init; }
-    public Dictionary<string, object?>? Arguments { get; init; }
-    public string? Result { get; init; }
-    public string? Error { get; init; }
-    public double? DurationMs { get; init; }
-}
 
 /// <summary>
 /// Orchestrates AgentEval evaluations across models and agents.
@@ -117,19 +24,22 @@ public sealed class ToolCallTrace
 public sealed class EvalRunner
 {
     private readonly HarnessConfiguration _config;
-    private readonly IChatClient _judgeChatClient;
+    private readonly IChatClient? _judgeChatClient;
     private readonly TimeProvider _timeProvider;
     private readonly PerformanceCollector _perfCollector = new();
 
     public EvalRunner(
         HarnessConfiguration config,
-        IChatClient judgeChatClient,
+        IChatClient? judgeChatClient,
         TimeProvider? timeProvider = null)
     {
         _config = config;
         _judgeChatClient = judgeChatClient;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
+
+    internal Func<TestCase, int, CancellationToken,
+        Task<(EvaluationContext Context, PerformanceSnapshot Performance)>>? TestContextFactory { get; init; }
 
     /// <summary>
     /// Runs evaluation for a real lucia agent instance against its test suite.
@@ -152,7 +62,8 @@ public sealed class EvalRunner
             ModelName = modelName
         };
 
-        var metrics = CreateMetrics(testCases);
+        var metrics = CreateCodeMetrics(testCases);
+        var judgeMetric = CreateJudgeMetric();
         var testCaseResults = new List<TestCaseResult>();
         var perfSnapshots = new List<PerformanceSnapshot>();
         var metricScores = new Dictionary<string, List<double>>
@@ -174,118 +85,184 @@ public sealed class EvalRunner
 
             // Reset conversation tracer for this test case
             agentInstance.Tracer?.Reset();
+            using var costScope = agentInstance.BeginCostScope();
+
+            EvaluationContext context;
+            PerformanceSnapshot perf;
+            string? agentOutput = null;
+            IReadOnlyList<ToolCallTrace>? toolCalls = null;
 
             try
             {
-                var (evalResult, perf) = await _perfCollector.MeasureAsync(async () =>
-                    await LlmDeadline.RunAsync(
-                        token => harness.RunEvaluationAsync(evaluableAgent, tc, options, token),
-                        _config.AgentTimeout, _timeProvider, ct,
-                        $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'."),
-                    ct);
-
-                perfSnapshots.Add(perf);
-
-                // Evaluate metrics
-                var context = new EvaluationContext
+                if (TestContextFactory is not null)
                 {
-                    Input = tc.Input,
-                    Output = evalResult.ActualOutput ?? string.Empty,
-                    ToolUsage = evalResult.ToolUsage,
-                    Performance = evalResult.Performance,
-                    ExpectedTools = tc.ExpectedTools
-                };
-
-                double selScore = 0, succScore = 0, effScore = 0, compScore = 0;
-
-                foreach (var metric in metrics)
+                    (context, perf) = await TestContextFactory(tc, i, ct);
+                }
+                else
                 {
-                    // The LLM-as-judge metric gets the judge deadline; code metrics are local/fast.
-                    var metricResult = metric.Name == "llm_task_completion"
-                        ? await LlmDeadline.RunAsync(
-                            token => metric.EvaluateAsync(context, token),
-                            _config.JudgeTimeout, _timeProvider, ct,
-                            $"Judge metric 'llm_task_completion' exceeded the {_config.JudgeTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'.")
-                        : await metric.EvaluateAsync(context, ct);
-                    switch (metric.Name)
+                    var measured = await _perfCollector.MeasureAsync(async () =>
+                        await LlmDeadline.RunAsync(
+                            token => harness.RunEvaluationAsync(evaluableAgent, tc, options, token),
+                            _config.AgentTimeout,
+                            _timeProvider,
+                            ct,
+                            $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'."),
+                        ct);
+                    var evalResult = measured.Result;
+                    perf = measured.Perf;
+                    agentOutput = evalResult.ActualOutput;
+                    toolCalls = CaptureToolCalls(evalResult.ToolUsage);
+
+                    context = new EvaluationContext
                     {
-                        case "code_tool_selection":
-                            selScore = metricResult.Score;
-                            metricScores["tool_selection"].Add(selScore);
-                            break;
-                        case "code_tool_success":
-                            succScore = metricResult.Score;
-                            metricScores["tool_success"].Add(succScore);
-                            break;
-                        case "code_tool_efficiency":
-                            effScore = metricResult.Score;
-                            metricScores["tool_efficiency"].Add(effScore);
-                            break;
-                        case "llm_task_completion":
-                            compScore = metricResult.Score;
-                            metricScores["task_completion"].Add(compScore);
-                            break;
-                    }
+                        Input = tc.Input,
+                        Output = evalResult.ActualOutput ?? string.Empty,
+                        ToolUsage = evalResult.ToolUsage,
+                        Performance = evalResult.Performance,
+                        ExpectedTools = tc.ExpectedTools
+                    };
                 }
 
-                var avgScore = (selScore + succScore + effScore + compScore) / 4;
+                perfSnapshots.Add(perf);
+            }
+            catch (Exception exception)
+                when (exception is HttpRequestException or RequestFailedException or ClientResultException or
+                      AuthenticationFailedException or TimeoutException ||
+                      exception is OperationCanceledException && !ct.IsCancellationRequested)
+            {
                 testCaseResults.Add(new TestCaseResult
                 {
                     TestCaseId = tc.Name ?? $"test_{i}",
-                    Passed = avgScore >= 70,
-                    Score = avgScore,
-                    Latency = perf.TotalDuration,
+                    Passed = false,
+                    Score = null,
+                    Latency = TimeSpan.Zero,
+                    TimedOut = exception is OperationCanceledException or TimeoutException,
+                    FailureReason = exception is OperationCanceledException or TimeoutException
+                        ? "Agent provider request timed out."
+                        : "Agent provider request failed.",
                     Input = tc.Input,
-                    AgentOutput = evalResult.ActualOutput,
-                    ToolCalls = CaptureToolCalls(evalResult.ToolUsage),
-                    ConversationHistory = agentInstance.Tracer?.Turns.ToList()
+                    Cost = costScope?.Complete() ?? InferenceCostSummary.Untracked
                 });
+                continue;
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+
+            var cost = costScope?.Complete() ?? InferenceCostSummary.Untracked;
+            double selectionScore = 0;
+            double successScore = 0;
+            double efficiencyScore = 0;
+
+            foreach (var metric in metrics)
             {
-                // Caller-requested cancellation must abort the whole run, never be
-                // recorded as a per-test-case failure.
-                throw;
-            }
-            catch (TimeoutException tex)
-            {
-                testCaseResults.Add(new TestCaseResult
+                var metricResult = await metric.EvaluateAsync(context, ct);
+                switch (metric.Name)
                 {
-                    TestCaseId = tc.Name ?? $"test_{i}",
-                    Passed = false,
-                    Score = 0,
-                    Latency = TimeSpan.Zero,
-                    TimedOut = true,
-                    FailureReason = tex.Message,
-                    Input = tc.Input
-                });
+                    case "code_tool_selection":
+                        selectionScore = metricResult.Score;
+                        metricScores["tool_selection"].Add(selectionScore);
+                        break;
+                    case "code_tool_success":
+                        successScore = metricResult.Score;
+                        metricScores["tool_success"].Add(successScore);
+                        break;
+                    case "code_tool_efficiency":
+                        efficiencyScore = metricResult.Score;
+                        metricScores["tool_efficiency"].Add(efficiencyScore);
+                        break;
+                }
             }
-            catch (Exception ex)
+
+            double? completionScore = null;
+            string? judgeStatus = null;
+            string? judgeReason = null;
+
+            if (judgeMetric is null)
             {
-                testCaseResults.Add(new TestCaseResult
-                {
-                    TestCaseId = tc.Name ?? $"test_{i}",
-                    Passed = false,
-                    Score = 0,
-                    Latency = TimeSpan.Zero,
-                    FailureReason = ex.Message,
-                    Input = tc.Input
-                });
+                judgeStatus = JudgeAvailability.NotConfigured;
+                judgeReason = JudgeAvailability.Reason(judgeStatus);
             }
+            else
+            {
+                try
+                {
+                    var judgeResult = await LlmDeadline.RunAsync(
+                        token => judgeMetric.EvaluateAsync(context, token),
+                        _config.JudgeTimeout,
+                        _timeProvider,
+                        ct,
+                        $"Judge metric 'llm_task_completion' exceeded the {_config.JudgeTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'.");
+                    completionScore = judgeResult.Score;
+                    metricScores["task_completion"].Add(judgeResult.Score);
+                }
+                catch (Exception exception)
+                    when (JudgeAvailability.TryClassify(exception, ct, out var status))
+                {
+                    judgeStatus = status;
+                    judgeReason = JudgeAvailability.Reason(status);
+                }
+            }
+
+            var availableScores = new List<double>
+            {
+                selectionScore,
+                successScore,
+                efficiencyScore
+            };
+            if (completionScore.HasValue)
+            {
+                availableScores.Add(completionScore.Value);
+            }
+
+            var averageScore = availableScores.Average();
+            testCaseResults.Add(new TestCaseResult
+            {
+                TestCaseId = tc.Name ?? $"test_{i}",
+                Passed = averageScore >= 70,
+                Score = averageScore,
+                Latency = perf.TotalDuration,
+                Input = tc.Input,
+                AgentOutput = agentOutput ?? context.Output,
+                ToolCalls = toolCalls ?? CaptureToolCalls(context.ToolUsage),
+                ConversationHistory = agentInstance.Tracer?.Turns.ToList(),
+                JudgeStatus = judgeStatus,
+                JudgeReason = judgeReason,
+                Cost = cost
+            });
         }
 
         var perfSummary = ModelPerformanceSummary.FromSnapshots(modelName, perfSnapshots);
+
+        var allMetricScores = metricScores.Values.SelectMany(values => values).ToList();
+        var taskCompletionStatus = AggregateJudgeStatus(testCaseResults, metricScores["task_completion"].Count);
+        var scoredTestCaseCount = metricScores["tool_selection"].Count;
+        var hasUnavailableMetrics =
+            scoredTestCaseCount < testCaseResults.Count ||
+            metricScores.Values.Any(scores => scores.Count < scoredTestCaseCount);
+        var overallScoreStatus = allMetricScores.Count switch
+        {
+            0 => JudgeAvailability.Unavailable,
+            _ when hasUnavailableMetrics => JudgeAvailability.Partial,
+            _ => null
+        };
 
         return new ModelEvalResult
         {
             ModelName = modelName,
             AgentName = agentInstance.AgentName,
-            ToolSelectionScore = Average(metricScores["tool_selection"]),
-            ToolSuccessScore = Average(metricScores["tool_success"]),
-            ToolEfficiencyScore = Average(metricScores["tool_efficiency"]),
-            TaskCompletionScore = Average(metricScores["task_completion"]),
-            OverallScore = metricScores.Values.SelectMany(v => v).DefaultIfEmpty(0).Average(),
-            TestCaseCount = testCases.Count,
+            ToolSelectionScore = AverageOrNull(metricScores["tool_selection"]),
+            ToolSuccessScore = AverageOrNull(metricScores["tool_success"]),
+            ToolEfficiencyScore = AverageOrNull(metricScores["tool_efficiency"]),
+            TaskCompletionScore = AverageOrNull(metricScores["task_completion"]),
+            TaskCompletionStatus = taskCompletionStatus,
+            TaskCompletionReason = taskCompletionStatus is null
+                ? null
+                : JudgeAvailability.Reason(taskCompletionStatus),
+            OverallScore = allMetricScores.Count > 0 ? allMetricScores.Average() : null,
+            OverallScoreStatus = overallScoreStatus,
+            OverallScoreReason = overallScoreStatus is null
+                ? null
+                : JudgeAvailability.Reason(overallScoreStatus),
+            TestCaseCount = testCaseResults.Count,
+            ScoredTestCaseCount = scoredTestCaseCount,
             PassedCount = testCaseResults.Count(r => r.Passed),
             Performance = perfSummary,
             TestCaseResults = testCaseResults,
@@ -293,7 +270,7 @@ public sealed class EvalRunner
         };
     }
 
-    private IReadOnlyList<IAgenticMetric> CreateMetrics(IReadOnlyList<TestCase> testCases)
+    private static IReadOnlyList<IAgenticMetric> CreateCodeMetrics(IReadOnlyList<TestCase> testCases)
     {
         // Collect expected tools from all test cases for the selection metric
         var allExpectedTools = testCases
@@ -302,21 +279,44 @@ public sealed class EvalRunner
             .Distinct()
             .ToList();
 
-        var metrics = new List<IAgenticMetric>
-        {
+        return
+        [
             new ToolSelectionMetric(allExpectedTools),
             new ToolSuccessMetric(),
             new ToolEfficiencyMetric()
-        };
-
-        // TaskCompletionMetric uses the judge LLM
-        metrics.Add(new TaskCompletionMetric(_judgeChatClient));
-
-        return metrics;
+        ];
     }
 
-    private static double Average(List<double> values) =>
-        values.Count > 0 ? values.Average() : 0;
+    private IAgenticMetric? CreateJudgeMetric() =>
+        _judgeChatClient is null
+            ? null
+            : new TaskCompletionMetric(new ValidatingJudgeChatClient(_judgeChatClient));
+
+    private static double? AverageOrNull(List<double> values) =>
+        values.Count > 0 ? values.Average() : null;
+
+    private static string? AggregateJudgeStatus(
+        IReadOnlyList<TestCaseResult> results,
+        int availableCount)
+    {
+        var unavailable = results
+            .Select(result => result.JudgeStatus)
+            .Where(status => status is not null)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (unavailable.Count == 0)
+        {
+            return availableCount < results.Count ? JudgeAvailability.Partial : null;
+        }
+
+        if (availableCount > 0 || unavailable.Count > 1)
+        {
+            return JudgeAvailability.Partial;
+        }
+
+        return unavailable[0];
+    }
 
     private static IReadOnlyList<ToolCallTrace>? CaptureToolCalls(AgentEval.Models.ToolUsageReport? toolUsage)
     {
@@ -400,7 +400,8 @@ public sealed class EvalRunner
         // Scenario evaluation requires conversation tracing for tool call validation.
         // Without a tracer, the conversation list is empty and every scenario reports
         // "Expected N tool call(s) but only got 0" — a silent false-failure.
-        if (agentInstance.Tracer is null && scenarios.Any(s => s.ExpectedToolCalls.Count > 0))
+        if (agentInstance.Tracer is null && scenarios.Any(s =>
+                s.ExpectedToolCalls.Count > 0 || !string.IsNullOrWhiteSpace(s.ResponseCriteria)))
         {
             throw new InvalidOperationException(
                 "Scenario evaluation requires conversation tracing (RealAgentFactory.EnableTracing = true) " +
@@ -428,6 +429,7 @@ public sealed class EvalRunner
 
             // Reset tracer for this scenario
             agentInstance.Tracer?.Reset();
+            using var costScope = agentInstance.BeginCostScope();
 
             try
             {
@@ -456,68 +458,131 @@ public sealed class EvalRunner
                 // Get conversation turns for validation
                 var conversation = agentInstance.Tracer?.Turns.ToList()
                     ?? new List<ConversationTurn>();
+                var cost = costScope?.Complete() ?? InferenceCostSummary.Untracked;
 
                 // Validate against scenario expectations
                 var validation = await ScenarioValidator.ValidateAsync(scenario, conversation, haClient);
+                var passed = validation.Passed;
+                double? score = validation.Score;
+                var failureReason = validation.Passed ? null : validation.Summary;
+                string? judgeStatus = null;
+                string? judgeReason = null;
+
+                if (!string.IsNullOrWhiteSpace(scenario.ResponseCriteria))
+                {
+                    if (_judgeChatClient is null)
+                    {
+                        judgeStatus = JudgeAvailability.NotConfigured;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var judgment = await LlmDeadline.RunAsync(
+                                token => ScenarioResponseJudge.EvaluateAsync(
+                                    _judgeChatClient, scenario.ResponseCriteria,
+                                    promptText, evalResult.ActualOutput ?? string.Empty, token),
+                                _config.JudgeTimeout, _timeProvider, ct,
+                                $"Response judge exceeded the {_config.JudgeTimeoutSeconds}s deadline for scenario '{scenario.Id}'.");
+                            judgeReason = judgment.Reason;
+                            passed &= judgment.Passed;
+                            score = 100d * (validation.Successes.Count + (judgment.Passed ? 1 : 0)) /
+                                    (validation.Successes.Count + validation.Issues.Count + 1);
+                            if (!judgment.Passed)
+                            {
+                                failureReason = (failureReason is null ? "" : failureReason + "; ") +
+                                                $"Response criteria failed: {judgment.Reason}";
+                            }
+                        }
+                        catch (Exception exception) when (JudgeAvailability.TryClassify(exception, ct, out var status))
+                        {
+                            judgeStatus = status;
+                        }
+                    }
+
+                    if (judgeStatus is not null)
+                    {
+                        passed = false;
+                        score = null;
+                        judgeReason = JudgeAvailability.Reason(judgeStatus);
+                        failureReason = (failureReason is null ? "" : failureReason + "; ") + judgeReason;
+                    }
+                }
 
                 testCaseResults.Add(new TestCaseResult
                 {
                     TestCaseId = scenario.Id,
-                    Passed = validation.Passed,
-                    Score = validation.Score,
+                    Passed = passed,
+                    Score = score,
                     Latency = perf.TotalDuration,
                     Input = promptText,
                     AgentOutput = evalResult.ActualOutput,
                     ToolCalls = CaptureToolCalls(evalResult.ToolUsage),
                     ConversationHistory = conversation,
-                    FailureReason = validation.Passed ? null : validation.Summary
+                    FailureReason = failureReason,
+                    JudgeStatus = judgeStatus,
+                    JudgeReason = judgeReason,
+                    Cost = cost
                 });
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (TimeoutException tex)
+            catch (Exception exception)
+                when (exception is HttpRequestException or RequestFailedException or ClientResultException or
+                      AuthenticationFailedException or TimeoutException ||
+                      exception is OperationCanceledException && !ct.IsCancellationRequested)
             {
                 testCaseResults.Add(new TestCaseResult
                 {
                     TestCaseId = scenario.Id,
                     Passed = false,
-                    Score = 0,
+                    Score = null,
                     Latency = TimeSpan.Zero,
-                    TimedOut = true,
-                    FailureReason = tex.Message,
-                    Input = scenario.UserPrompt
-                });
-            }
-            catch (Exception ex)
-            {
-                testCaseResults.Add(new TestCaseResult
-                {
-                    TestCaseId = scenario.Id,
-                    Passed = false,
-                    Score = 0,
-                    Latency = TimeSpan.Zero,
-                    FailureReason = ex.Message,
-                    Input = scenario.UserPrompt
+                    TimedOut = exception is OperationCanceledException or TimeoutException,
+                    FailureReason = exception is OperationCanceledException or TimeoutException
+                        ? "Provider request timed out."
+                        : "Provider request failed.",
+                    Input = scenario.UserPrompt,
+                    Cost = costScope?.Complete() ?? InferenceCostSummary.Untracked
                 });
             }
         }
 
         var perfSummary = ModelPerformanceSummary.FromSnapshots(modelName, perfSnapshots);
         var passedCount = testCaseResults.Count(r => r.Passed);
-        var scores = testCaseResults.Select(r => r.Score).ToList();
+        var scores = testCaseResults
+            .Where(result => result.Score.HasValue)
+            .Select(result => result.Score!.Value)
+            .ToList();
+        var aggregateScore = scores.Count > 0 ? scores.Average() : (double?)null;
+        var aggregateStatus = scores.Count switch
+        {
+            0 => JudgeAvailability.Unavailable,
+            _ when scores.Count < testCaseResults.Count => JudgeAvailability.Partial,
+            _ => null
+        };
+        if (testCaseResults.Any(result => result.JudgeStatus is not null))
+        {
+            aggregateStatus = AggregateJudgeStatus(testCaseResults, scores.Count);
+        }
 
         return new ModelEvalResult
         {
             ModelName = modelName,
             AgentName = agentInstance.AgentName,
-            ToolSelectionScore = scores.DefaultIfEmpty(0).Average(),
-            ToolSuccessScore = scores.DefaultIfEmpty(0).Average(),
-            ToolEfficiencyScore = scores.DefaultIfEmpty(0).Average(),
-            TaskCompletionScore = scores.DefaultIfEmpty(0).Average(),
-            OverallScore = scores.DefaultIfEmpty(0).Average(),
-            TestCaseCount = scenarios.Count,
+            ToolSelectionScore = aggregateScore,
+            ToolSuccessScore = aggregateScore,
+            ToolEfficiencyScore = aggregateScore,
+            TaskCompletionScore = aggregateScore,
+            TaskCompletionStatus = aggregateStatus,
+            TaskCompletionReason = aggregateStatus is null
+                ? null
+                : JudgeAvailability.Reason(aggregateStatus),
+            OverallScore = aggregateScore,
+            OverallScoreStatus = aggregateStatus,
+            OverallScoreReason = aggregateStatus is null
+                ? null
+                : JudgeAvailability.Reason(aggregateStatus),
+            TestCaseCount = testCaseResults.Count,
+            ScoredTestCaseCount = scores.Count,
             PassedCount = passedCount,
             Performance = perfSummary,
             TestCaseResults = testCaseResults,

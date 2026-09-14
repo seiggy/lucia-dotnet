@@ -66,6 +66,36 @@ public class HmacSessionServiceTests : IAsyncLifetime
     }
 
     [Fact]
+    public void ValidateSession_DashboardKey_HasAdministratorRole()
+    {
+        var cookie = _service.CreateSession(
+            "key-1",
+            "Dashboard",
+            isAdministrator: true);
+
+        var claims = _service.ValidateSession(cookie);
+
+        Assert.NotNull(claims);
+        Assert.Contains(
+            claims,
+            claim => claim.Type == ClaimTypes.Role
+                && claim.Value == AuthOptions.AdministratorRole);
+    }
+
+    [Fact]
+    public void ValidateSession_DashboardLabelWithoutScope_IsNotAdministrator()
+    {
+        var cookie = _service.CreateSession("key-1", "Dashboard");
+
+        var claims = _service.ValidateSession(cookie);
+
+        Assert.NotNull(claims);
+        Assert.DoesNotContain(
+            claims,
+            claim => claim.Type == ClaimTypes.Role);
+    }
+
+    [Fact]
     public void ValidateSession_ReturnsNullForTamperedCookie()
     {
         var cookie = _service.CreateSession("key-1", "Test Key");

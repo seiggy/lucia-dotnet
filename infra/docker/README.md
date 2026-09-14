@@ -106,6 +106,7 @@ See [DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md) for the shared capabiliti
 - `lucia-redis-data` — Persistent Redis data store
 - `lucia-mongo-data` — Persistent MongoDB data store
 - `lucia-models` — Writable storage for STT/VAD/wake-word/speech-enhancement/speaker-embedding ONNX models — populated at runtime via HuggingFace CLI
+- `lucia-voice-data` — Voice recordings under `/app/data/voice-clips`; speaker embeddings remain in the persistent configuration database
 
 ## Deployment Modes
 
@@ -207,6 +208,9 @@ docker cp lucia-mongo:/tmp/backup ./backup/mongo-$(date +%Y%m%d)
 # Backup Redis
 docker run --rm -v lucia-redis-data:/data -v ./backup:/backup \
   redis:8.2-alpine tar czf /backup/redis-$(date +%Y%m%d).tar.gz -C / data
+
+# Copy voice recordings for local benchmarks
+docker compose -f docker-compose.voice.yml cp lucia:/app/data/voice-clips ../../benchmarks/voice/live-clips
 ```
 
 ## Troubleshooting

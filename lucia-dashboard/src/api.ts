@@ -266,6 +266,8 @@ export async function logout(): Promise<void> {
 
 export interface SetupStatus {
   hasDashboardKey: boolean;
+  hasAnyActiveKey: boolean;
+  hasAdministratorKey: boolean;
   hasHaConnection: boolean;
   /** True when a "Home Assistant" API key exists (e.g. seeded via LUCIA_HA_API_KEY headless). */
   hasHaApiKey?: boolean;

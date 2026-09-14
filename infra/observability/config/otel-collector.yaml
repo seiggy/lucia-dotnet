@@ -1,0 +1,92 @@
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol
+    create_directory: true
+    compaction:
+      directory: /var/lib/otelcol
+      on_start: true
+      on_rebound: true
+  health_check:
+    endpoint: 0.0.0.0:13133
+    check_collector_pipeline:
+      enabled: true
+      interval: 30s
+      exporter_failure_threshold: 5
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 65
+    spike_limit_percentage: 15
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 5000
+      num_consumers: 2
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 0s
+  otlphttp/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 5000
+      num_consumers: 2
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 0s
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    sending_queue:
+      enabled: true
+      storage: file_storage
+      queue_size: 5000
+      num_consumers: 2
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 0s
+
+service:
+  extensions: [file_storage, health_check]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]

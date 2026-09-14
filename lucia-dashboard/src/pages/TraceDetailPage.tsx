@@ -390,7 +390,7 @@ export default function TraceDetailPage() {
         <button
           onClick={() => mutation.mutate()}
           disabled={mutation.isPending}
-          className="mt-4 rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-void transition-all hover:bg-amber-glow disabled:opacity-40"
+          className="mt-4 rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-on-accent transition-all hover:bg-amber-glow disabled:opacity-40"
         >
           {mutation.isPending ? 'Saving…' : 'Save Label'}
         </button>

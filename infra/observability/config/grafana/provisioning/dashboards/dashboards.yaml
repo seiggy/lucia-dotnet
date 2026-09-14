@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: Lucia
+    orgId: 1
+    folder: Lucia
+    folderUid: lucia
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

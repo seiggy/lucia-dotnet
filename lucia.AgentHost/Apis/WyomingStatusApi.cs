@@ -17,8 +17,8 @@ public static class WyomingStatusApi
 
     public static IResult GetWyomingStatus(
         IEnumerable<ISttEngine> sttEngines,
-        IVadEngine? vadEngine,
-        IWakeWordDetector? wakeWordDetector,
+        IEnumerable<IVadEngine> vadEngines,
+        IEnumerable<IWakeWordDetector> wakeWordDetectors,
         IDiarizationEngine? diarizationEngine,
         ISpeechEnhancer? speechEnhancer,
         CustomWakeWordManager? wakeWordManager,
@@ -27,6 +27,10 @@ public static class WyomingStatusApi
     {
         // Pick the engine matching the user's preferred STT engine type
         var engines = sttEngines.ToArray();
+        var vadEngine = vadEngines.FirstOrDefault(static engine => engine.IsReady)
+            ?? vadEngines.FirstOrDefault();
+        var wakeWordDetector = wakeWordDetectors.FirstOrDefault(static detector => detector.IsReady)
+            ?? wakeWordDetectors.FirstOrDefault();
         var preferStreaming = manager.PreferredSttEngineType == EngineType.Stt;
         var activeEngine = preferStreaming
             ? (engines.OfType<SherpaSttEngine>().FirstOrDefault(static e => e.IsReady) as ISttEngine

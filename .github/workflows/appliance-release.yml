@@ -1,0 +1,324 @@
+name: Build Appliance Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+      - '!v*-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing stable release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: appliance-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate-release-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      SOURCE_REF: ${{ github.ref }}
+    steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag must match vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" \
+              && "$SOURCE_REF" != "refs/tags/$RELEASE_TAG" ]]; then
+            echo "::error::Manual appliance releases must run from the selected release tag."
+            exit 1
+          fi
+
+  voice-assets:
+    needs: validate-release-tag
+    uses: ./.github/workflows/jetson-voice-assets.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+    permissions:
+      contents: read
+      packages: write
+
+  build-and-publish:
+    name: Build and publish appliance assets
+    needs: [validate-release-tag, voice-assets]
+    runs-on: [self-hosted, Linux, X64, jetson-image-builder]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      VOICE_ASSET_IMAGE: ghcr.io/${{ github.repository }}/jetson-voice-assets
+      VOICE_ASSET_REF: ${{ needs.voice-assets.outputs.image_ref }}
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.201
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lucia-dashboard/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+
+      - name: Set up ARM64 emulation
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
+        with:
+          platforms: arm64
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify dedicated runner
+        run: |
+          test "$(uname -s)" = Linux
+          test "$(uname -m)" = x86_64
+          sudo -n true
+          test -x /usr/bin/qemu-aarch64-static
+          available_kib="$(df --output=avail "$RUNNER_TEMP" | tail -1 | tr -d ' ')"
+          test "$available_kib" -ge $((200 * 1024 * 1024))
+
+      - name: Test appliance release
+        run: |
+          dotnet test lucia.Tests/lucia.Tests.csproj \
+            --filter "FullyQualifiedName~lucia.Tests.Appliance"
+          python3 infra/appliance/release/test_package_release.py
+          bash infra/appliance/release/test_build_release_assets.sh
+          bash infra/appliance/test-build-native-bundle.sh
+          bash infra/appliance/installer/test-installer-rootfs.sh
+          bash infra/appliance/installer/test-network-bootstrap.sh
+          sudo bash infra/appliance/installer/test-provision-target.sh
+          bash infra/appliance/installer/test-installer-host.sh
+          bash infra/appliance/manager/test-lucia-appliance-manager.sh
+          sudo bash infra/appliance/manager/test-lucia-update.sh
+          sudo bash infra/appliance/installer/test-lucia-install.sh
+          sudo bash infra/appliance/installer/test-installer-control.sh
+          sudo bash infra/appliance/installer/test-firstboot-install.sh
+          sudo bash infra/appliance/installer/test-expand-data.sh
+
+      - name: Build appliance channels
+        run: |
+          version="${RELEASE_TAG#v}"
+          bash infra/appliance/release/build-release-assets.sh \
+            --version "$version" \
+            --work-dir "$RUNNER_TEMP/lucia-appliance-$version" \
+            --output-dir "$GITHUB_WORKSPACE/dist"
+
+      - name: Package release assets
+        run: |
+          source infra/appliance/release/appliance.lock
+          version="${RELEASE_TAG#v}"
+          python3 infra/appliance/release/package_release.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG" \
+            --installer "dist/raw/lucia-appliance-$version-installer.img.zst" \
+            --lucia "dist/raw/lucia-appliance-$version-lucia.tar.zst" \
+            --os "dist/raw/lucia-appliance-$version-os.tar.zst" \
+            --lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION" \
+            --lucia-source-redis "$LUCIA_SOURCE_REDIS_VERSION" \
+            --lucia-source-cuda "$LUCIA_SOURCE_CUDA_VERSION" \
+            --lucia-source-cudnn "$LUCIA_SOURCE_CUDNN_VERSION" \
+            --lucia-source-onnx-runtime "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" \
+            --lucia-source-sherpa-onnx "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" \
+            --os-source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION" \
+            --os-source-redis "$OS_SOURCE_REDIS_VERSION" \
+            --os-source-cuda "$OS_SOURCE_CUDA_VERSION" \
+            --os-source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
+            --os-source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
+            --os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
+            --lucia-target-jetson-linux "$LUCIA_TARGET_JETSON_LINUX_VERSION" \
+            --lucia-target-redis "$LUCIA_TARGET_REDIS_VERSION" \
+            --lucia-target-cuda "$LUCIA_TARGET_CUDA_VERSION" \
+            --lucia-target-cudnn "$LUCIA_TARGET_CUDNN_VERSION" \
+            --lucia-target-onnx-runtime "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
+            --lucia-target-sherpa-onnx "$LUCIA_TARGET_SHERPA_ONNX_VERSION" \
+            --os-target-jetson-linux "$OS_TARGET_JETSON_LINUX_VERSION" \
+            --os-target-redis "$OS_TARGET_REDIS_VERSION" \
+            --os-target-cuda "$OS_TARGET_CUDA_VERSION" \
+            --os-target-cudnn "$OS_TARGET_CUDNN_VERSION" \
+            --os-target-onnx-runtime "$OS_TARGET_ONNX_RUNTIME_VERSION" \
+            --os-target-sherpa-onnx "$OS_TARGET_SHERPA_ONNX_VERSION" \
+            --output-dir dist/release
+
+      - name: Attest release assets
+        id: attest
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/release/*
+
+      - name: Export offline attestation bundle
+        run: |
+          cp "${{ steps.attest.outputs.bundle-path }}" \
+            dist/release/lucia-appliance-attestations.jsonl
+
+      - name: Verify exported offline attestation bundle
+        run: |
+          version="${RELEASE_TAG#v}"
+          verifier="$RUNNER_TEMP/lucia-appliance-$version/verifier/gh-host"
+          trusted_root="$RUNNER_TEMP/lucia-appliance-$version/verifier/trusted-root.jsonl"
+          bundle="dist/release/lucia-appliance-attestations.jsonl"
+          mapfile -t payloads < <(
+            python3 -c \
+              'import json; manifest=json.load(open("dist/release/lucia-appliance-manifest.json")); print("\n".join(part["name"] for channel in manifest["channels"].values() for part in channel["parts"]))'
+          )
+          for subject in \
+            dist/release/lucia-appliance-manifest.json \
+            "${payloads[@]/#/dist\/release\/}"; do
+            "$verifier" attestation verify "$subject" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/appliance-release.yml" \
+              --source-ref "refs/tags/$RELEASE_TAG" \
+              --bundle "$bundle" \
+              --custom-trusted-root "$trusted_root"
+          done
+
+      - name: Wait for GitHub Release
+        run: |
+          for attempt in {1..180}; do
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Release $RELEASE_TAG was not created within 30 minutes."
+          exit 1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload immutable release assets
+        run: |
+          manifest_published="$(
+            gh release view "$RELEASE_TAG" \
+              --json assets \
+              --jq 'any(.assets[]; .name == "lucia-appliance-manifest.json")'
+          )"
+          upload_immutable() {
+            local file="$1"
+            local name
+            local bytes
+            local sha256
+            local existing
+            local existing_bytes
+            local existing_digest
+
+            name="$(basename "$file")"
+            bytes="$(stat --format '%s' "$file")"
+            sha256="$(sha256sum "$file" | cut -d' ' -f1)"
+            existing="$(
+              gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+                --jq '.assets[] | "\(.name)\t\(.size)\t\(.digest)"' \
+                | awk -F '\t' -v name="$name" \
+                    '$1 == name { print $2 "\t" $3 }'
+            )"
+            if [[ -z "$existing" ]]; then
+              if [[ "$manifest_published" == "true" ]]; then
+                echo "::error::Published manifest references a release missing $name."
+                exit 1
+              fi
+              gh release upload "$RELEASE_TAG" "$file"
+              return
+            fi
+            if [[ "$manifest_published" == "true" \
+                && "$name" == "lucia-appliance-attestations.jsonl" ]]; then
+              echo "Reusing published attestation bundle: $name"
+              return
+            fi
+
+            IFS=$'\t' read -r existing_bytes existing_digest <<< "$existing"
+            if [[ "$existing_bytes" != "$bytes" \
+                || "$existing_digest" != "sha256:$sha256" ]]; then
+              if [[ "$manifest_published" == "false" ]]; then
+                gh release delete-asset "$RELEASE_TAG" "$name" --yes
+                gh release upload "$RELEASE_TAG" "$file"
+                return
+              fi
+              echo "::error::Existing release asset $name does not match this build."
+              exit 1
+            fi
+            echo "Reusing identical release asset: $name"
+          }
+
+          while IFS= read -r -d '' file; do
+            upload_immutable "$file"
+          done < <(
+            find dist/release -maxdepth 1 -type f \
+              ! -name lucia-appliance-manifest.json \
+              -print0
+          )
+
+          # The manifest is always the final upload, so discovery never sees a
+          # release whose payload set is incomplete.
+          upload_immutable dist/release/lucia-appliance-manifest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summarize release
+        run: |
+          {
+            echo "### Appliance release"
+            echo
+            echo "- Tag: \`$RELEASE_TAG\`"
+            echo "- Manifest: \`lucia-appliance-manifest.json\`"
+            echo "- Discovery: \`https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest\`"
+            echo "- Assets are split below 2 GB for GitHub Releases."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean build workspace
+        if: ${{ always() }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skipping cleanup for invalid release tag."
+            exit 0
+          fi
+          version="${RELEASE_TAG#v}"
+          work_dir="$RUNNER_TEMP/lucia-appliance-$version"
+          mapfile -t mounts < <(
+            findmnt -rn -o TARGET \
+              | awk -v root="$work_dir" \
+                  '$0 == root || index($0, root "/") == 1'
+          )
+          for ((index=${#mounts[@]} - 1; index >= 0; index--)); do
+            sudo umount "${mounts[$index]}"
+          done
+          if findmnt -rn -o TARGET \
+              | awk -v root="$work_dir" \
+                  '$0 == root || index($0, root "/") == 1 { found = 1 } END { exit !found }'; then
+            echo "::error::Active mounts remain under $work_dir; cleanup refused."
+            exit 1
+          fi
+          sudo rm -rf --one-file-system -- \
+            "$work_dir" \
+            "$GITHUB_WORKSPACE/dist"
+          docker image rm "$VOICE_ASSET_REF" \
+            >/dev/null 2>&1 || true

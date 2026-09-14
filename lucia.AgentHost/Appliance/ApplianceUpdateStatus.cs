@@ -1,0 +1,18 @@
+namespace lucia.AgentHost.Appliance;
+
+public sealed record ApplianceUpdateStatus(
+    string CurrentLuciaVersion,
+    string CurrentOsVersion,
+    string? LatestLuciaVersion,
+    string? LatestOsVersion,
+    bool ManifestAvailable,
+    bool Compatible,
+    bool LuciaCompatible,
+    bool OsCompatible,
+    bool LuciaNewerDiscovered,
+    bool OsNewerDiscovered,
+    bool LuciaUpdateAvailable,
+    bool OsUpdateAvailable,
+    string? ReleaseTag,
+    string? ReleaseUrl,
+    string? Message);

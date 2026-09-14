@@ -10,6 +10,10 @@ obj/
 /node_modules
 /wwwroot/node_modules
 
+# Local biometric voice recordings used by benchmarks
+/benchmarks/voice/live-clips/
+/benchmarks/voice/user-provided/
+
 ### OpenFrameworks+VisualStudio ###
 # ignore generated binaries
 # but not the data folder
@@ -24,6 +28,8 @@ obj/
 *.o
 [Dd]ebug*/
 [Rr]elease*/
+!infra/appliance/release/
+!infra/appliance/release/**
 *.mode*
 *.app/
 *.pyc
@@ -310,3 +316,7 @@ lucia.AgentHost/models/
 # Squad: SubSquad activation file (local to this machine)
 .squad-workstream
 personality-eval-traces/
+
+## TLS/SSL certificates and keys
+*.crt
+*.key

@@ -13,7 +13,7 @@ public sealed partial class PostgresMigrationRunner : IHostedService
 {
     internal const long AdvisoryLockKey = 0x4C554349414D4947;
 
-    private const int ConfigSchemaVersion = 2;
+    private const int ConfigSchemaVersion = 3;
     private const int TracesSchemaVersion = 2;
     private const int TasksSchemaVersion = 2;
     private const string TraceSearchIndex = "idx_command_traces_clean_text_trgm";
@@ -90,7 +90,7 @@ public sealed partial class PostgresMigrationRunner : IHostedService
                 config,
                 "config",
                 ConfigSchemaVersion,
-                [ApplyConfigV1Async, ApplyConfigV2Async],
+                [ApplyConfigV1Async, ApplyConfigV2Async, ApplyConfigV3Async],
                 cancellationToken).ConfigureAwait(false);
             await MigrateDatabaseAsync(
                 traces,
@@ -588,7 +588,6 @@ public sealed partial class PostgresMigrationRunner : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON public.api_keys(key_hash);
             CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON public.api_keys(is_revoked);
-
             CREATE TABLE IF NOT EXISTS public.model_providers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -685,6 +684,13 @@ public sealed partial class PostgresMigrationRunner : IHostedService
             """;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private static Task ApplyConfigV3Async(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+        // Privileges cannot be inferred safely from legacy user-assigned labels.
+        => Task.CompletedTask;
 
     // ── luciatraces database migrations ──────────────────────────────────────
 

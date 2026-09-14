@@ -56,6 +56,12 @@ public sealed class GeneralAgent : ILuciaAgent
 
         // Create the agent card for registration
         var skills = new List<AgentSkill>();
+        skills.Add(new AgentSkill
+        {
+            Id = "id_personal_memory",
+            Name = "Personal memory",
+            Description = "Handle personal memory requests such as 'remember I prefer tea', 'what do you know about me', and 'forget my preference' for an enrolled speaker."
+        });
         if (Tools.Count > 0)
         {
             skills.Add(new AgentSkill
@@ -71,8 +77,8 @@ public sealed class GeneralAgent : ILuciaAgent
             SupportedInterfaces = [new AgentInterface { Url = "/a2a/general-assistant" }],
             Name = AgentId,
             Description = Tools.Count > 0
-                ? "Agent for general knowledge and web search in Home Assistant"
-                : "Agent for handling #general-knowledge questions in Home Assistant",
+                ? "Agent for general knowledge, web search, and personal memory requests in Home Assistant"
+                : "Agent for handling #general-knowledge questions and personal memory requests in Home Assistant",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
@@ -196,6 +202,8 @@ public sealed class GeneralAgent : ILuciaAgent
 
         var agentOptions = new ChatClientAgentOptions
         {
+            AIContextProviders = _tracingFactory.AIContextProviders,
+            ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for answering general knowledge questions in Home Assistant",

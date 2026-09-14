@@ -244,9 +244,9 @@ helm install lucia ./helm \
   --set lucia.ingress.hosts[0].host="lucia.home.local"
 ```
 
-### Scenario 3: Enterprise with Observability
+### Scenario 3: Remote observability
 
-**Requirements**: Kubernetes cluster with Prometheus/Grafana, Azure OpenAI, external Redis
+Install the management-host CA on every Lucia node before enabling the TLS endpoint. Generate the Basic credential payload with `printf '%s' 'username:password' | base64 -w0`.
 
 ```bash
 helm install lucia ./helm \
@@ -258,8 +258,12 @@ helm install lucia ./helm \
   --set llm.chatModel.apiKey=$AZURE_OPENAI_KEY \
   --set redis.enabled=false \
   --set redis.externalHost="redis-cluster.redis" \
-  --set observability.enabled=true
+  --set observability.mode=Trace \
+  --set observability.otlpEndpoint="https://telemetry.internal:4317" \
+  --set-string observability.otlpHeaders="Authorization=Basic%20${OTLP_BASIC_CREDENTIALS}"
 ```
+
+Use `Metrics` for lower steady-state cost, `Profile` while correlating a CPU capture, and `Off` for baseline measurements. Prefer an external secret manager over a command-line header in production because Helm stores release values.
 
 ## Common Operations
 

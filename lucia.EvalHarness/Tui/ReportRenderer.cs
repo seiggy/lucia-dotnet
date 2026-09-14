@@ -78,14 +78,7 @@ public static class ReportRenderer
                     continue;
                 }
 
-                var score = modelResult.OverallScore;
-                var color = score switch
-                {
-                    >= 80 => "green",
-                    >= 60 => "yellow",
-                    _ => "red"
-                };
-                row.Add($"[{color}]{score:F1}[/]");
+                row.Add(ScoreCell(modelResult.OverallScore));
             }
 
             table.AddRow(row.ToArray());
@@ -109,16 +102,11 @@ public static class ReportRenderer
                         "TaskCompletionScore" => m.TaskCompletionScore,
                         _ => 0
                     })
-                    .DefaultIfEmpty(0)
                     .Average();
 
-                var color = avgScore switch
-                {
-                    >= 80 => "green",
-                    >= 60 => "yellow",
-                    _ => "red"
-                };
-                row.Add($"[dim {color}]{avgScore:F1}[/]");
+                row.Add(avgScore.HasValue
+                    ? $"[dim]{ScoreCell(avgScore)}[/]"
+                    : "[dim]N/A[/]");
             }
             table.AddRow(row.ToArray());
         }
@@ -147,15 +135,18 @@ public static class ReportRenderer
             .GroupBy(m => m.ModelName)
             .Select(g =>
             {
-                var perfs = g.Select(m => m.Performance).ToList();
+                var perfs = g
+                    .Select(m => m.Performance)
+                    .Where(performance => performance.RunCount > 0)
+                    .ToList();
                 return new
                 {
                     ModelName = g.Key,
-                    MeanMs = perfs.Average(p => p.MeanLatency.TotalMilliseconds),
-                    MedianMs = perfs.Average(p => p.MedianLatency.TotalMilliseconds),
-                    P95Ms = perfs.Average(p => p.P95Latency.TotalMilliseconds),
-                    MinMs = perfs.Min(p => p.MinLatency.TotalMilliseconds),
-                    MaxMs = perfs.Max(p => p.MaxLatency.TotalMilliseconds),
+                    MeanMs = perfs.Count > 0 ? (double?)perfs.Average(p => p.MeanLatency.TotalMilliseconds) : null,
+                    MedianMs = perfs.Count > 0 ? (double?)perfs.Average(p => p.MedianLatency.TotalMilliseconds) : null,
+                    P95Ms = perfs.Count > 0 ? (double?)perfs.Average(p => p.P95Latency.TotalMilliseconds) : null,
+                    MinMs = perfs.Count > 0 ? (double?)perfs.Min(p => p.MinLatency.TotalMilliseconds) : null,
+                    MaxMs = perfs.Count > 0 ? (double?)perfs.Max(p => p.MaxLatency.TotalMilliseconds) : null,
                     Runs = perfs.Sum(p => p.RunCount)
                 };
             })
@@ -194,33 +185,54 @@ public static class ReportRenderer
                 .AddColumn("ToolSucc")
                 .AddColumn("ToolEff")
                 .AddColumn("TaskComp")
-                .AddColumn("Avg Latency");
+                .AddColumn("Avg Latency")
+                .AddColumn("Tokens in/out/cache")
+                .AddColumn("Est. USD");
 
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
-                var passRate = m.TestCaseCount > 0
-                    ? (double)m.PassedCount / m.TestCaseCount
-                    : 0;
-
-                var passColor = passRate switch
-                {
-                    >= 0.8 => "green",
-                    >= 0.5 => "yellow",
-                    _ => "red"
-                };
+                var passRate = m.ScoredTestCaseCount > 0
+                    ? (double?)m.PassedCount / m.ScoredTestCaseCount
+                    : null;
+                var passRateCell = passRate.HasValue
+                    ? $"[{passRate.Value switch
+                    {
+                        >= 0.8 => "green",
+                        >= 0.5 => "yellow",
+                        _ => "red"
+                    }}]{passRate.Value * 100:F0}%[/]"
+                    : "[dim]N/A[/]";
 
                 table.AddRow(
                     Markup.Escape(m.ModelName),
-                    $"[{passColor}]{passRate:P0}[/]",
-                    ScoreCell(m.OverallScore),
-                    ScoreCell(m.ToolSelectionScore),
-                    ScoreCell(m.ToolSuccessScore),
-                    ScoreCell(m.ToolEfficiencyScore),
-                    ScoreCell(m.TaskCompletionScore),
-                    FormatMs(m.Performance.MeanLatency.TotalMilliseconds));
+                    passRateCell,
+                    ScoreCell(m.OverallScore, m.OverallScoreStatus),
+                    ScoreCell(m.ToolSelectionScore, m.OverallScoreStatus),
+                    ScoreCell(m.ToolSuccessScore, m.OverallScoreStatus),
+                    ScoreCell(m.ToolEfficiencyScore, m.OverallScoreStatus),
+                    ScoreCell(m.TaskCompletionScore, m.TaskCompletionStatus),
+                    FormatMs(m.Performance.RunCount > 0
+                        ? m.Performance.MeanLatency.TotalMilliseconds
+                        : null),
+                    Reports.CostReportFormatting.Tokens(m.Cost),
+                    Reports.CostReportFormatting.Cost(m.Cost));
             }
 
             AnsiConsole.Write(table);
+            var tests = new Table().Border(TableBorder.Simple)
+                .AddColumn("Model / test")
+                .AddColumn("Tokens in/out/cache")
+                .AddColumn("Est. USD");
+            foreach (var model in agentResult.ModelResults)
+            {
+                foreach (var test in model.TestCaseResults)
+                {
+                    tests.AddRow(Markup.Escape($"{model.ModelName} / {test.TestCaseId}"),
+                        Reports.CostReportFormatting.Tokens(test.Cost),
+                        Reports.CostReportFormatting.Cost(test.Cost));
+                }
+            }
+            AnsiConsole.Write(tests);
             AnsiConsole.WriteLine();
         }
     }
@@ -230,61 +242,50 @@ public static class ReportRenderer
         AnsiConsole.Write(new Rule("[bold green]Recommendations[/]").LeftJustified());
         AnsiConsole.WriteLine();
 
-        var allModelScores = result.AgentResults
-            .SelectMany(a => a.ModelResults)
-            .GroupBy(m => m.ModelName)
-            .Select(g => new
-            {
-                ModelName = g.Key,
-                AvgScore = g.Average(m => m.OverallScore),
-                AvgLatencyMs = g.Average(m => m.Performance.MeanLatency.TotalMilliseconds),
-                TotalPassed = g.Sum(m => m.PassedCount),
-                TotalTests = g.Sum(m => m.TestCaseCount)
-            })
-            .ToList();
+        var allModelScores = ModelRecommendation.Rank(result);
 
         // Best quality
-        var bestQuality = allModelScores.OrderByDescending(m => m.AvgScore).FirstOrDefault();
+        var bestQuality = allModelScores.FirstOrDefault();
         if (bestQuality is not null)
         {
-            AnsiConsole.MarkupLine($"  [green]\U0001f3c6 Best Quality:[/] [bold]{Markup.Escape(bestQuality.ModelName)}[/] \u2014 {bestQuality.AvgScore:F1} avg score ({bestQuality.TotalPassed}/{bestQuality.TotalTests} passed)");
+            AnsiConsole.MarkupLine($"  [green]Best Quality:[/] [bold]{Markup.Escape(bestQuality.ModelName)}[/], {bestQuality.AverageScore:F1} avg score ({bestQuality.PassedCount}/{bestQuality.ScoredTestCount} passed), {Reports.CostReportFormatting.Usd(bestQuality.MeanTestCostUsd)} estimated per test");
         }
 
         // Fastest
-        var fastest = allModelScores.OrderBy(m => m.AvgLatencyMs).FirstOrDefault();
+        var fastest = allModelScores
+            .Where(m => m.MeanLatencyMs.HasValue)
+            .OrderBy(m => m.MeanLatencyMs)
+            .FirstOrDefault();
         if (fastest is not null)
         {
-            AnsiConsole.MarkupLine($"  [blue]\u26a1 Fastest:[/] [bold]{Markup.Escape(fastest.ModelName)}[/] \u2014 {fastest.AvgLatencyMs:F0}ms mean latency");
+            AnsiConsole.MarkupLine($"  [blue]\u26a1 Fastest:[/] [bold]{Markup.Escape(fastest.ModelName)}[/] \u2014 {fastest.MeanLatencyMs:F0}ms mean latency");
         }
 
-        // Best value (quality / latency ratio)
-        var bestValue = allModelScores
-            .Where(m => m.AvgLatencyMs > 0)
-            .OrderByDescending(m => m.AvgScore / m.AvgLatencyMs * 1000)
-            .FirstOrDefault();
-        if (bestValue is not null && bestValue.ModelName != bestQuality?.ModelName)
-        {
-            AnsiConsole.MarkupLine($"  [yellow]\U0001f4b0 Best Value:[/] [bold]{Markup.Escape(bestValue.ModelName)}[/] \u2014 {bestValue.AvgScore:F1} score at {bestValue.AvgLatencyMs:F0}ms");
-        }
+        AnsiConsole.MarkupLine($"[dim]{Reports.CostReportFormatting.EstimateNote}[/]");
 
         AnsiConsole.WriteLine();
     }
 
-    private static string ScoreCell(double score)
+    private static string ScoreCell(double? score, string? status = null)
     {
-        var color = score switch
+        if (!score.HasValue)
+            return "[dim]N/A[/]";
+
+        var color = score.Value switch
         {
             >= 80 => "green",
             >= 60 => "yellow",
             _ => "red"
         };
-        return $"[{color}]{score:F1}[/]";
+        var statusSuffix = status is null ? string.Empty : $" ({Markup.Escape(status)})";
+        return $"[{color}]{score.Value:F1}{statusSuffix}[/]";
     }
 
-    private static string FormatMs(double ms)
+    private static string FormatMs(double? ms)
     {
         return ms switch
         {
+            null => "N/A",
             >= 1000 => $"{ms / 1000:F1}s",
             _ => $"{ms:F0}ms"
         };

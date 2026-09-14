@@ -1,3 +1,176 @@
+# Release notes - 1.4.0
+
+**Release date:** September 1, 2026
+
+---
+
+## Overview
+
+Version 1.4.0 ships Lucia's first official appliance image for the NVIDIA
+Jetson Orin Nano Super 8GB Developer Kit. It installs a native, Docker-free
+Lucia system from microSD to NVMe, including local voice models, CUDA runtime
+support, Redis, SQLite, the dashboard, and appliance management.
+
+This release also restores deterministic command routing for unresolved entity
+names and adds explicit llama.cpp provider support.
+
+## Appliance image
+
+- Install from a flashable microSD image onto an NVMe drive of at least
+  61,203,283,968 bytes. The installer binds erase approval to the selected
+  drive's stable identity and image digest before writing it.
+- Run Jetson Linux 36.5.2 from A/B operating-system slots, with separate
+  partitions for versioned Lucia files and persistent application data.
+- Complete setup through a client-isolated captive network. The first browser
+  claims the setup session, selects Wi-Fi, chooses the hostname and recovery
+  password, and receives the dashboard API key.
+- Recover from a failed Wi-Fi activation without reprovisioning. The installer
+  rolls back the NetworkManager checkpoint and restores setup mode.
+- Use the native Jetson GPU for Lucia's bundled speech models. The image
+  includes the pinned ARM64 ONNX Runtime, CUDA provider, sherpa-onnx libraries,
+  and voice assets needed for offline setup.
+- Open the installed dashboard at `https://HOSTNAME.local:8099`. Each appliance
+  creates its own certificate during setup, so the first browser must accept
+  the local certificate.
+
+See the [appliance release guide](infra/appliance/release/README.md) for the
+asset layout and release details. ([#257](https://github.com/seiggy/lucia-dotnet/pull/257))
+
+## Appliance management and telemetry
+
+- View appliance, storage, service, Wi-Fi, and operating-system status from the
+  dashboard.
+- Restart Lucia services or reboot the appliance through the authenticated
+  AgentHost adapter and root-owned appliance manager.
+- Configure authenticated OTLP export without exposing telemetry credentials
+  in appliance status responses.
+- Run the OpenTelemetry Collector and Redis exporter when remote telemetry is
+  enabled. Both remain disabled by default.
+- Discover compatible Lucia and operating-system releases from GitHub.
+  Installing discovered updates remains locked in this release.
+
+## Release integrity
+
+- Stable releases publish separate installer, Lucia, and operating-system
+  channels.
+- Large images are split into GitHub Release parts below the 2 GB asset limit.
+- `lucia-appliance-manifest.json` records compatibility, sizes, SHA-256 hashes,
+  ordered parts, and download URLs.
+- GitHub build-provenance attestations cover every release asset. The workflow
+  uploads the manifest last so an incomplete release cannot be discovered by
+  an appliance.
+
+## Command routing
+
+- Retry unresolved locations as entity names through the configured embedding
+  provider instead of dropping out of the deterministic command path.
+- Recognize direct climate commands such as "Set the office to 73" with enough
+  confidence to use the fast path.
+- Add an explicit llama.cpp provider while preserving existing OpenAI-compatible
+  endpoint behavior. ([#256](https://github.com/seiggy/lucia-dotnet/pull/256))
+
+## Read before installing
+
+- The image supports the Jetson Orin Nano Super Developer Kit with the 8GB
+  P3767-0005 module. Other Jetson boards and carrier configurations are not
+  supported by this release.
+- Installation erases the selected NVMe drive after explicit confirmation.
+  Keep the appliance physically controlled while its open setup network is
+  active.
+- The dashboard can discover updates but cannot install them yet. Attestation
+  verification, application rollback, and NVIDIA A/B OTA apply are still in
+  progress.
+- Automatic QSPI compatibility reporting, full occupied-drive layout
+  reporting, physical power-cut recovery, secure boot, and disk encryption are
+  not included in v1.4.0.
+
+## Breaking changes
+
+None. Appliance mode defaults to `Off`, so Docker and other existing
+deployments keep their current routes and behavior.
+
+## Full changelog
+
+[v1.3.1...v1.4.0](https://github.com/seiggy/lucia-dotnet/compare/v1.3.1...v1.4.0)
+
+---
+
+# Release notes - 1.3.0
+
+**Release date:** August 21, 2026
+
+---
+
+## Overview
+
+Version 1.3.0 adds an end-to-end observability stack, Jetson infrastructure telemetry, speech pipeline metrics, and dashboard light mode. It also tightens voice concurrency and shutdown behavior, makes evaluations reproducible, and fixes timestamp, HTTP client, agent reload, and release automation bugs.
+
+## Features
+
+- **Parakeet TDT 0.6B v3** becomes the default offline ASR model for new installations, adding automatic language detection and transcription for 25 European languages while retaining v2 as an optional model.
+- **Voice identity benchmarks** compare sherpa-onnx embedding models on local enrollment and test manifests, reporting top-1 accuracy, EER, RTF, CPU use, memory, allocations, and reproducibility metadata. TitaNet-small remains a benchmark-only English candidate until profile provenance and model-specific thresholds are stored.
+- **Persistent voice data** keeps captured enrollment and unknown-speaker recordings in a dedicated Docker volume for benchmark export.
+- **Enrollment recording capture** keeps the accepted onboarding WAV samples beside each speaker profile so embedding candidates can be measured against identical audio.
+- **Dashboard light mode** adds System, Light, and Dark preferences, persistent theme selection, pre-paint theme resolution, semantic color tokens, accessible contrast, and Playwright coverage. ([#253](https://github.com/seiggy/lucia-dotnet/pull/253))
+- **Remote observability stack** deploys pinned OpenTelemetry Collector, Grafana, Tempo, Prometheus, Loki, and Caddy services with bounded queues, retention, health checks, backups, and smoke tests. (`37dde58`)
+- **Fail-open telemetry modes** add Off, Metrics, Trace, and Profile modes, bounded OTLP export, legacy configuration support, Kubernetes settings, and unavailable-collector coverage. (`1029131`)
+- **Speech pipeline metrics** record queue wait, transcription, enhancement, retranscription, diarization, and transcript-write durations. (`129ad9c`)
+- **Jetson infrastructure telemetry** adds private PostgreSQL and Redis exporters, host metrics, authenticated OTLP forwarding, API-key reset support, phased health checks, and ARM64 validation. (`b1a46a9`)
+- **Grafana dashboards** cover service health, speech processing, Jetson hosts, PostgreSQL, and Redis with shared filters and navigation. (`6980668`)
+- **Jetson ARM64 CUDA voice deployment** adds a reproducible off-device build and deployment stack for AgentHost, Redis, and PostgreSQL on Jetson Orin Nano hardware. ([#243](https://github.com/seiggy/lucia-dotnet/pull/243))
+
+## Reliability and performance
+
+- Clear pending Activity Stream reconnect timers before reconnecting and when the dashboard hook unmounts. ([#219](https://github.com/seiggy/lucia-dotnet/pull/219))
+- Pin the voice image to CUDA 12.8.1 for supported Blackwell `sm_120` deployment. ([#222](https://github.com/seiggy/lucia-dotnet/pull/222))
+- Normalize persisted agent, trace, scheduled-task, and configuration timestamps to UTC, including bounded migrations for existing SQLite rows. ([#221](https://github.com/seiggy/lucia-dotnet/pull/221))
+- Apply Home Assistant authorization per request, support token rotation and retries, and dispose EvalHarness chat clients without leaking sockets. ([#224](https://github.com/seiggy/lucia-dotnet/pull/224))
+- Limit Wyoming STT concurrency around inference instead of whole connections, and close disposal races that could release permits while inference was still running. ([#220](https://github.com/seiggy/lucia-dotnet/pull/220))
+- Dispose orchestration activities on every exit path so traces receive stop events and final durations. ([#228](https://github.com/seiggy/lucia-dotnet/pull/228))
+- Align `ActivitySource` names with the lowercase ServiceDefaults registrations. ([#232](https://github.com/seiggy/lucia-dotnet/pull/232))
+- Enforce distinct async deadlines for timer persistence, Home Assistant WebSockets, and EvalHarness LLM calls while preserving caller cancellation. ([#235](https://github.com/seiggy/lucia-dotnet/pull/235))
+- Stop writing usage timestamps during API-key validation. ([#236](https://github.com/seiggy/lucia-dotnet/pull/236))
+- Block enrolled but unauthorized voice profiles when unknown-voice filtering is enabled.
+- Isolate canceled background-task waiters so one disconnected SSE client cannot poison later waits or trigger a CPU spin.
+- Add crash-safe PostgreSQL trigram indexes and test interrupted migrations against production query shapes. ([#237](https://github.com/seiggy/lucia-dotnet/pull/237))
+- Serialize agent definition reloads and use monotonic database checkpoints to prevent concurrent refreshes from rebuilding agents or saving stale state. ([#239](https://github.com/seiggy/lucia-dotnet/pull/239))
+- Reuse GTCRN FFT, tensor, cache, and ONNX buffers, cutting warm 256-sample hop allocations from 143,736 bytes to 1,400 bytes while making reload and disposal safe. ([#242](https://github.com/seiggy/lucia-dotnet/pull/242))
+- Drain Wyoming sessions during shutdown with bounded concurrency and safe ownership transfer for sessions that exceed the deadline. ([#240](https://github.com/seiggy/lucia-dotnet/pull/240))
+- Use Aspire session lifetime for Redis so its proxied connection string and health check initialize correctly while the named volume keeps data. (`f44c91f`)
+- Correct the Docker Hub image name used by the Jetson Compose deployment. ([#247](https://github.com/seiggy/lucia-dotnet/pull/247))
+
+## Evaluation
+
+- Run each parameter-sweep combination multiple times, select winners by mean score and variance, and compare them with a multi-run baseline. ([#223](https://github.com/seiggy/lucia-dotnet/pull/223))
+- Default evaluation seeds to `42` for reproducible baseline and target runs, with an explicit `null` opt-out. ([#231](https://github.com/seiggy/lucia-dotnet/pull/231))
+- Send seed and token-limit settings through typed `ChatOptions` so Ollama and OpenAI adapters receive the requested deterministic parameters. ([#233](https://github.com/seiggy/lucia-dotnet/pull/233))
+- Exclude unavailable judge results from scores, latency, pass rates, comparisons, optimization, sweeps, and exports. Reports now distinguish unavailable, partial, and complete runs. ([#238](https://github.com/seiggy/lucia-dotnet/pull/238))
+
+## Delivery, dependencies, and project tooling
+
+- Replace placeholder Squad workflows with updated CI, documentation, promotion, preview, insider, and stable-release behavior. (`a738e07`)
+- Add a Vasquez pre-push review gate to Squad governance. ([#226](https://github.com/seiggy/lucia-dotnet/pull/226))
+- Make live Home Assistant tests explicitly opt-in, add provider-free routing and aggregation coverage, and run CI for the `master` branch. ([#229](https://github.com/seiggy/lucia-dotnet/pull/229))
+- Add real restore, build, test, and GitHub release jobs with strict stable and insider tag routing, idempotent release creation, and pinned checkout actions. ([#230](https://github.com/seiggy/lucia-dotnet/pull/230))
+- Upgrade Vite to 8.1.4, `@tailwindcss/vite` to 4.3.2, and `@vitejs/plugin-react` to 5.2.0. ([#227](https://github.com/seiggy/lucia-dotnet/pull/227))
+- Add the Impeccable UI workflow and reduce health-check polling overhead. (`2772fdd`)
+- Update coding-agent defaults, require Impeccable for UI work, and make documentation coverage part of pre-push review. ([#252](https://github.com/seiggy/lucia-dotnet/pull/252))
+- Isolate telemetry listeners in tests so parallel activities cannot overwrite captured results. ([#252](https://github.com/seiggy/lucia-dotnet/pull/252))
+- Sync shared agent skills and repository guidance, including TypeScript, issue-tracking, and domain documentation. (`edb422c`)
+- Add the speech pipeline optimization backlog for telemetry, profiling, transcripts, speaker verification, capacity, routing, and sustained-load work. (`2f2ba5a`)
+- Pin the transitive SSH.NET package to 2026.0.0 to resolve `GHSA-q939-rpr3-3284`. ([#238](https://github.com/seiggy/lucia-dotnet/pull/238))
+- Run provider-free tests under invariant globalization before push, and reject dirty, non-HEAD, or uninspectable worktrees. ([#238](https://github.com/seiggy/lucia-dotnet/pull/238))
+
+## Breaking changes
+
+None.
+
+## Full changelog
+
+[v1.2.3...v1.3.0](https://github.com/seiggy/lucia-dotnet/compare/v1.2.3...v1.3.0)
+
+---
+
 # Release Notes - 1.2.2
 
 **Release Date:** April 2026  
@@ -35,7 +208,7 @@
 ## 📁 Files Changed
 
 | File | Change |
-|------|--------|
+| --- | --- |
 | `lucia-dashboard/src/pages/TraceDetailPage.tsx` | Fix `navigate('/')` → `navigate('/traces')` |
 | `lucia-dashboard/src/pages/EntityLocationPage.tsx` | BulkActionBar CSS collapse instead of unmount |
 | `lucia.Wyoming/CommandRouting/CommandPatternMatcher.cs` | Non-light device bail + temporal preposition bigram check |
@@ -95,7 +268,7 @@
 
 ### Gemma 4 (kavai/Gemma4-GPT5:e2b) Orchestrator Routing
 | Metric | Before | After |
-|--------|--------|-------|
+| --- | --- | --- |
 | Test infrastructure | ❌ All crashed | ✅ All pass |
 | Routing accuracy | 0/20 (0%) | 24/24 (100%) |
 | Agent coverage | 3 of 7 agents testable | 7 of 7 agents testable |
@@ -321,7 +494,7 @@ New `infra/docker/Dockerfile.ha` for resource-constrained deployment:
 ## 📊 Test Coverage
 
 | Area | Tests |
-|------|-------|
+| --- | --- |
 | Wyoming session integration | 50+ |
 | Speaker verification components | 17 |
 | Speech enhancement validation | 20+ |
@@ -398,7 +571,7 @@ The plugin system stored version information but never compared installed versio
 ## 📊 Test Coverage
 
 | Area | Unit Tests | E2E Tests |
-|------|-----------|-----------|
+| --- | --- | --- |
 | Brave Search LLM Context API | 6 | — |
 | Agent Domain Settings | — | 8 |
 | Plugin Update Detection | 9 | 5 |
@@ -592,7 +765,7 @@ The plugin system stored version information but never compared installed versio
 ## 📋 New Files
 
 | Path | Purpose |
-|------|---------|
+| --- | --- |
 | `lucia.Agents/Abstractions/IEntityLocationService.cs` | Centralized entity resolution interface |
 | `lucia.Agents/Abstractions/IHybridEntityMatcher.cs` | Multi-signal entity search interface |
 | `lucia.Agents/Abstractions/IMatchableEntity.cs` | Entity search participation contract |
@@ -637,7 +810,7 @@ The plugin system stored version information but never compared installed versio
 ## 🗑️ Removed / Deprecated
 
 | Path | Reason |
-|------|--------|
+| --- | --- |
 | `lucia.Agents/Services/IEntityLocationService.cs` | Moved to `Abstractions/` namespace |
 | `lucia.Agents/Models/FloorInfo.cs` | Moved to `Models/HomeAssistant/` |
 | `lucia.Agents/Models/OccupiedArea.cs` | Moved to `Models/HomeAssistant/` |
@@ -744,7 +917,7 @@ The plugin system stored version information but never compared installed versio
 ## 📋 New Files
 
 | Path | Purpose |
-|------|---------|
+| --- | --- |
 | `lucia.Agents/Abstractions/ILuciaPlugin.cs` | Four-hook plugin interface |
 | `lucia.Agents/Abstractions/IPluginManagementRepository.cs` | Repository persistence abstraction |
 | `lucia.Agents/Abstractions/IPluginRepositorySource.cs` | Source abstraction (local vs git) |
@@ -779,7 +952,7 @@ The plugin system stored version information but never compared installed versio
 ## 🗑️ Removed Files
 
 | Path | Reason |
-|------|--------|
+| --- | --- |
 | `lucia.Agents/Skills/WebSearchSkill.cs` | Extracted to `plugins/searxng/plugin.cs` |
 | `lucia.Agents/Configuration/SearXngOptions.cs` | Moved into SearXNG plugin |
 | `lucia.Agents/Extensions/McpServerSeedExtensions.cs` | Replaced by MetaMCP plugin |
@@ -1258,7 +1431,7 @@ The plugin system stored version information but never compared installed versio
 ## 📦 Dependency Updates
 
 | Package | Previous | Current |
-|---------|----------|---------|
+| --- | --- | --- |
 | Microsoft.Agents.* | 1.0.0-preview.260212.1 | 1.0.0-rc1 |
 | Microsoft.Agents.AI.Hosting | 1.0.0-preview.260219.1 | 1.0.0-preview.260219.1 |
 | Microsoft.Extensions.AI.* | 10.3.0 | 10.3.0 |
@@ -1431,7 +1604,7 @@ A separate `lucia.A2AHost` service that hosts agent plugins independently from t
 ### 🌐 REST API Surface (44+ Endpoints)
 
 | Category | Endpoints | Description |
-|----------|-----------|-------------|
+| --- | --- | --- |
 | Traces | 5 | List, detail, label, delete, statistics |
 | Exports | 4 | Create JSONL, list, detail, download |
 | Prompt Cache | 4 | List entries, stats, evict, clear all |
@@ -1481,7 +1654,7 @@ Hardened multi-service Docker Compose deployment (`infra/docker/`):
 ### MAF Migration (Breaking Changes)
 
 | Before | After |
-|--------|-------|
+| --- | --- |
 | `AgentThread` | `AgentSession` |
 | `ChatMessageStore` | `ChatHistoryProvider` |
 | `GetNewThread()` | `await CreateSessionAsync()` |
@@ -1567,9 +1740,9 @@ Hardened multi-service Docker Compose deployment (`infra/docker/`):
 
 See our [Roadmap](https://github.com/seiggy/lucia-dotnet/blob/master/.docs/product/roadmap.md) for upcoming features:
 
-- ~~**Climate Agent** — HVAC and temperature control~~ *(shipped in Solstice)*
+- **~~Climate Agent~~** ~~— HVAC and temperature control~~ *(shipped in Solstice)*
 - **Security Agent** — Alarms, locks, and camera integration
-- ~~**Scene Agent** — Scene management and automation~~ *(shipped in Solstice)*
+- **~~Scene Agent~~** ~~— Scene management and automation~~ *(shipped in Solstice)*
 - **WebSocket Streaming** — Real-time Home Assistant event monitoring
 - **Local LLM Fine-Tuning** — Use captured training data with local models for privacy-first deployment
 - **Training UI Enhancements** — Batch labeling, inter-annotator agreement, and quality dashboards
@@ -1657,18 +1830,18 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 
 #### Agent Framework (Microsoft Public Preview)
 - **LightAgent**: Fully functional light and switch control
-  - Semantic search for finding lights by natural language
-  - Device capability detection (brightness, color temp, color modes)
-  - State queries and control operations
-  - Switch entity support (light switches)
-  - Embedding-based similarity matching
+    - Semantic search for finding lights by natural language
+    - Device capability detection (brightness, color temp, color modes)
+    - State queries and control operations
+    - Switch entity support (light switches)
+    - Embedding-based similarity matching
   
 - **MusicAgent**: Music Assistant integration
-  - Playback control (play, pause, stop, skip)
-  - Volume management
-  - Queue management
-  - Player discovery and selection
-  - Music Assistant API integration
+    - Playback control (play, pause, stop, skip)
+    - Volume management
+    - Queue management
+    - Player discovery and selection
+    - Music Assistant API integration
 
 #### Agent Registry
 - **Dynamic Discovery**: Agents register and expose capabilities
@@ -1682,17 +1855,17 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 
 #### Skills System
 - **LightControlSkill**: Comprehensive light control
-  - `find_light`: Natural language light discovery using embeddings
-  - `get_light_state`: Query current light status
-  - `set_light_state`: Control on/off, brightness, color
-  - Entity caching with 30-minute refresh
-  - Cosine similarity matching for semantic search
+    - `find_light`: Natural language light discovery using embeddings
+    - `get_light_state`: Query current light status
+    - `set_light_state`: Control on/off, brightness, color
+    - Entity caching with 30-minute refresh
+    - Cosine similarity matching for semantic search
   
 - **MusicPlaybackSkill**: Music Assistant control
-  - Playback operations
-  - Volume control
-  - Queue management
-  - Player management
+    - Playback operations
+    - Volume control
+    - Queue management
+    - Player management
 
 ### 🏗️ Technical Infrastructure
 
@@ -1752,37 +1925,37 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 ### ✅ Fully Functional Features
 
 1. **Light Control**
-   - Find lights using natural language ("living room light", "kitchen ceiling")
-   - Turn lights on/off
-   - Set brightness (0-100%)
-   - Set colors by name
-   - Query light status
-   - Switch entity support
+    - Find lights using natural language ("living room light", "kitchen ceiling")
+    - Turn lights on/off
+    - Set brightness (0-100%)
+    - Set colors by name
+    - Query light status
+    - Switch entity support
 
 2. **Music Control**
-   - Play/pause/stop playback
-   - Volume control
-   - Skip tracks
-   - Queue management
-   - Player selection
+    - Play/pause/stop playback
+    - Volume control
+    - Skip tracks
+    - Queue management
+    - Player selection
 
 3. **Conversation**
-   - Natural language input processing
-   - Multi-turn conversations with context
-   - Speech output via Home Assistant
-   - Error handling with user feedback
+    - Natural language input processing
+    - Multi-turn conversations with context
+    - Speech output via Home Assistant
+    - Error handling with user feedback
 
 4. **Agent Management**
-   - Agent discovery via catalog
-   - Dynamic agent selection
-   - Agent switching without reload
-   - Health monitoring
+    - Agent discovery via catalog
+    - Dynamic agent selection
+    - Agent switching without reload
+    - Health monitoring
 
 5. **Home Assistant Integration**
-   - HACS installation support
-   - Configuration flow
-   - Options management
-   - Automatic reload on changes
+    - HACS installation support
+    - Configuration flow
+    - Options management
+    - Automatic reload on changes
 
 ## 🔨 Technical Details
 
@@ -1929,7 +2102,6 @@ Special thanks to:
 
 ### Manual Installation
 
-```bash
 # Clone repository
 git clone https://github.com/seiggy/lucia-dotnet.git
 cd lucia-dotnet
@@ -1944,7 +2116,6 @@ dotnet run --project lucia.AgentHost
 cp -r custom_components/lucia /path/to/homeassistant/custom_components/
 
 # Restart Home Assistant
-```
 
 ## 🔗 Resources
 

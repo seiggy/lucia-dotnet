@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace lucia.Wyoming.Diarization;
 
-public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
+public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private readonly ConcurrentDictionary<string, SpeakerProfile> _profiles = new();
 
@@ -58,12 +58,16 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
         ct.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(profile);
 
-        if (!_profiles.ContainsKey(profile.Id))
+        if (!_profiles.TryGetValue(profile.Id, out var existing))
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
+        SpeakerProfileUpdate.EnsureNotClaimed(existing);
 
-        _profiles[profile.Id] = CloneProfile(profile);
+        if (!_profiles.TryUpdate(profile.Id, CloneProfile(profile), existing))
+        {
+            throw new InvalidOperationException($"Speaker profile '{profile.Id}' changed during update.");
+        }
         return Task.CompletedTask;
     }
 
@@ -73,18 +77,18 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(transform);
 
-        SpeakerProfile? result = null;
-        _profiles.AddOrUpdate(
-            id,
-            _ => throw new InvalidOperationException($"Profile '{id}' not found"),
-            (_, existing) =>
+        while (_profiles.TryGetValue(id, out var existing))
+        {
+            var transformInput = CloneProfile(existing);
+            var updated = SpeakerProfileUpdate.ApplyAtomic(transformInput, transform);
+            var stored = CloneProfile(updated);
+            if (_profiles.TryUpdate(id, stored, existing))
             {
-                var updated = transform(CloneProfile(existing));
-                var stored = CloneProfile(updated);
-                result = CloneProfile(stored);
-                return stored;
-            });
-        return Task.FromResult(result);
+                return Task.FromResult<SpeakerProfile?>(CloneProfile(stored));
+            }
+        }
+
+        return Task.FromResult<SpeakerProfile?>(null);
     }
 
     public Task DeleteAsync(string id, CancellationToken ct)
@@ -94,6 +98,24 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
 
         _profiles.TryRemove(id, out _);
         return Task.CompletedTask;
+    }
+
+    public Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!_profiles.TryGetValue(id, out var profile)
+            || !profile.IsProvisional
+            || profile.LastSeenAt >= cutoff)
+        {
+            return Task.FromResult(false);
+        }
+
+        var removed = ((ICollection<KeyValuePair<string, SpeakerProfile>>)_profiles)
+            .Remove(new KeyValuePair<string, SpeakerProfile>(id, profile));
+        return Task.FromResult(removed);
     }
 
     public Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(int retentionDays, CancellationToken ct)
@@ -111,5 +133,7 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
     {
         AverageEmbedding = p.AverageEmbedding.ToArray(),
         Embeddings = p.Embeddings.Select(e => e.ToArray()).ToArray(),
+        PendingMergeSourceIds = p.PendingMergeSourceIds.ToArray(),
+        MergedProfileIds = p.MergedProfileIds.ToArray(),
     };
 }

@@ -6,6 +6,7 @@ using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.GitHubCopilot;
 using lucia.Agents.GitHubCopilot.Models;
 using lucia.Agents.Models;
+using lucia.Agents.Providers;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -94,6 +95,10 @@ public static class ModelProviderApi
         if (string.IsNullOrWhiteSpace(provider.Name))
             return TypedResults.BadRequest("Provider name is required");
 
+        var validationError = ValidateProvider(provider);
+        if (validationError is not null)
+            return TypedResults.BadRequest(validationError);
+
         var existing = await repository.GetProviderAsync(provider.Id, ct).ConfigureAwait(false);
         if (existing is not null)
             return TypedResults.BadRequest($"Provider with id '{provider.Id}' already exists");
@@ -107,7 +112,7 @@ public static class ModelProviderApi
         return TypedResults.Created($"/api/model-providers/{provider.Id}", provider);
     }
 
-    private static async Task<Results<Ok<ModelProvider>, NotFound>> UpdateProviderAsync(
+    private static async Task<Results<Ok<ModelProvider>, NotFound, BadRequest<string>>> UpdateProviderAsync(
         string id,
         [FromBody] ModelProvider provider,
         [FromServices] IModelProviderRepository repository,
@@ -117,6 +122,10 @@ public static class ModelProviderApi
         if (existing is null)
             return TypedResults.NotFound();
 
+        var validationError = ValidateProvider(provider);
+        if (validationError is not null)
+            return TypedResults.BadRequest(validationError);
+
         provider.Id = id;
         provider.CreatedAt = existing.CreatedAt;
         provider.UpdatedAt = DateTime.UtcNow;
@@ -124,6 +133,12 @@ public static class ModelProviderApi
         await repository.UpsertProviderAsync(provider, ct).ConfigureAwait(false);
         return TypedResults.Ok(provider);
     }
+
+    private static string? ValidateProvider(ModelProvider provider) =>
+        provider.ProviderType == ProviderType.LlamaCpp
+            && !LlamaCppEndpoint.TryNormalize(provider.Endpoint, out _)
+                ? "llama.cpp provider requires a valid HTTP or HTTPS endpoint URL"
+                : null;
 
     private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> DeleteProviderAsync(
         string id,

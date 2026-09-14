@@ -12,7 +12,7 @@ namespace lucia.Data.PostgreSQL;
 /// <summary>
 /// PostgreSQL-backed persistent speaker profile store.
 /// </summary>
-public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
+public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -95,21 +95,14 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
     public async Task UpdateAsync(SpeakerProfile profile, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(profile);
-
-        await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE speaker_profiles
-            SET is_provisional = @isProvisional, last_seen_at = @lastSeenAt, data = @data
-            WHERE id = @id;
-            """;
-        cmd.Parameters.AddWithValue("id", profile.Id);
-        cmd.Parameters.AddWithValue("isProvisional", profile.IsProvisional);
-        cmd.Parameters.AddWithValue("lastSeenAt", profile.LastSeenAt.UtcDateTime);
-        cmd.Parameters.Add(new NpgsqlParameter("data", NpgsqlDbType.Jsonb) { Value = JsonSerializer.Serialize(profile, JsonOptions) });
-
-        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        if (affected == 0)
+        if (await UpdateAtomicAsync(
+                profile.Id,
+                existing =>
+                {
+                    SpeakerProfileUpdate.EnsureNotClaimed(existing);
+                    return profile;
+                },
+                ct).ConfigureAwait(false) is null)
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
@@ -133,12 +126,13 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
             var result = await selectCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             if (result is not string json)
             {
-                throw new InvalidOperationException($"Profile '{id}' not found");
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                return null;
             }
 
             var existing = JsonSerializer.Deserialize<SpeakerProfile>(json, JsonOptions)
                 ?? throw new InvalidOperationException($"Profile '{id}' not found");
-            var updated = transform(existing);
+            var updated = SpeakerProfileUpdate.ApplyAtomic(existing, transform);
 
             await using var updateCmd = connection.CreateCommand();
             updateCmd.Transaction = transaction;
@@ -173,6 +167,22 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
         cmd.Parameters.AddWithValue("id", id);
 
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM speaker_profiles
+            WHERE id = @id AND is_provisional = TRUE AND last_seen_at < @cutoff;
+            """;
+        cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("cutoff", cutoff.UtcDateTime);
+        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1;
     }
 
     public async Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(int retentionDays, CancellationToken ct)

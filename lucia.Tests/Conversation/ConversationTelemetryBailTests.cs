@@ -281,7 +281,7 @@ public sealed class ConversationTelemetryBailTests : IDisposable
     {
         var listener = new ActivityListener
         {
-            ShouldListenTo = source => source.Name == "lucia.AgentHost",
+            ShouldListenTo = source => source == _telemetrySource.ActivitySource,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
                 ActivitySamplingResult.AllDataAndRecorded,
         };

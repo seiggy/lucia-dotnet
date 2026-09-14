@@ -28,6 +28,27 @@ public sealed class AudioClipServiceTests
         }
     }
 
+    [Theory]
+    [InlineData("../outside")]
+    [InlineData("/tmp/outside")]
+    [InlineData("nested/profile")]
+    [InlineData("UPPERCASE")]
+    public async Task SaveClipAsync_RejectsUnsafeProfileId(string profileId)
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => svc.SaveClipAsync(profileId, TestAudio, SampleRate, "hello"));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
     [Fact]
     public async Task SaveClipAsync_FifoRotation_DeletesOldest()
     {
@@ -116,6 +137,68 @@ public sealed class AudioClipServiceTests
     }
 
     [Fact]
+    public async Task DeleteOnboardingSessionClips_RemovesStagedDirectory()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            await svc.SaveOnboardingClipAsync("session", TestAudio, SampleRate, "test");
+
+            svc.DeleteOnboardingSessionClips("session");
+
+            Assert.False(Directory.Exists(Path.Combine(tempDir, ".onboarding-staging", "session")));
+        }
+
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteProfileClips_BlocksNewWritesUntilRestored()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            svc.DeleteProfileClips("profile-1");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => svc.SaveClipAsync("profile-1", TestAudio, SampleRate, "blocked"));
+
+            svc.AllowProfileClips("profile-1");
+            await svc.SaveClipAsync("profile-1", TestAudio, SampleRate, "restored");
+            Assert.Single(svc.GetClips("profile-1"));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task BlockProfileClips_RejectsConcurrentLifecycleOperation()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            svc.BlockProfileClips("profile-1");
+
+            Assert.Throws<InvalidOperationException>(() => svc.BlockProfileClips("profile-1"));
+
+            svc.AllowProfileClips("profile-1");
+            await svc.SaveClipAsync("profile-1", TestAudio, SampleRate, "restored");
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
     public async Task MoveClipsAsync_TransfersFilesToTarget()
     {
         var tempDir = CreateTempDir();
@@ -138,6 +221,108 @@ public sealed class AudioClipServiceTests
 
             // ProfileId should be updated in metadata
             Assert.All(targetClips, c => Assert.Equal("target", c.ProfileId));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task MoveClipsAsync_RemovesOrphanedStagingWav()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var sourceDir = Path.Combine(tempDir, "source");
+            Directory.CreateDirectory(sourceDir);
+            await File.WriteAllBytesAsync(Path.Combine(sourceDir, "orphan.wav.tmp"), [1, 2, 3]);
+
+            await svc.MoveClipsAsync("source", "target");
+
+            Assert.False(Directory.Exists(sourceDir));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveIncompleteProfileClips_RemovesUnmatchedAudioFiles()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var profileDir = Path.Combine(tempDir, "profile-1");
+            Directory.CreateDirectory(profileDir);
+            await File.WriteAllBytesAsync(Path.Combine(profileDir, "orphan.wav"), [1, 2, 3]);
+            await File.WriteAllBytesAsync(Path.Combine(profileDir, "staged.wav.tmp"), [1, 2, 3]);
+
+            svc.RemoveIncompleteProfileClips("profile-1");
+
+            Assert.Empty(Directory.GetFiles(profileDir));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveIncompleteProfileClips_RecoversLegacySplitMove()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var clipId = await svc.SaveClipAsync("source", TestAudio, SampleRate, null);
+            var sourceDir = Path.Combine(tempDir, "source");
+            var targetDir = Path.Combine(tempDir, "target");
+            Directory.CreateDirectory(targetDir);
+            var metadataPath = Path.Combine(sourceDir, $"{clipId}.json");
+            var metadata = await File.ReadAllTextAsync(metadataPath);
+            await File.WriteAllTextAsync(metadataPath, metadata.Replace("source", "target"));
+            File.Move(
+                Path.Combine(sourceDir, $"{clipId}.wav"),
+                Path.Combine(targetDir, $"{clipId}.wav"));
+
+            svc.RemoveIncompleteProfileClips("source");
+            svc.RemoveIncompleteProfileClips("target");
+
+            Assert.False(File.Exists(metadataPath));
+            Assert.Single(svc.GetClips("target"));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReassignClipAsync_CompletesLegacySplitMove()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var clipId = await svc.SaveClipAsync("source", TestAudio, SampleRate, null);
+            var sourceDir = Path.Combine(tempDir, "source");
+            var targetDir = Path.Combine(tempDir, "target");
+            Directory.CreateDirectory(targetDir);
+            var metadataPath = Path.Combine(sourceDir, $"{clipId}.json");
+            var metadata = await File.ReadAllTextAsync(metadataPath);
+            await File.WriteAllTextAsync(metadataPath, metadata.Replace("source", "target"));
+            File.Move(
+                Path.Combine(sourceDir, $"{clipId}.wav"),
+                Path.Combine(targetDir, $"{clipId}.wav"));
+
+            await svc.ReassignClipAsync("source", clipId, "target");
+
+            Assert.False(File.Exists(metadataPath));
+            Assert.Single(svc.GetClips("target"));
         }
         finally
         {

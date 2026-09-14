@@ -79,6 +79,12 @@ public sealed class UnknownSpeakerTracker
                     profile.Id,
                     existingProfile =>
                     {
+                        if (!existingProfile.IsProvisional)
+                        {
+                            throw new InvalidOperationException(
+                                $"Profile '{existingProfile.Id}' is no longer provisional.");
+                        }
+
                         var now = DateTimeOffset.UtcNow;
                         var updatedEmbeddings = existingProfile.Embeddings
                             .Append(embedding.Vector.ToArray())

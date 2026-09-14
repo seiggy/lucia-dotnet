@@ -51,15 +51,30 @@ This document provides the authoritative reference for all configuration options
 - **Used by**: All logging infrastructure
 - **Impact**: Higher levels (Debug, Trace) significantly increase log volume
 
-#### `LUCIA_ENABLE_TELEMETRY`
+#### `Observability__Mode`
 
-- **Description**: Enable OpenTelemetry instrumentation
-- **Type**: `boolean`
-- **Allowed values**: `true`, `false`
-- **Default**: `true`
-- **Example**: `LUCIA_ENABLE_TELEMETRY=true`
-- **Used by**: Agent Framework components and application spans
-- **Impact**: Disabling reduces overhead but loses observability
+- **Description**: Select the telemetry cost paid by the process at startup
+- **Type**: `string` (enum)
+- **Allowed values**: `Off`, `Metrics`, `Trace`, `Profile`
+- **Default**: `Trace`
+- **Example**: `Observability__Mode=Metrics`
+- **Impact**: `Off` creates no providers. `Metrics` collects runtime, process, and speech metrics. `Trace` adds 10% parent-based span sampling and correlated logs. `Profile` records all spans and adds profile correlation resource metadata.
+
+The legacy `Observability__Enabled` setting remains supported. `true` maps to `Trace`; `false` maps to `Off`. Do not set both keys.
+
+#### `OTEL_EXPORTER_OTLP_ENDPOINT`
+
+- **Description**: Authenticated OTLP/gRPC endpoint for remote export
+- **Type**: `url`
+- **Example**: `OTEL_EXPORTER_OTLP_ENDPOINT=https://telemetry.internal:4317`
+- **Impact**: When omitted, the selected providers collect locally without an OTLP exporter.
+
+#### `OTEL_EXPORTER_OTLP_HEADERS`
+
+- **Description**: OTLP request headers, stored as a secret
+- **Type**: `string`
+- **Example**: `OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20BASE64_CREDENTIALS`
+- **Security**: Store in a Kubernetes Secret, Docker secret, or protected environment file.
 
 ---
 
@@ -456,7 +471,7 @@ LLM_PROVIDER=openai
 # ConfigMap
 LUCIA_ENV: production
 LUCIA_LOG_LEVEL: Warning
-LUCIA_ENABLE_TELEMETRY: "true"
+Observability__Mode: "Trace"
 REDIS_PERSISTENCE_TTL: "48"
 AGENT_RETRY_POLICY: exponential-backoff
 
@@ -472,7 +487,7 @@ CERTIFICATE_KEY_PATH: /etc/lucia/certs/key.pem
 ```env
 LUCIA_ENV=development
 LUCIA_LOG_LEVEL=Debug
-LUCIA_ENABLE_TELEMETRY=false
+Observability__Mode=Off
 REDIS_CONNECTION_STRING=redis://localhost:6379
 LLM_PROVIDER=ollama
 OLLAMA_ENDPOINT=http://localhost:11434

@@ -22,6 +22,10 @@ public sealed class SqliteMemoryStoreTests : IDisposable
     }
 
     [Fact]
+    public Task SearchPersonalAsync_FiltersReservedHistoryBeforeTheLimit() =>
+        PersonalMemorySearchAssertions.VerifyAsync(_store);
+
+    [Fact]
     public async Task StoreAsync_And_RetrieveAsync_RoundTrips()
     {
         await _store.StoreAsync("user-1", "timezone", "America/Chicago");

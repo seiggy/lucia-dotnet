@@ -175,7 +175,7 @@ Models are categorized by architecture, streaming capability, and language:
 | `sherpa-onnx-zipformer-en-libriheavy-20230830-large-punct-case` | English | ~350MB | Zipformer | With punctuation + casing |
 | `sherpa-onnx-paraformer-zh-2025-10-07` | Chinese | ~220MB | Paraformer | Latest Chinese (int8 available) |
 | `sherpa-onnx-paraformer-trilingual-zh-cantonese-en` | ZH/Cantonese/EN | ~250MB | Paraformer | Trilingual |
-| `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` | English | ~300MB | NeMo Parakeet | High accuracy, quantized |
+| `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` | 25 languages | ~487MB | NeMo Parakeet | High accuracy, quantized; default offline ASR |
 | `sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr` | EN/ES/DE/FR | ~180MB | NeMo Canary | 4-language (int8 available) |
 | `sherpa-onnx-zipformer-korean-2024-06-24` | Korean | ~80MB | Zipformer | Offline Korean |
 | `sherpa-onnx-zipformer-thai-2024-06-20` | Thai | ~80MB | Zipformer | Offline Thai |

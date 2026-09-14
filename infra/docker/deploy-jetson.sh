@@ -4,14 +4,15 @@
 # Runs ON THE JETSON (aarch64). NEVER builds on-device.
 #
 # docker-compose.jetson-voice.yml is self-contained: PostgreSQL + Redis + AgentHost
-# in one fixed Compose project (lucia-voice) on one default bridge network.
+# and local telemetry collectors in one fixed Compose project (lucia-voice) on one
+# default bridge network.
 # Postgres and Redis are started in Phase 1 and stay running through AgentHost
 # upgrades. Existing Mongo volumes are out-of-band legacy data; never touched here.
 #
 # Migration is image-based and fully reversible:
 #   record running AgentHost image config ID (immutable sha256) for rollback
 #   Phase 1: start postgres + redis; bootstrap all 3 DBs idempotently
-#   Phase 2: compose up AgentHost with the new image
+#   Phase 2: start telemetry exporters + Collector, then AgentHost with the new image
 #   verify /health + Wyoming /api/wyoming/status CUDA-EP
 #   on failure: attempt AgentHost rollback to prior image; preserve evidence on error
 #   on success: rollback record kept so --rollback remains usable
@@ -42,6 +43,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VOICE_COMPOSE="$SCRIPT_DIR/docker-compose.jetson-voice.yml"
 DEPLOY_PROJECT="lucia-voice"
 ROLLBACK_FILE="$SCRIPT_DIR/.rollback-image"
+
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$SCRIPT_DIR/.env"
+  set +a
+fi
 
 IMAGE_NAME=""
 ROLLBACK=0
@@ -81,6 +89,21 @@ _build_cs_vars() {
   export CS_LUCIATASKS="${base};Database=luciatasks"
 }
 
+# The .NET OTLP exporter accepts percent-encoded header spaces in
+# OTEL_EXPORTER_OTLP_HEADERS. The Collector expects the header value itself.
+_build_otel_vars() {
+  local encoded="${OTEL_EXPORTER_OTLP_HEADERS:-}"
+  [[ "$encoded" == Authorization=* ]] \
+    || die "OTEL_EXPORTER_OTLP_HEADERS must contain one Authorization header."
+
+  local authorization="${encoded#Authorization=}"
+  authorization="${authorization//%20/ }"
+  [[ "$authorization" == "Basic "* ]] \
+    || die "OTEL_EXPORTER_OTLP_HEADERS must use Basic authentication."
+
+  export OTEL_EXPORTER_OTLP_AUTHORIZATION="$authorization"
+}
+
 # ---------------------------------------------------------------------------
 # Preflight (read-only checks). Never mutates anything.
 # ---------------------------------------------------------------------------
@@ -92,7 +115,9 @@ preflight() {
     || die "NVIDIA Container Runtime not found. GPU passthrough required for the CUDA EP."
   [[ -n "${POSTGRES_PASSWORD:-}" ]] \
     || die "POSTGRES_PASSWORD is not set. Export it or source a .env file before deploying."
-  echo "    aarch64 + NVIDIA runtime + POSTGRES_PASSWORD: OK"
+  [[ -n "${OTEL_EXPORTER_OTLP_HEADERS:-}" ]] \
+    || die "OTEL_EXPORTER_OTLP_HEADERS is not set. Export it or add it to .env before deploying."
+  echo "    aarch64 + NVIDIA runtime + required secrets: OK"
 }
 
 # ---------------------------------------------------------------------------
@@ -157,6 +182,7 @@ do_rollback() {
   [[ -n "$prior_image" ]] || die "rollback record is empty (fresh deploy — no prior image to restore)"
   echo "    rolling back AgentHost to: $prior_image"
   _build_cs_vars
+  _build_otel_vars
   LUCIA_IMAGE="$prior_image" docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" \
       up -d --no-build --no-deps lucia-agenthost-voice \
     || die "rollback compose up failed. Postgres + Redis untouched. Manual: LUCIA_IMAGE='$prior_image' docker compose -p $DEPLOY_PROJECT -f $VOICE_COMPOSE up -d --no-deps lucia-agenthost-voice"
@@ -250,6 +276,39 @@ verify_new() {
     return 1
 }
 
+  # ---------------------------------------------------------------------------
+  # Verify internal telemetry without publishing exporter or Collector ports.
+  # AgentHost includes a static BusyBox binary used by its own health check.
+  # ---------------------------------------------------------------------------
+  verify_telemetry() {
+    echo "==> Verifying Jetson telemetry (timeout ${TELEMETRY_HEALTH_TIMEOUT:-45}s)"
+    local cid
+    cid="$(docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" ps -q lucia-agenthost-voice 2>/dev/null || true)"
+    [[ -n "$cid" ]] || { echo "    telemetry: FAIL — AgentHost container not found" >&2; return 1; }
+
+    local deadline=$(( SECONDS + ${TELEMETRY_HEALTH_TIMEOUT:-45} ))
+    while (( SECONDS < deadline )); do
+      local pg_metrics redis_metrics collector_ready=0
+      pg_metrics="$(docker exec "$cid" /usr/local/bin/busybox wget -q -O- \
+        http://lucia-postgres-exporter:9187/metrics 2>/dev/null || true)"
+      redis_metrics="$(docker exec "$cid" /usr/local/bin/busybox wget -q -O- \
+        http://lucia-redis-exporter:9121/metrics 2>/dev/null || true)"
+      docker exec "$cid" /usr/local/bin/busybox wget -q -O- \
+        http://lucia-telemetry:13133/ >/dev/null 2>&1 && collector_ready=1
+
+      if grep -qE '^pg_up(\{[^}]*\})?[[:space:]]+1([.]0+)?$' <<<"$pg_metrics" \
+        && grep -qE '^redis_up(\{[^}]*\})?[[:space:]]+1([.]0+)?$' <<<"$redis_metrics" \
+        && [[ $collector_ready -eq 1 ]]; then
+        echo "    PostgreSQL exporter + Redis exporter + Collector: PASS"
+        return 0
+      fi
+      sleep 3
+    done
+
+    echo "    telemetry: FAIL — exporter up gauges or Collector readiness missing" >&2
+    return 1
+  }
+
 # ---------------------------------------------------------------------------
 # Bootstrap verify: /health PASS + exact HA configuration wait-marker in logs.
 # Called only when --bootstrap is set (fresh first-run, no prior AgentHost).
@@ -336,6 +395,9 @@ do_deploy() {
     CS_LUCIATRACES="Host=lucia-postgres;Port=5432;Database=luciatraces;Username=postgres;Password=<REDACTED>" \
     CS_LUCIATASKS="Host=lucia-postgres;Port=5432;Database=luciatasks;Username=postgres;Password=<REDACTED>" \
     POSTGRES_PASSWORD="<REDACTED>" \
+    OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20REDACTED" \
+    OTEL_EXPORTER_OTLP_AUTHORIZATION="Basic REDACTED" \
+    DASHBOARD_API_KEY="<REDACTED>" \
     docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" config
     exit 0
   fi
@@ -348,6 +410,7 @@ do_deploy() {
   # — which would silently lose the prior .Image and break rollback. (CS_* hold the
   # password and are never echoed/logged.)
   _build_cs_vars
+  _build_otel_vars
 
   # Record immutable image config ID (.Image) of any currently-running AgentHost.
   # .Image is the sha256 config digest; .Config.Image is the mutable start ref.
@@ -390,6 +453,12 @@ do_deploy() {
   # Idempotent DB bootstrap — creates only the databases that are missing.
   _ensure_databases
 
+  echo "==> Starting Jetson telemetry exporters + Collector"
+  docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" \
+      up -d --no-build --no-deps lucia-postgres-exporter lucia-redis-exporter lucia-telemetry \
+    || { echo "ERROR: telemetry services failed to start — AgentHost unchanged" >&2
+         rm -f "$ROLLBACK_FILE"; trap - INT TERM HUP; exit 1; }
+
   # Phase 2: start AgentHost. From this point, rollback is the recovery path.
   _agenthost_mutated=1
   echo "==> Starting AgentHost (image: $IMAGE_NAME)"
@@ -402,6 +471,10 @@ do_deploy() {
     verify_bootstrap \
       || { echo "==> Bootstrap verification FAILED — rolling back" >&2
            docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" logs --tail=20 lucia-agenthost-voice 2>&1 || true
+           _rollback_live; exit 1; }
+    verify_telemetry \
+      || { echo "==> Telemetry verification FAILED — rolling back" >&2
+           docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" logs --tail=20 lucia-telemetry 2>&1 || true
            _rollback_live; exit 1; }
     trap - INT TERM HUP    # clear trap — verified waiting state
     rm -f "$ROLLBACK_FILE"
@@ -420,6 +493,10 @@ do_deploy() {
   verify_new \
     || { echo "==> Verification FAILED — rolling back" >&2
          docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" logs --tail=20 lucia-agenthost-voice 2>&1 || true
+         _rollback_live; exit 1; }
+  verify_telemetry \
+    || { echo "==> Telemetry verification FAILED — rolling back" >&2
+         docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" logs --tail=20 lucia-telemetry 2>&1 || true
          _rollback_live; exit 1; }
 
   trap - INT TERM HUP    # clear trap — deployment complete

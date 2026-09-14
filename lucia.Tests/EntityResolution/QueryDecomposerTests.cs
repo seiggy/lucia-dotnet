@@ -39,6 +39,50 @@ public sealed class QueryDecomposerTests
         Assert.Null(intent.ComplexityReason);
     }
 
+    [Fact]
+    public void Decompose_EntityNameContainingTo_PreservesFullName()
+    {
+        var intent = QueryDecomposer.Decompose("activate welcome to 2026 scene", speakerId: null);
+
+        Assert.Equal("welcome to 2026", intent.ExplicitLocation);
+    }
+
+    [Fact]
+    public void Decompose_NumberedEntity_PreservesNumber()
+    {
+        var intent = QueryDecomposer.Decompose("turn on room 101", speakerId: null);
+
+        Assert.Contains("room 101", intent.CandidateEntityNames);
+    }
+
+    [Fact]
+    public void Decompose_EntityNamedLikeComfortAction_PreservesName()
+    {
+        var intent = QueryDecomposer.Decompose("turn off cooler light", speakerId: null);
+
+        Assert.Equal("cooler", intent.ExplicitLocation);
+    }
+
+    [Fact]
+    public void Decompose_EntityNamedLikeCommandVerb_PreservesName()
+    {
+        var intent = QueryDecomposer.Decompose("turn off activate light", speakerId: null);
+
+        Assert.Equal("activate", intent.ExplicitLocation);
+    }
+
+    [Theory]
+    [InlineData("set the office to 73 degrees", "degrees")]
+    [InlineData("dim the kitchen light to 50 percent", "percent")]
+    [InlineData("dim the kitchen light 50 percent", "percent")]
+    public void Decompose_NumericTargetUnit_IsNotAnEntityCandidate(string command, string unit)
+    {
+        var intent = QueryDecomposer.Decompose(command, speakerId: null);
+
+        Assert.DoesNotContain(intent.CandidateEntityNames, candidate =>
+            candidate.Contains(unit, StringComparison.OrdinalIgnoreCase));
+    }
+
     // ── Complexity detection: temporal ──────────────────────────
 
     [Fact]

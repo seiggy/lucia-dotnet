@@ -27,7 +27,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **🏠 Deep Home Assistant Integration** — Native integration via custom component with agent selection, conversation API, JSON-RPC communication, and WebSocket entity registry access
 - **👁️ Entity Visibility Filtering** — Control which Home Assistant entities Lucia can see via dashboard UI or by pulling the HA exposed-entity list over WebSocket
 - **📊 Live Activity Dashboard** — Real-time agent mesh visualization with SSE-powered event streaming, summary metrics, and activity timeline
-- **📋 Management Dashboard** — React-based dark-themed dashboard with 20+ pages for agent management, trace inspection, configuration, entity management, and dataset exports
+- **📋 Management Dashboard** — React dashboard with System, Light, and Dark themes across 20+ pages for agent management, trace inspection, configuration, entity management, and dataset exports
 - **🧙 Guided Setup Wizard** — Multi-step onboarding with AI provider configuration, live connectivity tests, agent health gate, and Home Assistant plugin connection
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
 - **⏰ Alarm Clock System** — CRON-scheduled alarms with volume ramping, voice dismissal/snooze, presence-based speaker routing, and sound library with file upload
@@ -35,11 +35,30 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **📅 Scheduled Task System** — Extensible CRON-based scheduler with MongoDB persistence supporting alarms, timers, and deferred agent actions
 - **🔌 Extensible** — Script-based plugin system for adding capabilities without recompiling. Plugin repository for discovery and one-click install.
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
-- **🔌 Model Provider System** — Configure 6+ LLM backends (OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini) from the dashboard with per-agent model assignment
+- **🔌 Model Provider System** — Configure OpenAI, llama.cpp, OpenRouter, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, and Google Gemini from the dashboard with per-agent model assignment
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
 - **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, climate, scenes, music, timers, lists, etc.) without reconfiguring
 - **💬 Conversation Threading** — Context-aware conversations with proper message threading support
 - **⚡ Two-Tier Prompt Caching** — Independent routing and chat caches with semantic similarity matching, hot-reloadable thresholds, and infinite retention
+
+### Voice onboarding and personal memory
+
+On a Satellite1 using Lucia's Wyoming speech-to-text and the Lucia Home Assistant
+conversation agent, say **"Onboard me."** Lucia asks permission to save a voice
+profile, your preferred name, and optional room and interaction preferences. After
+you confirm the answers, repeat the prompted phrases. These are enrollment samples,
+not commands that control your home.
+
+Say **"repeat"** to hear a prompt again or **"cancel"** to stop. An unfinished
+conversation expires after ten minutes of inactivity. A speaker recognition model
+must be active, and both speech-to-text and the conversation API must use the same
+Lucia server instance.
+
+Once enrolled, ask Lucia to remember, recall, or forget a preference. Memories use
+the existing configured database and the voice profile's stable ID, not a display
+name or the satellite's Home Assistant account. Unknown voices receive no personal
+memory context. See the [conversation API guide](docs/conversation-api.md#voice-onboarding)
+for the turn sequence and deployment requirements.
 
 ### Supported Inference Platforms
 
@@ -47,6 +66,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 |----------|--------|
 | Azure OpenAI / AI Foundry | ✅ Supported |
 | OpenAI | ✅ Supported |
+| llama.cpp | ✅ Supported |
 | Ollama | ✅ Supported |
 | Anthropic (Claude) | ✅ Supported |
 | Google Gemini | ✅ Supported |
@@ -851,6 +871,22 @@ The [`docker-compose.yml`](infra/docker/docker-compose.yml) in the repo builds t
 
 ## 🐳 Deployment
 
+### Jetson appliance image
+
+Lucia can run natively on a Jetson Orin Nano Super without Docker. The
+experimental microSD installer provisions A/B Jetson Linux 36.5.2 slots, a
+versioned Lucia partition, persistent Redis and SQLite data, captive setup, and
+appliance management.
+
+The recovery password chosen during setup signs in as `lucia-recovery` over
+SSH or at the local console and authorizes sudo. Direct root SSH login is
+disabled. The installer enables recovery access before writing the NVMe so a
+failed installation can be diagnosed from the SD card.
+
+See [the appliance release guide](infra/appliance/release/README.md) and
+[implementation status](specs/006-jetson-appliance-image/tasks.md). Stable
+release tags publish separate installer, Lucia, and OS assets.
+
 ### Deployment Modes
 
 Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:
@@ -936,7 +972,7 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Per-agent error rate metrics and observability
 - Two-tier prompt caching (routing + chat) with semantic similarity and hot-reloadable thresholds
 - Helm charts and Kubernetes manifests
-- Multi-LLM support (Azure AI Foundry, OpenAI, Ollama, Anthropic, Google Gemini, Azure AI Inference)
+- Multi-LLM support (Azure AI Foundry, OpenAI, llama.cpp, OpenRouter, Ollama, Anthropic, Google Gemini, Azure AI Inference)
 - Dataset export for fine-tuning workflows
 - Schema-driven configuration system
 - Playwright E2E tests for all agent routing modes

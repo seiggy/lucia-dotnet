@@ -20,6 +20,7 @@ import {
 } from '../api'
 import type { SetupStatus, GenerateKeyResponse, TestHaConnectionResponse, AgentStatusResponse } from '../api'
 import type { ProviderType, ModelPurpose, ModelAuthConfig, ModelProvider } from '../types'
+import { copyTextToClipboard } from '../utils/copy-text'
 import { Sparkles, ArrowRight, Key, Plug, CheckCircle2, Copy, Check, Loader2, Radio, Brain, Cpu, Trash2, FlaskConical } from 'lucide-react'
 
 type WizardStep = 'welcome' | 'lucia-ha' | 'ai-providers' | 'agent-status' | 'ha-plugin' | 'done'
@@ -50,7 +51,7 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-observatory p-4">
+    <div className="flex min-h-screen items-center justify-center bg-observatory p-4 pt-24 sm:p-4">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute left-1/2 top-1/4 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber/[0.03] blur-[120px]" />
       </div>
@@ -124,7 +125,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
               >
                 {i < idx ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
               </div>
-              <span className={`text-[10px] font-medium sm:text-xs ${active ? 'text-light' : 'text-dust'}`}>
+              <span className={`sr-only text-[10px] font-medium sm:not-sr-only sm:text-xs ${active ? 'text-light' : 'text-dust'}`}>
                 {s.label}
               </span>
             </div>
@@ -138,7 +139,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
 
 /* ── Shared button styles ───────────────────────────── */
 
-const btnPrimary = 'rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-void transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40'
+const btnPrimary = 'rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-on-accent transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40'
 const btnSecondary = 'rounded-xl border border-stone bg-basalt px-5 py-2.5 text-sm font-medium text-fog transition-colors hover:border-amber/30 hover:text-light disabled:opacity-40'
 const btnSuccess = 'rounded-xl bg-sage/20 text-sage px-5 py-2.5 text-sm font-medium transition-colors hover:bg-sage/30 disabled:opacity-40'
 const inputStyle = 'w-full rounded-xl border border-stone bg-basalt px-4 py-3 text-sm text-light placeholder-dust/60 input-focus transition-colors'
@@ -204,7 +205,7 @@ function LuciaHaStep({
   const [connectionTestBusy, setConnectionTestBusy] = useState(false)
   const [showHaForm, setShowHaForm] = useState(false)
 
-  const hasDashKey = status?.hasDashboardKey || dashboardKey !== null
+  const hasExistingKey = status?.hasAnyActiveKey || dashboardKey !== null
   const isAuthenticated = dashboardKey !== null || resumed || authFromContext
 
   // Test HA connection at startup when we already have config (e.g. headless)
@@ -260,8 +261,12 @@ function LuciaHaStep({
 
   async function handleCopyKey() {
     if (dashboardKey) {
-      await navigator.clipboard.writeText(dashboardKey.key)
-      setKeyCopied(true)
+      try {
+        await copyTextToClipboard(dashboardKey.key)
+        setKeyCopied(true)
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to copy dashboard key')
+      }
     }
   }
 
@@ -287,7 +292,7 @@ function LuciaHaStep({
         <h3 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-amber">
           <Key className="h-4 w-4" /> Dashboard API Key
         </h3>
-        {!hasDashKey ? (
+        {!hasExistingKey ? (
           <>
             <p className="mb-3 text-sm text-fog">
               Generate an API key to log into the Lucia dashboard. Save it — you won't see it again.
@@ -305,7 +310,11 @@ function LuciaHaStep({
               <code className="flex-1 rounded-lg bg-void px-3 py-2.5 font-mono text-sm text-amber select-all">
                 {dashboardKey.key}
               </code>
-              <button onClick={handleCopyKey} className={btnSecondary + ' !px-3 !py-2.5'}>
+              <button
+                onClick={handleCopyKey}
+                aria-label={keyCopied ? 'Dashboard key copied' : 'Copy dashboard key'}
+                className={btnSecondary + ' !px-3 !py-2.5'}
+              >
                 {keyCopied ? <Check className="h-4 w-4 text-sage" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
@@ -316,16 +325,22 @@ function LuciaHaStep({
         ) : (
           <div className="space-y-3">
             {resumed || authFromContext ? (
-              <p className="flex items-center gap-1.5 text-sm text-sage">
-                <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
-              </p>
+              status?.hasAdministratorKey ? (
+                <p className="flex items-center gap-1.5 text-sm text-sage">
+                  <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
+                </p>
+              ) : (
+                <p className="text-sm text-rose">
+                  This installation has no appliance owner key. Reset its data or reinstall the appliance to recover ownership.
+                </p>
+              )
             ) : (
               <>
                 <p className="flex items-center gap-1.5 text-sm text-amber">
-                  <Key className="h-4 w-4" /> Dashboard key was already generated
+                  <Key className="h-4 w-4" /> An API key already exists
                 </p>
                 <p className="text-sm text-fog">
-                  Enter your dashboard API key to resume setup where you left off.
+                  Enter an existing API key to resume setup where you left off.
                 </p>
                 <div className="flex gap-2">
                   <input
@@ -470,6 +485,7 @@ function LuciaHaStep({
 const PROVIDER_TYPES: { value: ProviderType; label: string; placeholder: string }[] = [
   { value: 'OpenAI', label: 'OpenAI', placeholder: 'gpt-4o' },
   { value: 'OpenRouter', label: 'OpenRouter', placeholder: 'openai/gpt-4.1-mini' },
+  { value: 'LlamaCpp', label: 'llama.cpp (local)', placeholder: 'qwen3.5-9b' },
   { value: 'Anthropic', label: 'Anthropic', placeholder: 'claude-sonnet-4-20250514' },
   { value: 'GoogleGemini', label: 'Google Gemini', placeholder: 'gemini-2.0-flash' },
   { value: 'Ollama', label: 'Ollama (local)', placeholder: 'llama3.2:3b' },
@@ -511,7 +527,9 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
   useEffect(() => { refreshProviders() }, [refreshProviders])
 
   const isAzure = providerType === 'AzureOpenAI' || providerType === 'AzureAIInference'
-  const needsApiKey = providerType !== 'Ollama' && !useDefaultCreds
+  const isLlamaCpp = providerType === 'LlamaCpp'
+  const needsEndpoint = isAzure || isLlamaCpp
+  const needsApiKey = providerType !== 'Ollama' && !isLlamaCpp && !useDefaultCreds
   const hasChatProvider = providers.some(p => p.purpose === 'Chat' && Boolean(p.modelName?.trim()))
 
   async function handleCreate() {
@@ -523,7 +541,7 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
       const providerLabel = PROVIDER_TYPES.find(p => p.value === providerType)?.label ?? providerType
       const auth: ModelAuthConfig = useDefaultCreds
         ? { authType: 'default-credential', useDefaultCredentials: true }
-        : needsApiKey
+        : needsApiKey || Boolean(apiKey.trim())
           ? { authType: 'api-key', apiKey, useDefaultCredentials: false }
           : { authType: 'none', useDefaultCredentials: false }
 
@@ -733,6 +751,7 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
               onChange={value => {
                 setProviderType(value as ProviderType)
                 setEndpoint('')
+                setApiKey('')
                 setUseDefaultCreds(false)
               }}
               className="w-full"
@@ -750,7 +769,9 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
               Endpoint URL
               {isAzure
                 ? <span className="text-dust"> (required — your Azure OpenAI resource URL)</span>
-                : <span className="text-dust"> (optional{providerType === 'Ollama' ? ', default: http://localhost:11434' : ''})</span>
+                : isLlamaCpp
+                  ? <span className="text-dust"> (required)</span>
+                  : <span className="text-dust"> (optional{providerType === 'Ollama' ? ', default: http://localhost:11434' : ''})</span>
               }
             </label>
             <input
@@ -764,6 +785,8 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
                     ? 'http://localhost:11434'
                     : providerType === 'OpenRouter'
                       ? 'https://openrouter.ai/api/v1'
+                      : isLlamaCpp
+                        ? 'http://localhost:8080'
                       : 'Leave blank for default'
               }
               className={inputStyle}
@@ -786,9 +809,11 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
           )}
 
           {/* API Key */}
-          {needsApiKey && (
+          {(needsApiKey || isLlamaCpp) && (
             <div>
-              <label className="mb-1 block text-sm text-fog">API Key</label>
+              <label className="mb-1 block text-sm text-fog">
+                API Key{isLlamaCpp && <span className="text-dust"> (optional)</span>}
+              </label>
               <input
                 type="password"
                 value={apiKey}
@@ -802,7 +827,7 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleCreate}
-              disabled={busy || (needsApiKey && !apiKey) || (isAzure && !endpoint)}
+              disabled={busy || (needsApiKey && !apiKey) || (needsEndpoint && !endpoint.trim())}
               className={btnPrimary}
             >
               {busy ? 'Saving...' : 'Save Connection'}
@@ -993,8 +1018,12 @@ function HaPluginStep({
 
   async function handleCopyKey() {
     if (haKey) {
-      await navigator.clipboard.writeText(haKey.key)
-      setKeyCopied(true)
+      try {
+        await copyTextToClipboard(haKey.key)
+        setKeyCopied(true)
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to copy Home Assistant key')
+      }
     }
   }
 
@@ -1027,7 +1056,11 @@ function HaPluginStep({
               <code className="flex-1 rounded-lg bg-void px-3 py-2.5 font-mono text-sm text-amber select-all">
                 {haKey.key}
               </code>
-              <button onClick={handleCopyKey} className={btnSecondary + ' !px-3 !py-2.5'}>
+              <button
+                onClick={handleCopyKey}
+                aria-label={keyCopied ? 'Home Assistant key copied' : 'Copy Home Assistant key'}
+                className={btnSecondary + ' !px-3 !py-2.5'}
+              >
                 {keyCopied ? <Check className="h-4 w-4 text-sage" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>

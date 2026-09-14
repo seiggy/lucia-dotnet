@@ -1,18 +1,26 @@
 ---
-updated_at: 2026-07-18T15:31:35.572-04:00
-focus_area: Jetson bootstrap deployment + K1 CUDA-EP verification gate
+updated_at: 2026-07-20T10:13:43.764-04:00
+focus_area: Runtime health & resource diagnostics (primary); Jetson K1 CUDA-EP verification (secondary)
 active_issues:
-  - K1 (CUDA provider registration and kernel execution on physical device)
+  - ✓ Redis lifetime + health endpoint caching (completed 2026-07-20)
+  - Jetson K1 (CUDA provider registration and kernel execution on physical device)
   - HA setup wizard configuration (Base URL, token)
 ---
 
 # What We're Focused On
 
-Bootstrap deployment of three-service unified Docker Compose (AgentHost + Redis + PostgreSQL) to physical Jetson Orin Nano Super 8GB succeeded. All services healthy, setup wizard accessible. Next phase: user completes HA configuration; strict K1 (CUDA-EP) gate validation.
+## Primary: Runtime Health & Resource Diagnostics ✓ (Stable)
+
+Multi-agent review and fix for health endpoint caching and Redis container lifecycle issues. Completed 2026-07-20:
+- **Redis ContainerLifetime Session:** Restores proxy endpoint allocation; eliminates Aspire 13.4 certificate handling mismatch
+- **Health Output Cache:** Named 10-second policy for healthy 200 and safe unhealthy 503 responses (Set-Cookie/auth safeguard)
+- **ProcessInstrumentation:** CPU/memory telemetry; RuntimeInstrumentation remains source for GC/allocation/thread-pool
+- **Measurements:** Orphaned AppHost ~1.63GB cleaned; clean AgentHost baseline: 17MB WS, 53MB private memory
+- **Test Coverage:** Three HTTP behavioral tests pass; no regressions
+
+## Secondary: Jetson Bootstrap & K1 CUDA-EP Verification
 
 Target hardware: Jetson Orin Nano Super Developer Kit, 8GB LPDDR5, 67 INT8 TOPS, 1024 CUDA cores, 32 tensor cores, 7W-25W power envelope.
-
-## Current Priority
 
 1. **Bootstrap gates (B1–B3):** ✓ Complete (hardware confirmed, services running, setup wizard live)
 2. **HA setup wizard:** PENDING (user: Base URL, token, entity mappings)

@@ -1,6 +1,12 @@
+using System.ClientModel;
 using System.Diagnostics;
+using Azure;
+using Azure.Identity;
 using System.Text.Json;
+using lucia.EvalHarness.Evaluation;
 using lucia.EvalHarness.Infrastructure;
+using lucia.EvalHarness.Providers;
+using lucia.EvalHarness.Tui;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Personality;
@@ -15,10 +21,13 @@ public sealed class PersonalityEvalRunner
     private readonly TimeSpan _judgeTimeout;
     private readonly TimeProvider _timeProvider;
 
-    public PersonalityEvalRunner(TimeSpan agentTimeout, TimeSpan judgeTimeout, TimeProvider? timeProvider = null)
+    public PersonalityEvalRunner(
+        TimeSpan? agentTimeout = null,
+        TimeSpan? judgeTimeout = null,
+        TimeProvider? timeProvider = null)
     {
-        _agentTimeout = agentTimeout;
-        _judgeTimeout = judgeTimeout;
+        _agentTimeout = agentTimeout ?? TimeSpan.FromSeconds(120);
+        _judgeTimeout = judgeTimeout ?? TimeSpan.FromSeconds(120);
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -62,7 +71,7 @@ public sealed class PersonalityEvalRunner
     public async Task<PersonalityEvalReport> RunAsync(
         IChatClient chatClient,
         string modelName,
-        IChatClient judgeChatClient,
+        IChatClient? judgeChatClient,
         string judgeModelName,
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> profiles,
@@ -71,7 +80,7 @@ public sealed class PersonalityEvalRunner
     {
         var startedAt = DateTimeOffset.UtcNow;
         var results = new List<PersonalityScenarioResult>();
-        var traceDir = Path.Combine("personality-eval-traces", $"{modelName}_{startedAt:yyyyMMdd_HHmmss}");
+        var traceDir = GetTraceDirectory(modelName, startedAt);
         var judge = new PersonalityJudge(judgeChatClient, _judgeTimeout, traceDir, _timeProvider);
 
         foreach (var scenario in scenarios)
@@ -113,6 +122,9 @@ public sealed class PersonalityEvalRunner
         });
     }
 
+    internal static string GetTraceDirectory(string modelName, DateTimeOffset startedAt) =>
+        Path.Combine("personality-eval-traces", $"{TraceExporter.SanitizeFileName(modelName)}_{startedAt:yyyyMMdd_HHmmss}");
+
     private static IReadOnlyList<PersonalityProfile> GetApplicableProfiles(
         PersonalityEvalScenario scenario,
         IReadOnlyList<PersonalityProfile> allProfiles)
@@ -136,6 +148,7 @@ public sealed class PersonalityEvalRunner
         var sw = Stopwatch.StartNew();
         string llmResponse;
         var userMessage = PersonalityRewritePrompt + scenario.AgentResponse;
+        using var costScope = chatClient.GetService<InferenceCostChatClient>()?.BeginScope();
 
         // Step 1: Get personality rewrite from model-under-test
         try
@@ -152,7 +165,10 @@ public sealed class PersonalityEvalRunner
                 $"Model '{modelName}' exceeded the {_agentTimeout.TotalSeconds:0}s deadline for scenario '{scenario.Id}' × profile '{profile.Id}'.");
             llmResponse = response.Text ?? string.Empty;
         }
-        catch (TimeoutException tex)
+        catch (Exception exception)
+            when (exception is HttpRequestException or RequestFailedException or ClientResultException or
+                  AuthenticationFailedException or TimeoutException ||
+                  exception is OperationCanceledException && !ct.IsCancellationRequested)
         {
             sw.Stop();
             return new PersonalityScenarioResult
@@ -163,30 +179,24 @@ public sealed class PersonalityEvalRunner
                 ProfileId = profile.Id,
                 ProfileName = profile.Name,
                 ModelName = modelName,
-                Score = 0,
+                Score = null,
+                JudgeStatus = exception is OperationCanceledException or TimeoutException
+                    ? JudgeAvailability.Timeout
+                    : JudgeAvailability.ProviderError,
+                JudgeReason = exception is OperationCanceledException or TimeoutException
+                    ? JudgeAvailability.Reason(JudgeAvailability.Timeout)
+                    : JudgeAvailability.Reason(JudgeAvailability.ProviderError),
                 LlmResponse = string.Empty,
+                Cost = costScope?.Complete() ?? InferenceCostSummary.Untracked,
                 DurationMs = sw.ElapsedMilliseconds,
-                TimedOut = true,
-                ErrorMessage = $"Model call timed out: {tex.Message}"
+                TimedOut = exception is OperationCanceledException or TimeoutException,
+                ErrorMessage = exception is OperationCanceledException or TimeoutException
+                    ? "Model provider request timed out."
+                    : "Model provider request failed."
             };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            sw.Stop();
-            return new PersonalityScenarioResult
-            {
-                ScenarioId = scenario.Id,
-                ScenarioDescription = scenario.Description,
-                Category = scenario.Category,
-                ProfileId = profile.Id,
-                ProfileName = profile.Name,
-                ModelName = modelName,
-                Score = 0,
-                LlmResponse = string.Empty,
-                DurationMs = sw.ElapsedMilliseconds,
-                ErrorMessage = $"Model call failed: {ex.Message}"
-            };
-        }
+
+        var cost = costScope?.Complete() ?? InferenceCostSummary.Untracked;
 
         // Step 2: Build conversation trace
         var trace = new ConversationTrace
@@ -210,7 +220,10 @@ public sealed class PersonalityEvalRunner
             ProfileName = profile.Name,
             ModelName = modelName,
             Score = judgeResult.CombinedScore,
+            JudgeStatus = judgeResult.Status,
+            JudgeReason = judgeResult.UnavailableReason,
             LlmResponse = llmResponse,
+            Cost = cost,
             DurationMs = sw.ElapsedMilliseconds,
             TimedOut = judgeResult.TimedOut,
             JudgeResult = judgeResult,

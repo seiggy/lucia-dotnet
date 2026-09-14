@@ -13,7 +13,7 @@ namespace lucia.Data.Sqlite;
 /// </summary>
 public sealed class SqliteMigrationRunner : IHostedService
 {
-    private const int ConfigSchemaVersion = 2;
+    private const int ConfigSchemaVersion = 3;
     private const int TracesSchemaVersion = 2;
     private const int TasksSchemaVersion = 2;
 
@@ -21,28 +21,65 @@ public sealed class SqliteMigrationRunner : IHostedService
     private readonly SqliteConnectionFactory _tracesFactory;
     private readonly SqliteConnectionFactory _tasksFactory;
     private readonly ILogger<SqliteMigrationRunner> _logger;
+    private readonly string? _legacyPath;
 
     public SqliteMigrationRunner(
         [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory configFactory,
         [FromKeyedServices(SqliteDbNames.Traces)] SqliteConnectionFactory tracesFactory,
         [FromKeyedServices(SqliteDbNames.Tasks)] SqliteConnectionFactory tasksFactory,
-        ILogger<SqliteMigrationRunner> logger)
+        ILogger<SqliteMigrationRunner> logger,
+        string? legacyPath = null)
     {
         _configFactory = configFactory;
         _tracesFactory = tracesFactory;
         _tasksFactory = tasksFactory;
         _logger = logger;
+        _legacyPath = legacyPath;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        MigrateDatabase(_configFactory, "config", ConfigSchemaVersion, ApplyConfigV1, ApplyConfigV2);
+        MigrateDatabase(
+            _configFactory,
+            "config",
+            ConfigSchemaVersion,
+            ApplyConfigV1,
+            ApplyConfigV2,
+            ApplyConfigV3);
         MigrateDatabase(_tracesFactory, "traces", TracesSchemaVersion, ApplyTracesV1, ApplyTracesV2);
         MigrateDatabase(_tasksFactory, "tasks", TasksSchemaVersion, ApplyTasksV1, ApplyTasksV2);
+        if (_legacyPath is not null)
+        {
+            SqliteDbNames.ArchiveLegacyDatabase(_legacyPath);
+        }
         return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    internal static void EnsureCurrentTables(
+        SqliteConnection connection,
+        string databaseName)
+    {
+        switch (databaseName)
+        {
+            case SqliteDbNames.Config:
+                ApplyConfigV1(connection);
+                ApplyConfigV2(connection);
+                break;
+            case SqliteDbNames.Traces:
+                ApplyTracesV1(connection);
+                break;
+            case SqliteDbNames.Tasks:
+                ApplyTasksV1(connection);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(databaseName),
+                    databaseName,
+                    "Unknown SQLite database name.");
+        }
+    }
 
     private void MigrateDatabase(
         SqliteConnectionFactory factory,
@@ -147,7 +184,6 @@ public sealed class SqliteMigrationRunner : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
             CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(is_revoked);
-
             CREATE TABLE IF NOT EXISTS model_providers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -242,6 +278,11 @@ public sealed class SqliteMigrationRunner : IHostedService
             CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
             """;
         cmd.ExecuteNonQuery();
+    }
+
+    internal static void ApplyConfigV3(SqliteConnection connection)
+    {
+        // Privileges cannot be inferred safely from legacy user-assigned labels.
     }
 
     // ── luciatraces database migrations ──────────────────────────────────────

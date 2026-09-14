@@ -244,13 +244,13 @@ export interface AgentDefinition {
 
 // Model Providers
 /** LLM provider type identifier. */
-export type ProviderType = 'OpenAI' | 'OpenRouter' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini' | 'GitHubCopilot';
+export type ProviderType = 'OpenAI' | 'OpenRouter' | 'LlamaCpp' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini' | 'GitHubCopilot';
 
 /** Whether a provider is configured for chat completion or embedding generation. */
 export type ModelPurpose = 'Chat' | 'Embedding';
 
 /** Provider types that support embedding generation. */
-export const EmbeddingCapableProviders: ProviderType[] = ['OpenAI', 'OpenRouter', 'AzureOpenAI', 'AzureAIInference', 'Ollama', 'GoogleGemini'];
+export const EmbeddingCapableProviders: ProviderType[] = ['OpenAI', 'OpenRouter', 'LlamaCpp', 'AzureOpenAI', 'AzureAIInference', 'Ollama', 'GoogleGemini'];
 
 export interface ModelAuthConfig {
   authType: string;

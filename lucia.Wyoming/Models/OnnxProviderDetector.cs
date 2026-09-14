@@ -97,6 +97,16 @@ public sealed class OnnxProviderDetector
             string.Join(", ", available));
     }
 
+    internal OnnxProviderDetector(
+        string bestProvider,
+        string bestSherpaProvider)
+    {
+        BestProvider = bestProvider;
+        BestSherpaProvider = bestSherpaProvider;
+        AvailableProviders = [bestProvider];
+        IsAccelerated = bestProvider != "CPUExecutionProvider";
+    }
+
     private static bool VerifyProvider(string ortProviderName, ILogger logger)
     {
         try

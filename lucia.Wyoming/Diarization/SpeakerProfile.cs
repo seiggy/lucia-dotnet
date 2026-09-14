@@ -7,8 +7,13 @@ public sealed record SpeakerProfile
     public bool IsProvisional { get; init; }
     public bool IsAuthorized { get; init; } = true;
     public string[]? AllowedSkills { get; init; }
+    public long Revision { get; init; }
     public float[][] Embeddings { get; init; } = [];
     public float[] AverageEmbedding { get; init; } = [];
+    public string? EnrollmentSessionId { get; init; }
+    public string? MergeTargetProfileId { get; init; }
+    public string[] PendingMergeSourceIds { get; init; } = [];
+    public string[] MergedProfileIds { get; init; } = [];
     public int InteractionCount { get; init; }
     public DateTimeOffset EnrolledAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;
