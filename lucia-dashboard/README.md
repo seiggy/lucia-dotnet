@@ -115,7 +115,8 @@ command-match score or LLM invocation is shown for the local workflow.
 
 Open **User memories** in the sidebar, or **View memories** on an enrolled voice
 profile. The page uses the stable profile ID to list personal memories, including
-preferred name, room, and preferences. It supports search, inline editing, and
+preferred name, birthday, and preferences shared during conversations. Existing
+room and preference entries remain available. It supports search, inline editing, and
 confirmed deletion of individual entries. Edits retain the entry's expiration.
 
 Internal chat-history entries are excluded. The store records a save time and

@@ -103,9 +103,11 @@ Saying "Learn my voice", "Enroll my voice", "Enroll my voice profile", or
 matching or LLM routing. "Onboard me" and "On board me" remain supported, and the
 phrases may start with "Lucia" or "Hey Lucia".
 Lucia asks for permission to save a voice profile and shared facts,
-asks for a preferred name, then asks optional room and interaction preferences.
-"No preference", "skip this question", or "skip" leaves either optional answer empty. Lucia reads the answers back for
-confirmation before collecting the configured number of voice samples.
+asks for a preferred name, then asks for an optional birthday including the year.
+"Skip this question", "skip", "no thanks", or "I'd rather not say" leaves the
+birthday empty. Lucia reads the name and any birthday back for confirmation
+before collecting the configured number of voice samples. Other facts and
+preferences are left to normal conversations.
 
 The response is JSON:
 
@@ -211,8 +213,12 @@ for sensitive data or privileged actions.
 ### Personal memories
 
 Confirmed onboarding facts are stored under the enrolled profile ID as
-`preferred_name`, `preferred_room`, and `preferences`. Omitted optional answers
-are not stored. Memories use the existing `IMemoryStore` and configured MongoDB,
+`preferred_name` and, when shared, `birthday`. Birthdays retain the wording the
+speaker confirmed. Onboarding does not infer missing date components, calculate
+ages, or create reminders. A skipped birthday is not stored.
+Existing room and preference memories are preserved and remain editable in the
+dashboard. Already-enrolled users can ask Lucia to remember their birthday
+without enrolling again. Memories use the existing `IMemoryStore` and configured MongoDB,
 SQLite, or PostgreSQL provider, with the existing in-memory fallback when no
 durable provider is registered.
 

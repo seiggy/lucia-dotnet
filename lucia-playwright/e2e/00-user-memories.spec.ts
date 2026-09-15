@@ -102,6 +102,26 @@ test('keeps an edited value available when saving fails', async ({ page }) => {
   await expect(page.getByRole('status')).toHaveText('Memory saved for Sam.');
 });
 
+test('labels birthday memories and keeps older preference memories editable', async ({ page }) => {
+  const fixture = await mockMemories(page);
+  fixture.entries['profile-sam'].push(
+    { key: 'birthday', value: 'March 14, 1990', createdAt: '2026-09-13T20:00:00Z', expiresAt: null },
+    { key: 'preferred_room', value: 'Office', createdAt: '2026-09-13T20:00:00Z', expiresAt: null },
+  );
+  await page.goto('/user-memories?profile=profile-sam');
+  await expect(page.getByRole('heading', { name: 'Birthday', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit Preferred room', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit Preferences', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit Birthday', exact: true }).click();
+  await page.getByLabel('Edit Birthday', { exact: true }).fill('March 15, 1990');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Memory saved for Sam.');
+  expect(fixture.writes[0]).toEqual({
+    profile: 'profile-sam', key: 'birthday', method: 'PUT',
+    body: { value: 'March 15, 1990', expiresAt: null },
+  });
+});
+
 test('returns keyboard focus to the edited memory after saving', async ({ page }) => {
   await mockMemories(page);
   await page.goto('/user-memories?profile=profile-sam');
