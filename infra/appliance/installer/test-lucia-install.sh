@@ -505,6 +505,11 @@ test_interrupted_installation_can_restart_safely occupied
 test_matching_authorization_can_erase_occupied_disk
 test_blank_disk_requires_authorization
 test_stale_layout_authorization_is_rejected
+if bash "$SCRIPT_DIR/test-verify-built-image.sh"; then
+    pass "built-image verification isolates the builder from firmware probes"
+else
+    fail "built-image verification isolates the builder from firmware probes"
+fi
 
 printf '\n%d passed, %d failed\n' "$pass_count" "$fail_count"
 [[ "$fail_count" -eq 0 ]]

@@ -46,8 +46,10 @@ if [[ "${1:-}" == "--layout" ]]; then
         [[ -b "$partitions/$label" && "$(lsblk -dn -o PKNAME "$partitions/$label")" == "$disk" ]] \
             || fail "OS slot partitions are missing or belong to different disks. Repair the partition layout before retrying."
     done
-    uuid="$(blkid -s PARTUUID -o value "$source")"
-    [[ "$uuid" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "The running OS partition has no valid PARTUUID."
+    if ! uuid="$(blkid -s PARTUUID -o value "$source")" \
+        || [[ ! "$uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+        fail "The running OS partition has no valid PARTUUID."
+    fi
     root_argument=""
     read -r -a arguments < "${LUCIA_CMDLINE_PATH:-/proc/cmdline}"
     for argument in "${arguments[@]}"; do

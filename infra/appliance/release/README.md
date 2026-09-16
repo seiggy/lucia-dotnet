@@ -163,8 +163,11 @@ device's partition IDs. Directory symlinks and missing boot files are rejected
 before activation. Partition-based kernel boot and GRUB are not accepted by this
 extlinux-specific updater.
 
-Boot validation uses the shipped `nvbootctrl verify` command after Lucia and
-network health pass. It runs before NVIDIA's default boot-validation service.
+Post-boot validation repeats the full layout check before health checks or
+recovery reboots. A healthy application alone cannot prove that Linux mounted
+the requested OS slot. Boot validation uses the shipped `nvbootctrl verify`
+command only after layout, Lucia, and network health pass. It runs before
+NVIDIA's default boot-validation service.
 Recovery persists a maximum of two additional reboot requests per operation.
 If the requested slot never becomes active, readiness cannot be verified, or
 the budget is exhausted, it records a terminal failure rather than rebooting
@@ -189,6 +192,11 @@ The software regressions cover disabled/unknown capability, bounded retries,
 device-specific UUID rebinding, API admission, and GUI messages. They do not
 prove firmware provisioning or real slot failover. That hardware acceptance
 remains tracked in #275.
+The mounted-image verifier runs the image's checker against deterministic
+NVIDIA-tool responses for enabled slots A/B, disabled redundancy, and unsupported
+results. It checks both the status and warning behavior without reading the
+x86-64 build host's firmware. Missing root or target PARTUUID metadata returns a
+specific diagnostic rather than an unexplained command failure.
 
 Images older than this updater cannot bootstrap it from the dashboard. Upgrade
 those devices once by reinstalling or manually deploying a release that

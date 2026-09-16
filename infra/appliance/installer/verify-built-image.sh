@@ -49,6 +49,8 @@ done
 [[ "$(stat --format '%u:%g' \
     "$root/usr/libexec/lucia/lucia-installer-control")" == "0:0" ]]
 [[ "$(stat --format '%u:%g' \
+    "$root/usr/libexec/lucia/lucia-rootfs-ab-check")" == "0:0" ]]
+[[ "$(stat --format '%u:%g' \
     "$root/opt/lucia-installer/app/lucia.InstallerHost")" == "0:0" ]]
 grep -Fqx 'User=root' \
     "$root/usr/lib/systemd/system/lucia-installer-host.service"
@@ -86,6 +88,16 @@ cat > "$work_dir/iptables" <<'EOF'
 [[ "$1" != "-C" ]]
 EOF
 chmod +x "$work_dir/nmcli" "$work_dir/iptables"
+cat > "$work_dir/nvbootctrl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+    "-t rootfs is-rootfs-ab-enabled") exit "$LUCIA_VERIFY_AB_RESULT" ;;
+    "-t rootfs get-current-slot") printf '%s\n' "$((LUCIA_VERIFY_AB_RESULT - 1))" ;;
+    *) exit 64 ;;
+esac
+EOF
+chmod +x "$work_dir/nvbootctrl"
 
 LUCIA_BOOTSTRAP_ENV="$root/etc/lucia-installer/bootstrap.env" \
 LUCIA_CONNECTION_PATH="$work_dir/lucia-setup.nmconnection" \
@@ -96,10 +108,25 @@ LUCIA_IPTABLES_PATH="$work_dir/iptables" \
 grep -Fqx 'ssid=Lucia-Setup' "$work_dir/lucia-setup.nmconnection"
 
 mkdir "$work_dir/state"
-status="$(
-    LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
-        python3 "$root/usr/libexec/lucia/lucia-installer-control" status
-)"
-[[ "$status" == '{"phase":"waiting-for-configuration"}' ]]
+for capability in 0 1 2 64; do
+    status="$(
+        LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+        LUCIA_ROOTFS_AB_CHECK_PATH="$root/usr/libexec/lucia/lucia-rootfs-ab-check" \
+        LUCIA_NVBOOTCTRL_PATH="$work_dir/nvbootctrl" \
+        LUCIA_VERIFY_AB_RESULT="$capability" \
+            python3 "$root/usr/libexec/lucia/lucia-installer-control" status
+    )"
+    python3 - "$status" "$capability" <<'PY'
+import json
+import sys
+
+status = json.loads(sys.argv[1])
+assert status["phase"] == "waiting-for-configuration"
+if sys.argv[2] in {"1", "2"}:
+    assert "osUpdateWarning" not in status
+else:
+    assert "RootFS A/B" in status["osUpdateWarning"]
+PY
+done
 
 printf 'PASS: built installer image starts captive setup and reports status\n'

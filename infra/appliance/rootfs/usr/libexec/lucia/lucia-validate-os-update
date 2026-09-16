@@ -93,7 +93,7 @@ rollback_reason="$(sed -n 's/^rollback_reason=//p' "$state")"
 [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] || exit 1
 [[ "$target_slot" == "0" || "$target_slot" == "1" ]] || exit 1
 [[ "$previous_slot" != "$target_slot" ]] || exit 1
-if ! current_slot="$(bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check")"; then
+if ! current_slot="$(bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout)"; then
     stop_recovery "RootFS A/B is unavailable or inconsistent. OS recovery stopped without rebooting; repair the boot configuration before retrying."
 fi
 

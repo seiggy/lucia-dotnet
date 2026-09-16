@@ -143,14 +143,27 @@ write_manifest() {
 EOF
 }
 
+mount_running_root() {
+    if mountpoint -q "$work/current-root"; then
+        umount "$work/current-root"
+    fi
+    local root_partition="${loop_device}p$(( $(cat "$work/current-slot") + 1 ))"
+    mount "$root_partition" "$work/current-root"
+    printf 'root=PARTUUID=%s rw\n' "$(blkid -s PARTUUID -o value "$root_partition")" > "$work/cmdline"
+}
+
+run_os_validator() {
+    mount_running_root
+    LUCIA_ROOTFS_MOUNT="$work/current-root" \
+    LUCIA_EFIVARS_PATH="$work/efivars" \
+    LUCIA_CMDLINE_PATH="$work/cmdline" \
+    LUCIA_PARTLABEL_DIR="$work/by-partlabel" \
+        bash "$os_validator"
+}
+
 run_update() {
     if [[ "${2:-}" == os && -n "$loop_device" ]]; then
-        if mountpoint -q "$work/current-root"; then
-            umount "$work/current-root"
-        fi
-        local root_partition="${loop_device}p$(( $(cat "$work/current-slot") + 1 ))"
-        mount "$root_partition" "$work/current-root"
-        printf 'root=PARTUUID=%s rw\n' "$(blkid -s PARTUUID -o value "$root_partition")" > "$work/cmdline"
+        mount_running_root
     fi
     LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_DATA_ROOT="$work/data" \
@@ -567,6 +580,25 @@ printf '0\n' > "$work/current-slot"
 echo "PASS: rootfs preflight rejects inconsistent roots and unsupported boot modes"
 printf 'previous_slot=1\ntarget_slot=0\nversion=1.0.0\ntag=v1.0.0\nstatus=validated\nvalidation_token=00000000-0000-0000-0000-000000000000\n' \
     > "$work/updates/state/os.env"
+cat > "$work/bin/blkid" <<'EOF'
+#!/usr/bin/env bash
+[[ "${*: -1}" != "$LUCIA_TEST_MISSING_UUID_DEVICE" ]] || exit 2
+exec "$LUCIA_TEST_REAL_BLKID" "$@"
+EOF
+chmod +x "$work/bin/blkid"
+target_before="$(sha256sum "$work/by-partlabel/APP_b")"
+real_blkid="$(command -v blkid)"
+if output="$(PATH="$work/bin:$PATH" \
+    LUCIA_TEST_MISSING_UUID_DEVICE="$work/by-partlabel/APP_b" \
+    LUCIA_TEST_REAL_BLKID="$real_blkid" \
+    run_update apply os v1.1.0 2>&1)"; then
+    echo "A failed target PARTUUID lookup was accepted" >&2
+    exit 1
+fi
+grep -q 'Inactive OS partition has no valid PARTUUID.' <<< "$output"
+[[ "$(sha256sum "$work/by-partlabel/APP_b")" == "$target_before" ]]
+grep -qx 'status=validated' "$work/updates/state/os.env"
+echo "PASS: target PARTUUID lookup failure reports the reason without writing the OS"
 touch "$work/fail-dd"
 if run_update apply os v1.1.0; then
     echo "OS update with a failed partition write was accepted" >&2
@@ -617,7 +649,7 @@ if LUCIA_UPDATE_ROOT="$work/updates" \
         LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
         LUCIA_UPDATE_HEALTH_ATTEMPTS=30 \
         LUCIA_UPDATE_HEALTH_DELAY_SECONDS=2 \
-        "$os_validator"; then
+        run_os_validator; then
     echo "OS validation accepted a retry budget beyond its service timeout" >&2
     exit 1
 fi
@@ -635,7 +667,7 @@ LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
 LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
 LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
 LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-    "$os_validator"
+    run_os_validator
 grep -qx 'status=validated' "$work/updates/state/os.env"
 grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
 [[ -e "$work/boot-successful" ]]
@@ -682,7 +714,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
     LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-        "$os_validator"
+        run_os_validator
 grep -q '"Status":"running"' "$work/updates/state/operation.json"
 printf '0\n' > "$work/current-slot"
 LUCIA_UPDATE_ROOT="$work/updates" \
@@ -696,7 +728,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
     LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-        "$os_validator"
+        run_os_validator
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q "\"OperationId\":\"$rollback_operation_id\"" \
     "$work/updates/state/operation.json"
@@ -721,7 +753,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        "$os_validator"
+        run_os_validator
 rm "$work/fail-network"
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
@@ -739,7 +771,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
     LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-        "$os_validator"
+        run_os_validator
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q '"Action":"apply".*"Status":"failed"' \
     "$work/updates/state/operation.json"
@@ -767,7 +799,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        "$os_validator"
+        run_os_validator
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
 [[ "$(cat "$work/active-slot")" == "0" ]]
 
@@ -793,7 +825,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        "$os_validator"
+        run_os_validator
 rm "$work/fail-health"
 grep -qx 'status=rollback-recovery-pending' \
     "$work/updates/state/os.env"
@@ -812,7 +844,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        "$os_validator"
+        run_os_validator
 grep -qx 'status=validated' "$work/updates/state/os.env"
 grep -q '"Action":"rollback".*"Status":"failed"' \
     "$work/updates/state/operation.json"
@@ -837,7 +869,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        "$os_validator"
+        run_os_validator
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q '"Action":"apply".*"Status":"failed"' \
     "$work/updates/state/operation.json"

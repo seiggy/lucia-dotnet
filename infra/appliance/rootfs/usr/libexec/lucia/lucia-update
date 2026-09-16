@@ -1148,9 +1148,10 @@ apply_os() {
         || die "Mounted root filesystem does not match NVIDIA's current RootFS A/B slot."
     [[ "$(lsblk -dn -o PKNAME "$current_device")" == "$(lsblk -dn -o PKNAME "$partlabel_dir/$app_label")" ]] \
         || die "Inactive OS partition is not on the current root filesystem's disk."
-    target_uuid="$(blkid -s PARTUUID -o value "$partlabel_dir/$app_label")"
-    [[ "$target_uuid" =~ ^[0-9a-fA-F-]{36}$ ]] \
-        || die "Inactive OS partition has no valid PARTUUID."
+    if ! target_uuid="$(blkid -s PARTUUID -o value "$partlabel_dir/$app_label")" \
+        || [[ ! "$target_uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+        die "Inactive OS partition has no valid PARTUUID."
+    fi
     system_image="system.img${suffix}"
     boot_image="boot.img${suffix}"
     dtb_image="$(

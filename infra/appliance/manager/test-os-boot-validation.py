@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -32,6 +33,7 @@ class OsBootValidationTests(unittest.TestCase):
 case "$*" in
   '-t rootfs is-rootfs-ab-enabled') exit "$(cat "$TEST_ROOT/ab")" ;;
   '-t rootfs get-current-slot') cat "$TEST_ROOT/slot" ;;
+  'get-current-slot') cat "$TEST_ROOT/bootloader-slot" ;;
   'verify') exit 0 ;;
   '-t rootfs set-active-boot-slot '*) exit 0 ;;
   *) exit 64 ;;
@@ -41,16 +43,39 @@ esac
         self.tool("systemctl", "exit 0")
         self.tool("curl", 'test ! -e "$TEST_ROOT/unhealthy"')
         self.tool("nm-online", "exit 0")
+        self.tool("findmnt", 'cat "$TEST_ROOT/root-source"')
+        self.tool("lsblk", "printf 'test-disk\\n'")
+        self.tool(
+            "blkid",
+            'test ! -e "$TEST_ROOT/missing-uuid" || exit 2\ncat "$TEST_ROOT/root-uuid"',
+        )
+        partitions = self.root / "partitions"
+        partitions.mkdir()
+        for index, label in enumerate(
+            ("APP", "APP_b", "A_kernel", "A_kernel-dtb", "B_kernel", "B_kernel-dtb")
+        ):
+            os.mknod(partitions / label, stat.S_IFBLK | 0o600, os.makedev(240, index))
+        efivars = self.root / "efivars"
+        efivars.mkdir()
+        (
+            efivars / "L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
+        ).write_bytes(b"\x07\x00\x00\x00\x01\x00\x00\x00")
         self.environment.update(
             {
+                "PATH": f"{self.root}:{os.environ['PATH']}",
                 "LUCIA_NVBOOTCTRL_PATH": str(self.root / "nvbootctrl"),
                 "LUCIA_SYSTEMCTL_PATH": str(self.root / "systemctl"),
                 "LUCIA_CURL_PATH": str(self.root / "curl"),
                 "LUCIA_NM_ONLINE_PATH": str(self.root / "nm-online"),
+                "LUCIA_PARTLABEL_DIR": str(partitions),
+                "LUCIA_ROOTFS_MOUNT": str(self.root),
+                "LUCIA_EFIVARS_PATH": str(efivars),
+                "LUCIA_CMDLINE_PATH": str(self.root / "cmdline"),
             }
         )
         (self.root / "ab").write_text("1")
         (self.root / "slot").write_text("0")
+        self.set_mounted_slot(0)
         self.reset_state()
 
     def tearDown(self):
@@ -73,6 +98,15 @@ esac
         (self.state / "validation.key").write_text(
             "33333333-3333-3333-3333-333333333333"
         )
+
+    def set_mounted_slot(self, slot):
+        uuid = f"00000000-0000-0000-0000-{slot:012d}"
+        (self.root / "bootloader-slot").write_text(str(slot))
+        (self.root / "root-source").write_text(
+            str(self.root / "partitions" / ("APP_b" if slot else "APP"))
+        )
+        (self.root / "root-uuid").write_text(uuid)
+        (self.root / "cmdline").write_text(f"root=PARTUUID={uuid} rw\n")
 
     def run_validator(self):
         result = subprocess.run(
@@ -108,20 +142,58 @@ esac
         for _ in range(5):
             self.run_validator()
         self.assertEqual(self.operation()["Status"], "failed")
-        self.assertLessEqual(
-            self.log.read_text().count("systemctl --no-block reboot"), 2
-        )
+        self.assertEqual(self.log.read_text().count("systemctl --no-block reboot"), 2)
         self.assertIn("status=failed", (self.state / "os.env").read_text())
 
     def test_success_uses_the_shipped_nvidia_verify_command(self):
         self.reset_state("pending")
         (self.root / "slot").write_text("1")
         (self.root / "ab").write_text("2")
+        self.set_mounted_slot(1)
         self.run_validator()
         self.assertEqual(self.operation()["Status"], "succeeded")
         self.assertIn("nvbootctrl verify\n", self.log.read_text())
         self.assertNotIn("mark-boot-successful", self.log.read_text())
         self.assertNotIn("reboot", self.log.read_text())
+
+    def test_post_boot_rejects_layout_mismatches_before_verification(self):
+        for mismatch in ("mounted-root", "kernel-partuuid", "bootloader-slot"):
+            with self.subTest(mismatch=mismatch):
+                self.reset_state("pending")
+                self.log.write_text("")
+                (self.root / "slot").write_text("1")
+                (self.root / "ab").write_text("2")
+                self.set_mounted_slot(1)
+                if mismatch == "mounted-root":
+                    (self.root / "root-source").write_text(
+                        str(self.root / "partitions/APP")
+                    )
+                elif mismatch == "kernel-partuuid":
+                    (self.root / "cmdline").write_text(
+                        "root=PARTUUID=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa rw\n"
+                    )
+                else:
+                    (self.root / "bootloader-slot").write_text("0")
+
+                self.run_validator()
+
+                self.assertEqual(self.operation()["Status"], "failed")
+                commands = self.log.read_text()
+                self.assertNotIn("nvbootctrl verify\n", commands)
+                self.assertNotIn("curl ", commands)
+                self.assertNotIn("reboot", commands)
+
+    def test_missing_running_partuuid_reports_the_specific_error(self):
+        (self.root / "missing-uuid").touch()
+        result = subprocess.run(
+            ["bash", str(VALIDATOR.with_name("lucia-rootfs-ab-check")), "--layout"],
+            env=self.environment,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("The running OS partition has no valid PARTUUID.", result.stderr)
 
     def test_disabled_ab_apply_and_rollback_do_not_write_or_reboot(self):
         updater = VALIDATOR.with_name("lucia-update")
