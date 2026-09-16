@@ -27,7 +27,10 @@ test('guides installation with manually entered Wi-Fi when the scan is empty', a
             bytesWritten: 30_601_641_984,
             totalBytes: 61_203_283_968,
           }
-        : { phase: 'waiting-for-configuration' },
+        : {
+            phase: 'waiting-for-configuration',
+            osUpdateWarning: 'NVIDIA RootFS A/B is not verified. You can install Lucia, but OS updates require boot-firmware provisioning.',
+          },
     });
   });
 
@@ -89,6 +92,7 @@ test('guides installation with manually entered Wi-Fi when the scan is empty', a
   await page.getByRole('button', { name: 'Begin setup' }).click();
 
   await expect(page.getByText('Lab SSD')).toBeVisible();
+  await expect(page.getByText('NVIDIA RootFS A/B is not verified.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: /Use Lab SSD/ }).click();
   await page.getByRole('button', { name: 'Continue to network' }).click();
 

@@ -24,6 +24,7 @@ export interface InstallerStatus {
   canRetryNetwork?: boolean
   dashboardKey?: string
   message?: string
+  osUpdateWarning?: string
 }
 
 export interface InstallerDisk {
@@ -101,6 +102,9 @@ function parseStatus(value: unknown): InstallerStatus {
   if (value.message !== undefined && typeof value.message !== 'string') {
     throw new Error('The installer returned an invalid failure message.')
   }
+  if (value.osUpdateWarning !== undefined && typeof value.osUpdateWarning !== 'string') {
+    throw new Error('The installer returned an invalid OS update warning.')
+  }
   return {
     phase: value.phase,
     hostname: value.hostname,
@@ -110,6 +114,7 @@ function parseStatus(value: unknown): InstallerStatus {
     canRetryNetwork: value.canRetryNetwork,
     dashboardKey: value.dashboardKey,
     message: value.message,
+    osUpdateWarning: value.osUpdateWarning,
   }
 }
 

@@ -30,6 +30,8 @@ test('manages an installed appliance from mobile', async ({ page }) => {
           versionId: '22.04',
           imageVersion: '0.2.0',
           jetsonLinuxVersion: '36.5.2',
+          rootfsAbEnabled: true,
+          updateBlockReason: null,
         },
         services: [
           { id: 'agenthost', activeState: 'active', unitFileState: 'enabled' },
@@ -206,6 +208,39 @@ test('manages an installed appliance from mobile', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Reboot Jetson' }).click();
   await expect(page.getByRole('dialog', { name: 'Reboot the Jetson?' })).toBeVisible();
+});
+
+test('keeps Lucia updates available while explaining an OS preflight failure', async ({ page }) => {
+  const reason = 'RootFS A/B is not enabled. Provision NVIDIA rootfs redundancy before installing an OS update.';
+  await page.route('**/api/auth/status', route => route.fulfill({
+    json: { authenticated: true, setupComplete: true, hasKeys: true },
+  }));
+  await page.route('**/api/appliance/capabilities', route => route.fulfill({ json: { enabled: true } }));
+  await page.route('**/api/appliance/status', route => route.fulfill({ json: {
+    hostname: 'lucia', architecture: 'arm64', board: 'jetson-orin-nano-super-p3767-0005',
+    luciaVersion: '1.4.4', storageBytes: 100_000_000_000, rebootRequired: false,
+    network: { ssid: 'Ethernet', signal: null }, services: [],
+    os: { name: 'Ubuntu', versionId: '22.04', imageVersion: '1.4.2', jetsonLinuxVersion: '36.5.2',
+      rootfsAbEnabled: false, updateBlockReason: reason },
+  } }));
+  await page.route('**/api/appliance/telemetry', route => route.fulfill({ json: {
+    configured: false, enabled: false, endpoint: '', insecureSkipVerify: false, hasAuthorization: false,
+  } }));
+  await page.route('**/api/appliance/updates/operation', route => route.fulfill({ json: {
+    operationId: null, action: 'none', channel: 'none', status: 'idle', tag: null, message: null,
+    luciaRollbackAvailable: false, osRollbackAvailable: false,
+  } }));
+  await page.route('**/api/appliance/updates', route => route.fulfill({ json: {
+    currentLuciaVersion: '1.4.4', currentOsVersion: '1.4.2', latestLuciaVersion: '1.5.0', latestOsVersion: '1.5.0',
+    manifestAvailable: true, compatible: true, luciaCompatible: true, osCompatible: false,
+    luciaNewerDiscovered: true, osNewerDiscovered: true, luciaUpdateAvailable: true, osUpdateAvailable: false,
+    releaseTag: 'v1.5.0', releaseUrl: null, message: null, osBlockReason: reason,
+  } }));
+  await page.goto('/appliance');
+  await expect(page.getByRole('alert')).toContainText(reason);
+  await page.getByRole('button', { name: 'Check for updates' }).click();
+  await expect(page.getByRole('button', { name: 'Install Lucia', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Install Jetson OS', exact: true })).toHaveCount(0);
 });
 
 test('keeps appliance navigation when the manager is temporarily unavailable', async ({ page }) => {

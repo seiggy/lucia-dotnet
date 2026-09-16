@@ -272,6 +272,7 @@ public sealed partial class ApplianceUpdateService(
                 && HasExpectedRuntime(luciaSource)
                 && HasRuntimeMetadata(luciaTarget);
             var osCompatible = hardwareCompatible
+                && current.Os.RootfsAbEnabled == true
                 && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
                 && osSource.GetProperty("jetsonLinux").GetString()
                     == current.Os.JetsonLinuxVersion
@@ -314,7 +315,10 @@ public sealed partial class ApplianceUpdateService(
                     ? "The latest appliance release is not compatible with this device."
                     : hasNewerRelease
                         ? "A signed update is ready to verify and install."
-                        : null);
+                        : null)
+            {
+                OsBlockReason = GetOsBlockReason(current.Os),
+            };
         }
 
         return null;
@@ -325,6 +329,12 @@ public sealed partial class ApplianceUpdateService(
         && System.Text.RegularExpressions.Regex.IsMatch(
             value,
             @"^v[0-9]+\.[0-9]+\.[0-9]+$");
+
+    private static string? GetOsBlockReason(ApplianceOsStatus os) =>
+        os.RootfsAbEnabled == true
+            ? null
+            : os.UpdateBlockReason
+                ?? "RootFS A/B has not been verified. Update the appliance manager and verify boot configuration before installing an OS update.";
 
     internal static async Task<JsonDocument> ReadManifestAsync(
         HttpContent content,
@@ -391,6 +401,11 @@ public sealed partial class ApplianceUpdateService(
         await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (channel == "os"
+                && GetOsBlockReason((await manager.GetStatusAsync(cancellationToken).ConfigureAwait(false)).Os) is { } reason)
+            {
+                throw new InvalidDataException(reason);
+            }
             await ReconcileHandedOffOperationAsync(cancellationToken)
                 .ConfigureAwait(false);
             var accepted = staging.TryStart(channel, tag)
@@ -488,6 +503,10 @@ public sealed partial class ApplianceUpdateService(
             }
             var current = await manager.GetStatusAsync(cancellationToken)
                 .ConfigureAwait(false);
+            if (channel == "os" && GetOsBlockReason(current.Os) is { } reason)
+            {
+                throw new InvalidDataException(reason);
+            }
             var compatibility = manifest.GetProperty("compatibility");
             if (!string.Equals(
                     compatibility.GetProperty("architecture").GetString(),

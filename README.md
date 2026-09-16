@@ -888,6 +888,10 @@ Lucia can run natively on a Jetson Orin Nano Super without Docker. The
 experimental microSD installer provisions A/B Jetson Linux 36.5.2 slots, a
 versioned Lucia partition, persistent Redis and SQLite data, captive setup, and
 appliance management.
+The disk image creates both OS partitions but does not enable RootFS A/B in the
+Jetson's boot firmware. The installer warns when firmware readiness is unverified.
+OS updates require verified redundancy and a consistent boot layout; Lucia-only
+updates remain available.
 
 The recovery password chosen during setup signs in as `lucia-recovery` over
 SSH or at the local console and authorizes sudo. Direct root SSH login is

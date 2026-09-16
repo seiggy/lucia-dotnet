@@ -20,6 +20,8 @@ export interface ApplianceStatus {
     versionId: string
     imageVersion: string
     jetsonLinuxVersion: string
+    rootfsAbEnabled: boolean | null
+    updateBlockReason: string | null
   }
   services: ApplianceServiceStatus[]
 }
@@ -57,6 +59,7 @@ export interface ApplianceUpdateStatus {
   releaseTag: string | null
   releaseUrl: string | null
   message: string | null
+  osBlockReason: string | null
 }
 
 export interface ApplianceUpdateOperationStatus {
@@ -117,6 +120,12 @@ function parseStatus(value: unknown): ApplianceStatus {
   const status = requireRecord(value, 'status')
   const os = requireRecord(status.os, 'OS status')
   const network = requireRecord(status.network, 'network status')
+  if (os.rootfsAbEnabled != null && typeof os.rootfsAbEnabled !== 'boolean') {
+    throw new Error('The appliance returned invalid RootFS A/B status.')
+  }
+  if (os.updateBlockReason != null && typeof os.updateBlockReason !== 'string') {
+    throw new Error('The appliance returned an invalid OS update prerequisite.')
+  }
   if (
     !Array.isArray(status.services)
     || typeof status.rebootRequired !== 'boolean'
@@ -151,6 +160,8 @@ function parseStatus(value: unknown): ApplianceStatus {
       versionId: requireString(os, 'versionId'),
       imageVersion: requireString(os, 'imageVersion'),
       jetsonLinuxVersion: requireString(os, 'jetsonLinuxVersion'),
+      rootfsAbEnabled: os.rootfsAbEnabled ?? null,
+      updateBlockReason: os.updateBlockReason ?? null,
     },
     services,
   }
@@ -198,6 +209,7 @@ function parseUpdates(value: unknown): ApplianceUpdateStatus {
     releaseTag: optionalString('releaseTag'),
     releaseUrl: optionalString('releaseUrl'),
     message: optionalString('message'),
+    osBlockReason: updates.osBlockReason === undefined ? null : optionalString('osBlockReason'),
   }
 }
 

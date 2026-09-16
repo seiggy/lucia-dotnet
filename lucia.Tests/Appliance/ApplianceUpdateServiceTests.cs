@@ -144,6 +144,12 @@ public sealed class ApplianceUpdateServiceTests
         true,
         true)]
     [InlineData(
+        "jetson-orin-nano-super-p3767-0005", "36.5.2",
+        "1.2.3", "1.1.0", true, false, true, false, false)]
+    [InlineData(
+        "jetson-orin-nano-super-p3767-0005", "36.5.2",
+        "1.2.3", "1.1.0", true, false, true, false, null)]
+    [InlineData(
         "jetson-orin-nano-super-p3767-0005",
         "36.5.2",
         "1.2.2",
@@ -196,7 +202,8 @@ public sealed class ApplianceUpdateServiceTests
         bool expectedLuciaCompatible,
         bool expectedOsCompatible,
         bool expectedLuciaUpdate,
-        bool expectedOsUpdate)
+        bool expectedOsUpdate,
+        bool? rootfsAbEnabled = true)
     {
         var socketPath = Path.Combine(
             Path.GetTempPath(),
@@ -231,7 +238,7 @@ public sealed class ApplianceUpdateServiceTests
 
                 var body =
                     """
-                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"CURRENT_LUCIA","storageBytes":2000000000000,"rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"CURRENT_OS","jetsonLinuxVersion":"36.5.2"},"services":[]}
+                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"CURRENT_LUCIA","storageBytes":2000000000000,"rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"CURRENT_OS","jetsonLinuxVersion":"36.5.2","rootfsAbEnabled":ROOTFS_AB},"services":[]}
                     """
                     .Replace(
                         "CURRENT_LUCIA",
@@ -240,7 +247,8 @@ public sealed class ApplianceUpdateServiceTests
                     .Replace(
                         "CURRENT_OS",
                         currentOsVersion,
-                        StringComparison.Ordinal);
+                        StringComparison.Ordinal)
+                    .Replace("ROOTFS_AB", JsonSerializer.Serialize(rootfsAbEnabled), StringComparison.Ordinal);
                 var response = Encoding.UTF8.GetBytes(
                     "HTTP/1.1 200 OK\r\n"
                     + "Content-Type: application/json\r\n"
@@ -302,6 +310,7 @@ public sealed class ApplianceUpdateServiceTests
                 expectedLuciaUpdate,
                 result.LuciaUpdateAvailable);
             Assert.Equal(expectedOsUpdate, result.OsUpdateAvailable);
+            Assert.Equal(rootfsAbEnabled != true, result.OsBlockReason is not null);
             Assert.Equal("1.3.0", result.LatestLuciaVersion);
             Assert.Equal("1.4.0", result.LatestOsVersion);
             Assert.Equal("v1.3.0", result.ReleaseTag);
@@ -372,7 +381,7 @@ public sealed class ApplianceUpdateServiceTests
 
                 const string Body =
                     """
-                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"1.2.3","storageBytes":2000000000000,"rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"1.1.0","jetsonLinuxVersion":"36.5.2"},"services":[]}
+                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"1.2.3","storageBytes":2000000000000,"rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"1.1.0","jetsonLinuxVersion":"36.5.2","rootfsAbEnabled":true},"services":[]}
                     """;
                 var response = Encoding.UTF8.GetBytes(
                     "HTTP/1.1 200 OK\r\n"

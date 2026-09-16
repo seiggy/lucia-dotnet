@@ -15,4 +15,7 @@ public sealed record ApplianceUpdateStatus(
     bool OsUpdateAvailable,
     string? ReleaseTag,
     string? ReleaseUrl,
-    string? Message);
+    string? Message)
+{
+    public string? OsBlockReason { get; init; }
+}

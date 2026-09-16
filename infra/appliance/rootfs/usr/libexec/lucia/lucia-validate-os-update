@@ -48,6 +48,36 @@ set_status() {
     sync -f "$(dirname "$state")"
 }
 
+stop_recovery() {
+    local failed_action=rollback
+    if [[ "${status:-}" == pending || "${rollback_reason:-}" == apply-failure ]]; then
+        failed_action=apply
+    fi
+    set_status failed
+    write_operation "$failed_action" failed "$1"
+    printf '%s\n' "$1" >&2
+    rm -f "$validation_credential_path"
+    exit 0
+}
+
+request_recovery_reboot() {
+    local slot="$1"
+    local attempts
+    attempts="$(sed -n 's/^reboot_attempts=//p' "$state")"
+    attempts="${attempts:-0}"
+    [[ "$attempts" =~ ^[0-9]$ && "$attempts" -lt 2 ]] \
+        || stop_recovery "OS recovery stopped after repeated slot-switch attempts. Keep the device powered on and inspect its boot configuration."
+    sed '/^reboot_attempts=/d' "$state" > "${state}.tmp"
+    printf 'reboot_attempts=%s\n' "$((attempts + 1))" >> "${state}.tmp"
+    sync -f "${state}.tmp"
+    mv -f "${state}.tmp" "$state"
+    sync -f "$(dirname "$state")"
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$slot" \
+        || stop_recovery "NVIDIA rejected the OS slot switch. No reboot was requested."
+    "$systemctl_path" --no-block reboot \
+        || stop_recovery "The OS recovery reboot was rejected. Keep the device powered on and inspect the update status."
+}
+
 [[ -f "$state" ]] || exit 0
 status="$(sed -n 's/^status=//p' "$state")"
 if [[ "$status" != "pending" \
@@ -63,7 +93,9 @@ rollback_reason="$(sed -n 's/^rollback_reason=//p' "$state")"
 [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] || exit 1
 [[ "$target_slot" == "0" || "$target_slot" == "1" ]] || exit 1
 [[ "$previous_slot" != "$target_slot" ]] || exit 1
-current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
+if ! current_slot="$(bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check")"; then
+    stop_recovery "RootFS A/B is unavailable or inconsistent. OS recovery stopped without rebooting; repair the boot configuration before retrying."
+fi
 
 if [[ "$current_slot" != "$previous_slot" \
     && "$current_slot" != "$target_slot" ]]; then
@@ -71,18 +103,16 @@ if [[ "$current_slot" != "$previous_slot" \
 fi
 if [[ "$current_slot" == "$target_slot" \
     && "$status" == "rollback-pending" ]]; then
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
     write_operation rollback running \
         "OS rollback is retrying the previous slot."
-    "$systemctl_path" --no-block reboot
+    request_recovery_reboot "$previous_slot"
     exit 0
 fi
 if [[ "$current_slot" == "$previous_slot" \
     && "$status" == "rollback-recovery-pending" ]]; then
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
     write_operation rollback running \
         "OS rollback recovery is retrying the current slot."
-    "$systemctl_path" --no-block reboot
+    request_recovery_reboot "$target_slot"
     exit 0
 fi
 validation_credential=""
@@ -109,7 +139,8 @@ if [[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
     done
 fi
 if [[ "$healthy" == true ]]; then
-    "$nvbootctrl_path" -t rootfs mark-boot-successful
+    "$nvbootctrl_path" verify \
+        || stop_recovery "NVIDIA boot verification failed. The OS update was not marked successful."
     if [[ "$current_slot" == "$previous_slot" ]]; then
         if [[ "$rollback_reason" == "apply-failure" \
             || "$status" == "pending" ]]; then
@@ -143,7 +174,7 @@ if [[ "$healthy" == true ]]; then
 fi
 
 if [[ "$current_slot" == "$target_slot" && "$status" == "pending" ]]; then
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    recovery_slot="$previous_slot"
     sed -E \
         -e 's/^status=.*/status=rollback-pending/' \
         -e '/^rollback_reason=/d' \
@@ -155,7 +186,7 @@ if [[ "$current_slot" == "$target_slot" && "$status" == "pending" ]]; then
     write_operation apply running \
         "OS update failed boot validation; rollback is scheduled."
 elif [[ "$current_slot" == "$previous_slot" ]]; then
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
+    recovery_slot="$target_slot"
     set_status rollback-recovery-pending
     write_operation rollback running \
         "OS rollback failed boot validation; the current slot is being restored."
@@ -171,5 +202,5 @@ else
     rm -f "$validation_credential_path"
     exit 0
 fi
-"$systemctl_path" --no-block reboot
+request_recovery_reboot "$recovery_slot"
 exit 0

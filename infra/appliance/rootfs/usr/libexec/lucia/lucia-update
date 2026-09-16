@@ -1112,7 +1112,12 @@ apply_os() {
     local validation_credential
     local slot_mount="$work_dir/os-slot"
     local slot_root_mounted=false
+    local current_label
+    local current_device
+    local target_uuid
 
+    current_slot="$(bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout)" \
+        || die "RootFS A/B preflight failed; no OS partitions were written."
     verified_output="$(verify_and_assemble os "$selected_tag")" \
         || die "OS update verification failed"
     mapfile -t verified <<< "$verified_output"
@@ -1136,6 +1141,16 @@ apply_os() {
         kernel_label=A_kernel
         dtb_label=A_kernel-dtb
     fi
+    current_label="$([[ "$current_slot" == 0 ]] && printf APP || printf APP_b)"
+    current_device="$(findmnt -n -o SOURCE --target "${LUCIA_ROOTFS_MOUNT:-/}")"
+    [[ -b "$current_device" && -b "$partlabel_dir/$current_label" \
+        && "$(stat -Lc '%t:%T' "$current_device")" == "$(stat -Lc '%t:%T' "$partlabel_dir/$current_label")" ]] \
+        || die "Mounted root filesystem does not match NVIDIA's current RootFS A/B slot."
+    [[ "$(lsblk -dn -o PKNAME "$current_device")" == "$(lsblk -dn -o PKNAME "$partlabel_dir/$app_label")" ]] \
+        || die "Inactive OS partition is not on the current root filesystem's disk."
+    target_uuid="$(blkid -s PARTUUID -o value "$partlabel_dir/$app_label")"
+    [[ "$target_uuid" =~ ^[0-9a-fA-F-]{36}$ ]] \
+        || die "Inactive OS partition has no valid PARTUUID."
     system_image="system.img${suffix}"
     boot_image="boot.img${suffix}"
     dtb_image="$(
@@ -1232,6 +1247,8 @@ apply_os() {
         "$partlabel_dir/$app_label" "$slot_mount"
     slot_root_mounted=true
     preserve_device_state "$slot_mount"
+    python3 "$(dirname "${BASH_SOURCE[0]}")/lucia-rebind-rootfs.py" \
+        "$slot_mount" "$target_uuid"
     sync -f "$slot_mount"
     umount "$slot_mount"
     slot_root_mounted=false
@@ -1253,6 +1270,8 @@ apply_os() {
 }
 
 rollback_os() {
+    bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout >/dev/null \
+        || die "RootFS A/B preflight failed; no rollback or reboot was requested."
     local state="$state_dir/os.env"
     local previous_slot
     local target_slot
@@ -1360,8 +1379,10 @@ rollback_os() {
             rollback_reason_written = 1
             next
         }
+        /^reboot_attempts=/ { next }
         { print }
         END {
+            print "reboot_attempts=0"
             if (!operation_id_written && rollback_operation_id != "") {
                 print "operation_id=" rollback_operation_id
             }

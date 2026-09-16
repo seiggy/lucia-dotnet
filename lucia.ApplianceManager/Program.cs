@@ -77,14 +77,20 @@ app.MapGet(
             : Results.NotFound());
 app.MapPost(
     "/v1/updates/{channel}/{action}",
-    (
+    async (
         string channel,
         string action,
         UpdateOperationRequest request,
-        ApplianceUpdateCoordinator updates) =>
+        ApplianceUpdateCoordinator updates,
+        CancellationToken cancellationToken) =>
     {
         try
         {
+            if (channel == "os"
+                && await ReadOsUpdateBlockReasonAsync(cancellationToken).ConfigureAwait(false) is { } reason)
+            {
+                return Results.Conflict(new { Error = reason });
+            }
             var result = updates.TryStart(
                 action,
                 channel,
@@ -165,6 +171,7 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
     var releaseTarget = currentRelease.LinkTarget ?? currentRelease.FullName;
     var luciaVersion = Path.GetFileName(
         releaseTarget.TrimEnd(Path.DirectorySeparatorChar));
+    var osUpdateBlockReason = await ReadOsUpdateBlockReasonAsync(cancellationToken).ConfigureAwait(false);
 
     return Results.Ok(new
     {
@@ -189,6 +196,8 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
                 ? File.ReadAllText(osVersionPath).Trim()
                 : "unknown",
             JetsonLinuxVersion = ReadJetsonLinuxVersion(jetsonReleasePath),
+            RootfsAbEnabled = osUpdateBlockReason is null,
+            UpdateBlockReason = osUpdateBlockReason,
         },
         Services = services.Select(service =>
         {
@@ -483,9 +492,44 @@ static async Task<(int ExitCode, string StandardOutput, string StandardError)>
 {
     var systemctlPath = Environment.GetEnvironmentVariable("LUCIA_SYSTEMCTL_PATH")
         ?? "/usr/bin/systemctl";
+    return await RunCommandAsync(systemctlPath, arguments, cancellationToken).ConfigureAwait(false);
+}
+
+static async Task<string?> ReadOsUpdateBlockReasonAsync(CancellationToken cancellationToken)
+{
+    var check = Environment.GetEnvironmentVariable("LUCIA_ROOTFS_AB_CHECK_PATH")
+        ?? "/usr/libexec/lucia/lucia-rootfs-ab-check";
+    if (!File.Exists(check))
+    {
+        return "OS update preflight is unavailable. Install the matching appliance recovery helpers before retrying. Lucia updates remain available.";
+    }
+    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+    timeout.CancelAfter(TimeSpan.FromSeconds(25));
+    try
+    {
+        var result = await RunCommandAsync("/bin/bash", [check, "--layout"], timeout.Token).ConfigureAwait(false);
+        return result.ExitCode == 0 && result.StandardOutput.Trim() is "0" or "1"
+            ? null
+            : string.IsNullOrWhiteSpace(result.StandardError)
+                ? "RootFS A/B status is invalid. OS updates are blocked until boot configuration is repaired."
+                : result.StandardError.Trim();
+    }
+    catch (Win32Exception exception)
+    {
+        return $"RootFS A/B preflight could not start: {exception.Message}";
+    }
+    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+    {
+        return "RootFS A/B preflight timed out. OS updates are blocked; keep the device powered on.";
+    }
+}
+
+static async Task<(int ExitCode, string StandardOutput, string StandardError)>
+    RunCommandAsync(string fileName, IEnumerable<string> arguments, CancellationToken cancellationToken)
+{
     var startInfo = new ProcessStartInfo
     {
-        FileName = systemctlPath,
+        FileName = fileName,
         RedirectStandardError = true,
         RedirectStandardOutput = true,
         UseShellExecute = false,
@@ -496,7 +540,7 @@ static async Task<(int ExitCode, string StandardOutput, string StandardError)>
     }
 
     using var process = Process.Start(startInfo)
-        ?? throw new InvalidOperationException("Failed to start systemctl.");
+        ?? throw new InvalidOperationException($"Failed to start {fileName}.");
     var standardOutputTask = process.StandardOutput.ReadToEndAsync();
     var standardErrorTask = process.StandardError.ReadToEndAsync();
 
