@@ -22,6 +22,7 @@ write_operation() {
     local action="$1"
     local operation_status="$2"
     local message="$3"
+    local phase="${4:-}"
     local tag
     local operation_id
     tag="$(sed -n 's/^tag=//p' "$state")"
@@ -34,6 +35,30 @@ write_operation() {
         "$message" \
         "$([[ "$operation_id" =~ ^[0-9a-fA-F-]{36}$ ]] && printf '"%s"' "$operation_id" || printf 'null')" \
         > "$update_root/state/operation.json.tmp"
+    python3 - "$update_root/state/operation.json" "$phase" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+temporary = path.with_suffix(".json.tmp")
+status = json.loads(temporary.read_text())
+previous = json.loads(path.read_text()) if path.is_file() else {}
+if (
+    previous.get("OperationId", previous.get("operationId")) == status["OperationId"]
+    and previous.get("Channel", previous.get("channel")) == status["Channel"]
+):
+    for key in ("Phase", "CompletedBytes", "TotalBytes"):
+        status[key] = previous.get(key, previous.get(key[0].lower() + key[1:]))
+phase = sys.argv[2]
+if status["Status"] == "succeeded":
+    phase = "complete"
+elif status["Status"] == "running" and not phase:
+    phase = "restarting"
+if phase:
+    status.update(Phase=phase, CompletedBytes=None, TotalBytes=None)
+temporary.write_text(json.dumps(status, separators=(",", ":")) + "\n")
+PY
     sync -f "$update_root/state/operation.json.tmp"
     mv -f "$update_root/state/operation.json.tmp" \
         "$update_root/state/operation.json"
@@ -119,6 +144,12 @@ validation_credential=""
 if [[ -r "$validation_credential_path" ]]; then
     validation_credential="$(cat "$validation_credential_path")"
 fi
+validation_action=rollback
+if [[ "$status" == pending || "$rollback_reason" == apply-failure ]]; then
+    validation_action=apply
+fi
+write_operation "$validation_action" running \
+    "OS boot health validation is running." validating
 
 healthy=false
 if [[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \

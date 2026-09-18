@@ -44,6 +44,7 @@
 - **Client:** Microsoft.Extensions.AI ModelContextProtocol (v0.9.0-preview.1)
 - **Transports:** stdio (local processes), HTTP/SSE (remote, e.g. MetaMCP)
 - **Dynamic Agents:** MCP tools are assigned to agent definitions and resolved at runtime via `IMcpToolRegistry`
+- **Python stdio tools:** AgentHost container variants include uv/uvx 0.12.16 from the digest-pinned multi-architecture Astral image. Cache, tools, and managed Python use writable `/tmp/uv-*` directories created by the runtime user. No installer script runs during image builds.
 
 ## Frontend Stack
 

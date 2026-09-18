@@ -60,10 +60,16 @@ export interface ApplianceUpdateStatus {
   releaseUrl: string | null
   message: string | null
   osBlockReason: string | null
+  luciaReleaseTag: string | null
+  osReleaseTag: string | null
+  installerReleaseUrl: string | null
 }
 
 export interface ApplianceUpdateOperationStatus {
   operationId: string | null
+  phase: string | null
+  completedBytes: number | null
+  totalBytes: number | null
   action: string
   channel: string
   status: 'idle' | 'queued' | 'running' | 'succeeded' | 'failed'
@@ -210,6 +216,9 @@ function parseUpdates(value: unknown): ApplianceUpdateStatus {
     releaseUrl: optionalString('releaseUrl'),
     message: optionalString('message'),
     osBlockReason: updates.osBlockReason === undefined ? null : optionalString('osBlockReason'),
+    luciaReleaseTag: updates.luciaReleaseTag === undefined ? optionalString('releaseTag') : optionalString('luciaReleaseTag'),
+    osReleaseTag: updates.osReleaseTag === undefined ? optionalString('releaseTag') : optionalString('osReleaseTag'),
+    installerReleaseUrl: updates.installerReleaseUrl === undefined ? null : optionalString('installerReleaseUrl'),
   }
 }
 
@@ -219,10 +228,29 @@ function parseUpdateOperation(value: unknown): ApplianceUpdateOperationStatus {
   if (!['idle', 'queued', 'running', 'succeeded', 'failed'].includes(status)) {
     throw new Error('The appliance returned an invalid update operation state.')
   }
+  const phase = operation.phase === null || operation.phase === undefined
+    ? null
+    : requireString(operation, 'phase')
+  function optionalBytes(key: string): number | null {
+    const value = operation[key]
+    if (value == null) return null
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`The appliance returned invalid ${key}.`)
+    }
+    return value
+  }
+  const completedBytes = optionalBytes('completedBytes')
+  const totalBytes = optionalBytes('totalBytes')
+  if (totalBytes !== null && (totalBytes === 0 || completedBytes === null || completedBytes > totalBytes)) {
+    throw new Error('The appliance returned invalid phase progress.')
+  }
   return {
-    operationId: operation.operationId === null
+    operationId: operation.operationId === null || operation.operationId === undefined
       ? null
       : requireString(operation, 'operationId'),
+    phase,
+    completedBytes,
+    totalBytes,
     action: requireString(operation, 'action'),
     channel: requireString(operation, 'channel'),
     status: status === 'idle'
@@ -232,8 +260,8 @@ function parseUpdateOperation(value: unknown): ApplianceUpdateOperationStatus {
       || status === 'failed'
       ? status
       : 'failed',
-    tag: operation.tag === null ? null : requireString(operation, 'tag'),
-    message: operation.message === null ? null : requireString(operation, 'message'),
+    tag: operation.tag === null || operation.tag === undefined ? null : requireString(operation, 'tag'),
+    message: operation.message === null || operation.message === undefined ? null : requireString(operation, 'message'),
     luciaRollbackAvailable: requireBoolean(operation, 'luciaRollbackAvailable'),
     osRollbackAvailable: requireBoolean(operation, 'osRollbackAvailable'),
   }

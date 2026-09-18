@@ -94,6 +94,14 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 USER appuser
 
+COPY --from=ghcr.io/astral-sh/uv:0.12.16@sha256:adc68cd785ca65ea25c0611043b0a00b4ea3a22e1b54102fc084406d888082ee /uv /uvx /usr/local/bin/
+ENV UV_CACHE_DIR=/tmp/uv-cache \
+    UV_PYTHON_CACHE_DIR=/tmp/uv-cache/python \
+    UV_TOOL_DIR=/tmp/uv-tools \
+    UV_TOOL_BIN_DIR=/tmp/uv-tools/bin \
+    UV_PYTHON_INSTALL_DIR=/tmp/uv-python \
+    PATH=/tmp/uv-tools/bin:/usr/local/bin:${PATH}
+
 LABEL org.opencontainers.image.title="Lucia Home Assistant Agent" \
       org.opencontainers.image.description="Privacy-first multi-agent assistant for Home Assistant (CPU-only)" \
       org.opencontainers.image.source="https://github.com/seiggy/lucia-dotnet"

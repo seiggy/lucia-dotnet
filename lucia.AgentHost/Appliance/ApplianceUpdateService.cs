@@ -28,6 +28,10 @@ public sealed partial class ApplianceUpdateService(
         var current = await manager.GetStatusAsync(checkToken)
             .ConfigureAwait(false);
         ApplianceUpdateStatus? latestStableStatus = null;
+        ApplianceUpdateStatus? luciaRelease = null;
+        ApplianceUpdateStatus? osRelease = null;
+        ApplianceUpdateStatus? latestOsRelease = null;
+        string? installerReleaseUrl = null;
         for (var page = 1; ; page++)
         {
             var releaseApi = new Uri(
@@ -83,6 +87,7 @@ public sealed partial class ApplianceUpdateService(
                         or FormatException
                         or OverflowException)
                 {
+                    LogInvalidManifest(exception, releaseTag);
                     continue;
                 }
                 if (status is null)
@@ -90,18 +95,26 @@ public sealed partial class ApplianceUpdateService(
                     continue;
                 }
                 latestStableStatus ??= status;
-                if (status.LuciaUpdateAvailable || status.OsUpdateAvailable)
+                if (status.LuciaCompatible)
                 {
-                    return status;
+                    luciaRelease ??= status;
                 }
-                if (status.Compatible
-                    && !status.LuciaNewerDiscovered
-                    && !status.OsNewerDiscovered)
+                if (status.OsCompatible)
                 {
-                    return status;
+                    osRelease ??= status;
+                }
+                if (status.LatestOsVersion is not null)
+                {
+                    latestOsRelease ??= status;
+                }
+                installerReleaseUrl ??= status.InstallerReleaseUrl;
+                if (luciaRelease is not null && osRelease is not null && installerReleaseUrl is not null)
+                {
+                    break;
                 }
             }
-            if (releases.GetArrayLength() < ReleasePageSize)
+            if (releases.GetArrayLength() < ReleasePageSize
+                || luciaRelease is not null && osRelease is not null && installerReleaseUrl is not null)
             {
                 break;
             }
@@ -109,11 +122,25 @@ public sealed partial class ApplianceUpdateService(
 
         if (latestStableStatus is not null)
         {
-            return latestStableStatus with
+            var lucia = luciaRelease ?? latestStableStatus;
+            var os = osRelease ?? latestOsRelease;
+            var available = lucia.LuciaUpdateAvailable || os?.OsUpdateAvailable == true;
+            return lucia with
             {
-                LuciaUpdateAvailable = false,
-                OsUpdateAvailable = false,
-                Message = "No compatible newer appliance release was found for this device.",
+                LatestOsVersion = os?.LatestOsVersion,
+                OsCompatible = os?.OsCompatible == true,
+                OsNewerDiscovered = os?.OsNewerDiscovered == true,
+                OsUpdateAvailable = os?.OsUpdateAvailable == true,
+                Compatible = lucia.LuciaCompatible || os?.OsCompatible == true,
+                LuciaReleaseTag = lucia.ReleaseTag,
+                OsReleaseTag = os?.ReleaseTag,
+                InstallerReleaseUrl = installerReleaseUrl,
+                Message = available
+                    ? "A signed update is ready to verify and install."
+                    : lucia.LuciaCompatible && !lucia.LuciaNewerDiscovered
+                        && os?.OsNewerDiscovered != true
+                        ? null
+                        : "No compatible newer appliance release was found for this device.",
             };
         }
 
@@ -256,11 +283,10 @@ public sealed partial class ApplianceUpdateService(
                 .GetProperty("requires");
             var luciaSource = luciaRequirements.GetProperty("source");
             var luciaTarget = luciaRequirements.GetProperty("target");
-            var osRequirements = channels
-                .GetProperty("os")
-                .GetProperty("requires");
-            var osSource = osRequirements.GetProperty("source");
-            var osTarget = osRequirements.GetProperty("target");
+            var hasOs = channels.TryGetProperty("os", out var osChannel);
+            var osRequirements = hasOs ? osChannel.GetProperty("requires") : default;
+            var osSource = hasOs ? osRequirements.GetProperty("source") : default;
+            var osTarget = hasOs ? osRequirements.GetProperty("target") : default;
             var luciaCompatible = hardwareCompatible
                 && string.Equals(
                     luciaSource.GetProperty("jetsonLinux").GetString(),
@@ -271,7 +297,7 @@ public sealed partial class ApplianceUpdateService(
                 && !luciaRequirements.GetProperty("reboot").GetBoolean()
                 && HasExpectedRuntime(luciaSource)
                 && HasRuntimeMetadata(luciaTarget);
-            var osCompatible = hardwareCompatible
+            var osCompatible = hasOs && hardwareCompatible
                 && current.Os.RootfsAbEnabled == true
                 && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
                 && osSource.GetProperty("jetsonLinux").GetString()
@@ -286,10 +312,7 @@ public sealed partial class ApplianceUpdateService(
                 .GetProperty("lucia")
                 .GetProperty("version")
                 .GetString();
-            var latestOsVersion = channels
-                .GetProperty("os")
-                .GetProperty("version")
-                .GetString();
+            var latestOsVersion = hasOs ? osChannel.GetProperty("version").GetString() : null;
             var luciaNewerDiscovered =
                 IsNewer(latestLuciaVersion, current.LuciaVersion);
             var osNewerDiscovered =
@@ -318,6 +341,10 @@ public sealed partial class ApplianceUpdateService(
                         : null)
             {
                 OsBlockReason = GetOsBlockReason(current.Os),
+                LuciaReleaseTag = releaseTag,
+                OsReleaseTag = hasOs ? releaseTag : null,
+                InstallerReleaseUrl = hardwareCompatible && channels.TryGetProperty("installer", out _)
+                    ? releaseUrl : null,
             };
         }
 
@@ -529,9 +556,10 @@ public sealed partial class ApplianceUpdateService(
                 throw new InvalidDataException(
                     "The appliance release metadata is incomplete or unsupported.");
             }
-            var selectedChannel = manifest
-                .GetProperty("channels")
-                .GetProperty(channel);
+            if (!manifest.GetProperty("channels").TryGetProperty(channel, out var selectedChannel))
+            {
+                throw new InvalidDataException($"Release {tag} has no {channel} update.");
+            }
             var requirements = selectedChannel.GetProperty("requires");
             var luciaSource = channel == "lucia"
                 ? requirements.GetProperty("source")
@@ -577,6 +605,9 @@ public sealed partial class ApplianceUpdateService(
             }
             var (parts, channelBytes) = ValidateParts(selectedChannel, tag);
             EnsureStagingCapacity(staging.Root, channelBytes);
+            long completedBytes = 0;
+            var lastProgressAt = Environment.TickCount64;
+            staging.SetProgress("downloading", 0, channelBytes);
             foreach (var part in parts)
             {
                 var name = part.GetProperty("name").GetString()!;
@@ -592,8 +623,17 @@ public sealed partial class ApplianceUpdateService(
                         bytes,
                         sha256,
                         maximumBytes: 1_900_000_000,
-                        cancellationToken)
+                        cancellationToken,
+                        downloaded =>
+                        {
+                            if (downloaded == bytes || Environment.TickCount64 - lastProgressAt >= 500)
+                            {
+                                staging.SetProgress("downloading", completedBytes + downloaded, channelBytes);
+                                lastProgressAt = Environment.TickCount64;
+                            }
+                        })
                     .ConfigureAwait(false);
+                completedBytes += bytes;
             }
 
             var finalStage = Path.Combine(staging.Root, tag);
@@ -853,6 +893,11 @@ public sealed partial class ApplianceUpdateService(
     }
 
     [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Ignoring unsupported appliance manifest for {Tag}.")]
+    private partial void LogInvalidManifest(Exception exception, string? tag);
+
+    [LoggerMessage(
         Level = LogLevel.Error,
         Message = "Failed to stage {Channel} update from {Tag}.")]
     private partial void LogStagingFailure(
@@ -1022,7 +1067,8 @@ public sealed partial class ApplianceUpdateService(
         long? expectedBytes,
         string? expectedSha256,
         long maximumBytes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<long>? reportProgress = null)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
@@ -1070,6 +1116,7 @@ public sealed partial class ApplianceUpdateService(
                         buffer.AsMemory(0, read),
                         downloadToken)
                     .ConfigureAwait(false);
+                reportProgress?.Invoke(total);
             }
             await target.FlushAsync(downloadToken).ConfigureAwait(false);
             if (expectedBytes is not null && total != expectedBytes)

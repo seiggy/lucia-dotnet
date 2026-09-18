@@ -11,6 +11,15 @@ on:
         description: Existing stable release tag
         required: true
         type: string
+      force-full:
+        description: Force a full appliance image build instead of app-only when the last published image fingerprint is unchanged
+        required: false
+        type: boolean
+        default: false
+      os-version:
+        description: OS image version for a full build, defaults to the release version
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -63,6 +72,7 @@ jobs:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
       VOICE_ASSET_IMAGE: ghcr.io/${{ github.repository }}/jetson-voice-assets
       VOICE_ASSET_REF: ${{ needs.voice-assets.outputs.image_ref }}
+      OS_VERSION: ${{ inputs.os-version }}
 
     steps:
       - name: Check out release
@@ -70,6 +80,21 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ env.RELEASE_TAG }}
+
+      - name: Choose release mode
+        id: release-mode
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_FULL: ${{ inputs.force-full || 'false' }}
+        run: |
+          force_args=()
+          if [[ "$FORCE_FULL" == true ]]; then
+            force_args+=(--force-full)
+          fi
+          python3 infra/appliance/release/planner.py \
+            --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY" \
+            "${force_args[@]}"
 
       - name: Set up .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -105,17 +130,27 @@ jobs:
           test "$(uname -s)" = Linux
           test "$(uname -m)" = x86_64
           sudo -n true
-          test -x /usr/bin/qemu-aarch64-static
           available_kib="$(df --output=avail "$RUNNER_TEMP" | tail -1 | tr -d ' ')"
-          test "$available_kib" -ge $((200 * 1024 * 1024))
+          if [[ "${{ steps.release-mode.outputs.release_mode }}" == full ]]; then
+            test -x /usr/bin/qemu-aarch64-static
+            test "$available_kib" -ge $((200 * 1024 * 1024))
+          else
+            test "$available_kib" -ge $((30 * 1024 * 1024))
+          fi
 
       - name: Test appliance release
         run: |
           dotnet test lucia.Tests/lucia.Tests.csproj \
             --filter "FullyQualifiedName~lucia.Tests.Appliance"
           python3 infra/appliance/release/test_package_release.py
+          python3 infra/appliance/release/test_planner.py
           bash infra/appliance/release/test_build_release_assets.sh
+          sudo python3 infra/appliance/release/test_app_only_build.py
           bash infra/appliance/test-build-native-bundle.sh
+
+      - name: Test image installation and recovery
+        if: steps.release-mode.outputs.release_mode == 'full'
+        run: |
           bash infra/appliance/installer/test-installer-rootfs.sh
           bash infra/appliance/installer/test-network-bootstrap.sh
           sudo bash infra/appliance/installer/test-provision-target.sh
@@ -130,46 +165,83 @@ jobs:
       - name: Build appliance channels
         run: |
           version="${RELEASE_TAG#v}"
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
           bash infra/appliance/release/build-release-assets.sh \
             --version "$version" \
+            --os-version "${OS_VERSION:-$version}" \
             --work-dir "$RUNNER_TEMP/lucia-appliance-$version" \
-            --output-dir "$GITHUB_WORKSPACE/dist"
+            --output-dir "$GITHUB_WORKSPACE/dist" \
+            --release-mode "${{ steps.release-mode.outputs.release_mode }}"
 
       - name: Package release assets
         run: |
           source infra/appliance/release/appliance.lock
           version="${RELEASE_TAG#v}"
-          python3 infra/appliance/release/package_release.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --tag "$RELEASE_TAG" \
-            --installer "dist/raw/lucia-appliance-$version-installer.img.zst" \
-            --lucia "dist/raw/lucia-appliance-$version-lucia.tar.zst" \
-            --os "dist/raw/lucia-appliance-$version-os.tar.zst" \
-            --lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION" \
-            --lucia-source-redis "$LUCIA_SOURCE_REDIS_VERSION" \
-            --lucia-source-cuda "$LUCIA_SOURCE_CUDA_VERSION" \
-            --lucia-source-cudnn "$LUCIA_SOURCE_CUDNN_VERSION" \
-            --lucia-source-onnx-runtime "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" \
-            --lucia-source-sherpa-onnx "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" \
-            --os-source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION" \
-            --os-source-redis "$OS_SOURCE_REDIS_VERSION" \
-            --os-source-cuda "$OS_SOURCE_CUDA_VERSION" \
-            --os-source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
-            --os-source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
-            --os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
-            --lucia-target-jetson-linux "$LUCIA_TARGET_JETSON_LINUX_VERSION" \
-            --lucia-target-redis "$LUCIA_TARGET_REDIS_VERSION" \
-            --lucia-target-cuda "$LUCIA_TARGET_CUDA_VERSION" \
-            --lucia-target-cudnn "$LUCIA_TARGET_CUDNN_VERSION" \
-            --lucia-target-onnx-runtime "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
-            --lucia-target-sherpa-onnx "$LUCIA_TARGET_SHERPA_ONNX_VERSION" \
-            --os-target-jetson-linux "$OS_TARGET_JETSON_LINUX_VERSION" \
-            --os-target-redis "$OS_TARGET_REDIS_VERSION" \
-            --os-target-cuda "$OS_TARGET_CUDA_VERSION" \
-            --os-target-cudnn "$OS_TARGET_CUDNN_VERSION" \
-            --os-target-onnx-runtime "$OS_TARGET_ONNX_RUNTIME_VERSION" \
-            --os-target-sherpa-onnx "$OS_TARGET_SHERPA_ONNX_VERSION" \
-            --output-dir dist/release
+          release_mode="${{ steps.release-mode.outputs.release_mode }}"
+          case "$release_mode" in
+            full)
+              python3 infra/appliance/release/package_release.py \
+                --repository "$GITHUB_REPOSITORY" \
+                --tag "$RELEASE_TAG" \
+                --installer "dist/raw/lucia-appliance-$version-installer.img.zst" \
+                --lucia "dist/raw/lucia-appliance-$version-lucia.tar.zst" \
+                --os "dist/raw/lucia-appliance-$version-os.tar.zst" \
+                --os-version "${OS_VERSION:-$version}" \
+                --lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION" \
+                --lucia-source-redis "$LUCIA_SOURCE_REDIS_VERSION" \
+                --lucia-source-cuda "$LUCIA_SOURCE_CUDA_VERSION" \
+                --lucia-source-cudnn "$LUCIA_SOURCE_CUDNN_VERSION" \
+                --lucia-source-onnx-runtime "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" \
+                --lucia-source-sherpa-onnx "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" \
+                --os-source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION" \
+                --os-source-redis "$OS_SOURCE_REDIS_VERSION" \
+                --os-source-cuda "$OS_SOURCE_CUDA_VERSION" \
+                --os-source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
+                --os-source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
+                --os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
+                --lucia-target-jetson-linux "$LUCIA_TARGET_JETSON_LINUX_VERSION" \
+                --lucia-target-redis "$LUCIA_TARGET_REDIS_VERSION" \
+                --lucia-target-cuda "$LUCIA_TARGET_CUDA_VERSION" \
+                --lucia-target-cudnn "$LUCIA_TARGET_CUDNN_VERSION" \
+                --lucia-target-onnx-runtime "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
+                --lucia-target-sherpa-onnx "$LUCIA_TARGET_SHERPA_ONNX_VERSION" \
+                --os-target-jetson-linux "$OS_TARGET_JETSON_LINUX_VERSION" \
+                --os-target-redis "$OS_TARGET_REDIS_VERSION" \
+                --os-target-cuda "$OS_TARGET_CUDA_VERSION" \
+                --os-target-cudnn "$OS_TARGET_CUDNN_VERSION" \
+                --os-target-onnx-runtime "$OS_TARGET_ONNX_RUNTIME_VERSION" \
+                --os-target-sherpa-onnx "$OS_TARGET_SHERPA_ONNX_VERSION" \
+                --release-mode full \
+                --image-input-fingerprint "${{ steps.release-mode.outputs.current_fingerprint }}" \
+                --output-dir dist/release
+              ;;
+            app-only)
+              python3 infra/appliance/release/package_release.py \
+                --repository "$GITHUB_REPOSITORY" \
+                --tag "$RELEASE_TAG" \
+                --lucia "dist/raw/lucia-appliance-$version-lucia.tar.zst" \
+                --lucia-version "$version" \
+                --lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION" \
+                --lucia-source-redis "$LUCIA_SOURCE_REDIS_VERSION" \
+                --lucia-source-cuda "$LUCIA_SOURCE_CUDA_VERSION" \
+                --lucia-source-cudnn "$LUCIA_SOURCE_CUDNN_VERSION" \
+                --lucia-source-onnx-runtime "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" \
+                --lucia-source-sherpa-onnx "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" \
+                --lucia-target-jetson-linux "$LUCIA_TARGET_JETSON_LINUX_VERSION" \
+                --lucia-target-redis "$LUCIA_TARGET_REDIS_VERSION" \
+                --lucia-target-cuda "$LUCIA_TARGET_CUDA_VERSION" \
+                --lucia-target-cudnn "$LUCIA_TARGET_CUDNN_VERSION" \
+                --lucia-target-onnx-runtime "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
+                --lucia-target-sherpa-onnx "$LUCIA_TARGET_SHERPA_ONNX_VERSION" \
+                --release-mode app-only \
+                --image-input-fingerprint "${{ steps.release-mode.outputs.current_fingerprint }}" \
+                --output-dir dist/release
+              ;;
+            *)
+              echo "Unsupported release mode: $release_mode" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Attest release assets
         id: attest
