@@ -18,4 +18,7 @@ public sealed record ApplianceUpdateStatus(
     string? Message)
 {
     public string? OsBlockReason { get; init; }
+    public string? LuciaReleaseTag { get; init; }
+    public string? OsReleaseTag { get; init; }
+    public string? InstallerReleaseUrl { get; init; }
 }

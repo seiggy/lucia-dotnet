@@ -17,6 +17,9 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     {{- include "lucia.labels" . | nindent 4 }}
+{{- if and .Values.postgres.enabled .Values.mongodb.enabled }}
+{{- fail "postgres.enabled and mongodb.enabled cannot both be true; choose a single data store" }}
+{{- end }}
 data:
   # Redis Configuration
   Redis__Host: {{ include "lucia.redis.host" . | quote }}
@@ -43,10 +46,20 @@ data:
   HomeAssistant__ApiEndpoint: {{ .Values.homeAssistant.apiEndpoint | quote }}
   {{- end }}
 
-  # MongoDB Configuration
-  ConnectionStrings__luciatraces: "mongodb://{{ include "lucia.mongodb.host" . }}:{{ .Values.mongodb.service.port }}/luciatraces"
+  # Database Configuration
+  {{- if .Values.postgres.enabled }}
+  {{- $_ := required "postgres.existingSecret is required" .Values.postgres.existingSecret }}
+  {{- $_ := required "postgres.host is required for the readiness check" .Values.postgres.host }}
+  {{- if or (not (regexMatch "^[0-9]+$" (toString .Values.postgres.port))) (lt (int .Values.postgres.port) 1) (gt (int .Values.postgres.port) 65535) }}
+  {{- fail "postgres.port must be between 1 and 65535" }}
+  {{- end }}
+  DataProvider__Store: "PostgreSQL"
+  {{- else }}
+  DataProvider__Store: "MongoDB"
   ConnectionStrings__luciaconfig: "mongodb://{{ include "lucia.mongodb.host" . }}:{{ .Values.mongodb.service.port }}/luciaconfig"
+  ConnectionStrings__luciatraces: "mongodb://{{ include "lucia.mongodb.host" . }}:{{ .Values.mongodb.service.port }}/luciatraces"
   ConnectionStrings__luciatasks: "mongodb://{{ include "lucia.mongodb.host" . }}:{{ .Values.mongodb.service.port }}/luciatasks"
+  {{- end }}
 
   # Agent Host Service URL (used by A2A agents to register with the orchestrator)
   services__registryApi: "http://{{ include "lucia.fullname" . }}:{{ .Values.lucia.service.port }}"

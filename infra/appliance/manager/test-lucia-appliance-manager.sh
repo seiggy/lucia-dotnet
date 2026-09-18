@@ -112,6 +112,18 @@ cat > "$work_dir/lucia-update" <<'EOF'
 set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_UPDATE_LOG"
 if [[ "$1" == "apply" && "$2" == "os" ]]; then
+    python3 - "$LUCIA_UPDATE_ROOT/state/operation.json" <<'PY'
+import json
+import pathlib
+import sys
+path = pathlib.Path(sys.argv[1])
+status = json.loads(path.read_text())
+status.update(Phase="writing", CompletedBytes=123, TotalBytes=456)
+temporary = path.with_suffix(".progress.tmp")
+temporary.write_text(json.dumps(status))
+temporary.replace(path)
+PY
+    while [[ -e "$LUCIA_UPDATE_ROOT/hold" ]]; do sleep 0.05; done
     mkdir -p "$LUCIA_UPDATE_ROOT/state"
     printf 'operation_id=%s\nstatus=pending\n' \
         "$LUCIA_UPDATE_OPERATION_ID" \
@@ -480,6 +492,7 @@ done
 
 echo "PASS: Lucia apply and rollback restart manager and AgentHost together"
 
+touch "$work_dir/updates/hold"
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
@@ -493,10 +506,19 @@ for _ in {1..40}; do
     curl --silent --output "$work_dir/response.json" \
         --unix-socket "$socket_path" \
         http://localhost/v1/updates/operation
-    grep -q '"status":"running"' "$work_dir/response.json" && break
+    grep -q '"phase":"writing"' "$work_dir/response.json" && break
     sleep 0.05
 done
 grep -q '"status":"running"' "$work_dir/response.json"
+grep -q '"phase":"writing".*"completedBytes":123.*"totalBytes":456' "$work_dir/response.json"
+rm "$work_dir/updates/hold"
+for _ in {1..40}; do
+    grep -qx 'status=pending' "$work_dir/updates/state/os.env" && break
+    sleep 0.05
+done
+curl --silent --output "$work_dir/response.json" \
+    --unix-socket "$socket_path" http://localhost/v1/updates/operation
+grep -q '"phase":"writing".*"completedBytes":123.*"totalBytes":456' "$work_dir/response.json"
 
 echo "PASS: OS apply remains nonterminal through boot validation"
 

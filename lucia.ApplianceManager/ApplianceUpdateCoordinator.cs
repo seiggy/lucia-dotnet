@@ -247,7 +247,8 @@ public sealed partial class ApplianceUpdateCoordinator
                 "running",
                 tag,
                 null,
-                OperationId: operationId));
+                OperationId: operationId,
+                Phase: "verifying"));
             var startInfo = new ProcessStartInfo
             {
                 FileName = _updaterPath,
@@ -284,10 +285,11 @@ public sealed partial class ApplianceUpdateCoordinator
                     : new(
                         action,
                         channel,
-                        "succeeded",
+                        IsLuciaManagerPending() ? "running" : "succeeded",
                         tag,
-                        NullIfEmpty(output),
-                        OperationId: operationId)
+                        IsLuciaManagerPending() ? "Lucia is awaiting manager startup validation." : NullIfEmpty(output),
+                        OperationId: operationId,
+                        Phase: IsLuciaManagerPending() ? "restarting" : null)
                 : new(
                     action,
                     channel,
@@ -296,8 +298,7 @@ public sealed partial class ApplianceUpdateCoordinator
                     NullIfEmpty(error),
                     OperationId: operationId);
             SetStatus(result);
-            if (result.Status == "succeeded"
-                && channel == "lucia")
+            if (process.ExitCode == 0 && channel == "lucia")
             {
                 ScheduleLuciaServicesRestart();
             }
@@ -356,6 +357,16 @@ public sealed partial class ApplianceUpdateCoordinator
     {
         lock (_gate)
         {
+            RefreshStatusUnsafe();
+            if (status.OperationId == _status.OperationId)
+            {
+                status = status with
+                {
+                    Phase = status.Status == "succeeded" ? "complete" : status.Phase ?? _status.Phase,
+                    CompletedBytes = status.Status == "succeeded" ? null : _status.CompletedBytes,
+                    TotalBytes = status.Status == "succeeded" ? null : _status.TotalBytes,
+                };
+            }
             PersistStatusUnsafe(status, _status);
             _status = status;
             _ignorePersistedStatus = false;

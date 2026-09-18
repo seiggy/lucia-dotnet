@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-release-assets.sh --version VERSION --output-dir DIR --work-dir DIR
+Usage: build-release-assets.sh --version VERSION --output-dir DIR --work-dir DIR [--release-mode app-only|full] [--os-version VERSION]
 EOF
 }
 
@@ -14,12 +14,18 @@ die() {
 }
 
 version=""
+os_version=""
 output_dir=""
 work_dir=""
+release_mode="full"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version)
             version="${2:-}"
+            shift 2
+            ;;
+        --os-version)
+            os_version="${2:-}"
             shift 2
             ;;
         --output-dir)
@@ -28,6 +34,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --work-dir)
             work_dir="${2:-}"
+            shift 2
+            ;;
+        --release-mode)
+            release_mode="${2:-}"
             shift 2
             ;;
         --help)
@@ -43,8 +53,13 @@ done
 
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || die "--version must match MAJOR.MINOR.PATCH"
+os_version="${os_version:-$version}"
+[[ "$os_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "--os-version must match MAJOR.MINOR.PATCH"
 [[ -n "$output_dir" && -n "$work_dir" ]] \
     || die "--output-dir and --work-dir are required"
+[[ "$release_mode" == "full" || "$release_mode" == "app-only" ]] \
+    || die "--release-mode must be either full or app-only"
 source_date_epoch="${SOURCE_DATE_EPOCH:-946684800}"
 [[ "$source_date_epoch" =~ ^[0-9]+$ ]] \
     || die "SOURCE_DATE_EPOCH must be an integer"
@@ -55,17 +70,25 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../../.." && pwd)"
 source "$script_dir/appliance.lock"
 
-for command in curl dd docker dotnet e2fsck findmnt mountpoint npm openssl python3 sgdisk sha256sum tar umount zstd; do
+commands=(curl docker dotnet npm python3 sha256sum tar zstd)
+if [[ "$release_mode" == full ]]; then
+    commands+=(dd e2fsck findmnt mountpoint openssl sgdisk umount)
+fi
+for command in "${commands[@]}"; do
     command -v "$command" >/dev/null || die "required command is missing: $command"
 done
 sudo -n true 2>/dev/null || die "passwordless sudo is required"
-[[ -x /usr/bin/qemu-aarch64-static ]] \
-    || die "qemu-user-static is required at /usr/bin/qemu-aarch64-static"
+if [[ "$release_mode" == full ]]; then
+    [[ -x /usr/bin/qemu-aarch64-static ]] \
+        || die "qemu-user-static is required at /usr/bin/qemu-aarch64-static"
+fi
 
 mkdir -p "$work_dir"
 available_kib="$(df --output=avail "$work_dir" | tail -1 | tr -d ' ')"
-(( available_kib >= 200 * 1024 * 1024 )) \
-    || die "at least 200 GiB of free build disk is required"
+required_gib=30
+[[ "$release_mode" != full ]] || required_gib=200
+(( available_kib >= required_gib * 1024 * 1024 )) \
+    || die "at least $required_gib GiB of free build disk is required"
 
 work_dir="$(realpath -m "$work_dir")"
 output_dir="$(realpath -m "$output_dir")"
@@ -99,14 +122,16 @@ download_sha256() {
         || die "download checksum failed: $destination"
 }
 
-download_sha256 \
-    "$JETSON_BSP_URL" \
-    "$JETSON_BSP_SHA256" \
-    "$downloads/Jetson_Linux_R${JETSON_LINUX_VERSION}_aarch64.tbz2"
-download_sha256 \
-    "$JETSON_ROOTFS_URL" \
-    "$JETSON_ROOTFS_SHA256" \
-    "$downloads/Tegra_Linux_Sample-Root-Filesystem_R${JETSON_LINUX_VERSION}_aarch64.tbz2"
+if [[ "$release_mode" == "full" ]]; then
+    download_sha256 \
+        "$JETSON_BSP_URL" \
+        "$JETSON_BSP_SHA256" \
+        "$downloads/Jetson_Linux_R${JETSON_LINUX_VERSION}_aarch64.tbz2"
+    download_sha256 \
+        "$JETSON_ROOTFS_URL" \
+        "$JETSON_ROOTFS_SHA256" \
+        "$downloads/Tegra_Linux_Sample-Root-Filesystem_R${JETSON_LINUX_VERSION}_aarch64.tbz2"
+fi
 download_sha256 \
     "$OTELCOL_URL" \
     "$OTELCOL_SHA256" \
@@ -129,10 +154,12 @@ download_sha256 \
     "$downloads/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
 runtime_downloads="$downloads/runtime"
 mkdir -p "$runtime_downloads"
-for package in "${COMPUTE_PACKAGES[@]}" "${RUNTIME_PACKAGES[@]}"; do
-    read -r expected url <<< "$package"
-    download_sha256 "$url" "$expected" "$runtime_downloads/${url##*/}"
-done
+if [[ "$release_mode" == full ]]; then
+    for package in "${COMPUTE_PACKAGES[@]}" "${RUNTIME_PACKAGES[@]}"; do
+        read -r expected url <<< "$package"
+        download_sha256 "$url" "$expected" "$runtime_downloads/${url##*/}"
+    done
+fi
 
 rm -rf \
     "$publish_dir" \
@@ -161,15 +188,17 @@ dotnet publish "$repo_root/lucia.ApplianceManager/lucia.ApplianceManager.csproj"
     --output "$manager_publish_dir"
 npm --prefix "$repo_root/lucia-dashboard" ci
 npm --prefix "$repo_root/lucia-dashboard" run build
-dotnet publish "$repo_root/lucia.InstallerHost/lucia.InstallerHost.csproj" \
-    --configuration Release \
-    --runtime linux-arm64 \
-    --self-contained true \
-    -p:PublishSingleFile=true \
-    -p:PublishTrimmed=false \
-    --output "$installer_publish_dir"
-mkdir -p "$installer_publish_dir/wwwroot"
-cp -a "$repo_root/lucia-dashboard/dist/." "$installer_publish_dir/wwwroot/"
+if [[ "$release_mode" == "full" ]]; then
+    dotnet publish "$repo_root/lucia.InstallerHost/lucia.InstallerHost.csproj" \
+        --configuration Release \
+        --runtime linux-arm64 \
+        --self-contained true \
+        -p:PublishSingleFile=true \
+        -p:PublishTrimmed=false \
+        --output "$installer_publish_dir"
+    mkdir -p "$installer_publish_dir/wwwroot"
+    cp -a "$repo_root/lucia-dashboard/dist/." "$installer_publish_dir/wwwroot/"
+fi
 
 mkdir -p "$redis_dir"
 docker run --rm --platform linux/arm64 \
@@ -233,6 +262,28 @@ cp -a "$repo_root/plugins/." "$voice_dir/plugins/"
 docker rm "$voice_container" >/dev/null
 trap - EXIT
 
+# Reuse the native build's pinned JetPack donor for ABI checks without assembling
+# a BSP/rootfs. libcuda.so.1 is the driver supplied by the target Jetson.
+runtime_image="$(awk '$1 == "FROM" { print $2; exit }' \
+    "$repo_root/infra/docker/Dockerfile.agenthost-jetson-voice")"
+[[ "$runtime_image" == *@sha256:* ]] || die "native runtime donor must be digest-pinned"
+docker run --rm --platform linux/arm64 --entrypoint /bin/bash \
+    -v "$redis_dir:/redis:ro" \
+    -v "$voice_dir/native:/native:ro" \
+    -v "$manager_publish_dir:/manager:ro" \
+    "$runtime_image" -ec '
+        /redis/redis-server --version
+        /manager/lucia.ApplianceManager --validate
+        for library in /native/*.so*; do
+            dependencies="$(LD_LIBRARY_PATH=/native ldd "$library")"
+            missing="$(printf "%s\n" "$dependencies" | grep "not found" | grep -v "libcuda.so.1 " || true)"
+            if [[ -n "$missing" ]]; then
+                printf "Unresolved native runtime dependencies in %s:\n%s\n" "$library" "$missing" >&2
+                exit 1
+            fi
+        done
+    '
+
 sudo "$repo_root/infra/appliance/build-native-bundle.sh" \
     --version "$version" \
     --publish-dir "$publish_dir" \
@@ -272,6 +323,15 @@ path.write_text(
 )
 PY
 }
+verify_rootfs_helper() {
+    local root="$1"
+    local helper="$root/usr/libexec/lucia/lucia-update-progress.py"
+    [[ -f "$helper" ]] || die "rootfs helper is missing: $helper"
+    local stat_line
+    stat_line="$(sudo stat -c '%u:%g %a' "$helper")"
+    [[ "$stat_line" == "0:0 755" || "$stat_line" == "0:0 644" ]] \
+        || die "rootfs progress helper must be root-owned and not writable by others: $helper -> $stat_line"
+}
 write_runtime_metadata \
     "$LUCIA_TARGET_REDIS_VERSION" \
     "$LUCIA_TARGET_CUDA_VERSION" \
@@ -282,6 +342,7 @@ sudo chown -R root:root "$bundle_root"
 sudo chown -R 1100:1100 "$bundle_root/var/lib/lucia"
 sudo chown root:root "$bundle_root/var/lib/lucia"
 sudo chmod 0755 "$bundle_root/var/lib/lucia"
+verify_rootfs_helper "$bundle_root"
 sudo chown root:1100 \
     "$bundle_root/var/lib/lucia/config" \
     "$bundle_root/var/lib/lucia/config/lucia.env"
@@ -294,6 +355,10 @@ sudo tar --numeric-owner --sort=name \
     .
 sudo chown "$(id -u):$(id -g)" \
     "$raw_dir/lucia-appliance-${version}-lucia.tar.zst"
+if [[ "$release_mode" == app-only ]]; then
+    printf 'lucia=%s\n' "$raw_dir/lucia-appliance-${version}-lucia.tar.zst"
+    exit 0
+fi
 write_runtime_metadata \
     "$OS_TARGET_REDIS_VERSION" \
     "$OS_TARGET_CUDA_VERSION" \
@@ -388,208 +453,214 @@ configure_recovery_account() {
             | sudo tee -a "$root/etc/shells" >/dev/null
 }
 
-prepare_bsp "$bsp_dir"
-root="$bsp_dir/Linux_for_Tegra/rootfs"
-install_runtime_packages "$root"
-sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/rootfs/." "$root/"
-sudo chown -R root:root \
-    "$root/etc/lucia" \
-    "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
-    "$root/etc/systemd/journald.conf.d/lucia.conf" \
-    "$root/usr/lib/systemd/system/lucia-"*.service \
-    "$root/usr/libexec/lucia" \
-    "$root/usr/lib/sysusers.d/lucia.conf" \
-    "$root/usr/lib/tmpfiles.d/lucia.conf"
-printf '%s\n' "$version" \
-    | sudo tee "$root/etc/lucia/os-version" >/dev/null
-sudo mkdir -p "$root/opt/lucia" "$root/var/lib/lucia"
-grep -q '^PARTLABEL=LUCIA ' "$root/etc/fstab" \
-    || printf 'PARTLABEL=LUCIA /opt/lucia ext4 defaults,nodev,nosuid 0 2\n' \
-        | sudo tee -a "$root/etc/fstab" >/dev/null
-grep -q '^PARTLABEL=LUCIA_DATA ' "$root/etc/fstab" \
-    || printf 'PARTLABEL=LUCIA_DATA /var/lib/lucia ext4 defaults,nodev,nosuid 0 2\n' \
-        | sudo tee -a "$root/etc/fstab" >/dev/null
-sudo systemctl --root="$root" enable \
-    lucia-appliance-manager.service \
-    lucia-redis.service \
-    lucia-agenthost.service \
-    lucia-os-update-validation.service \
-    lucia-update-recovery.service
-sudo cp /usr/bin/qemu-aarch64-static "$root/usr/bin/"
-recovery_password="$(openssl rand -base64 24)"
-sudo "$bsp_dir/Linux_for_Tegra/tools/l4t_create_default_user.sh" \
-    --username lucia-recovery \
-    --password "$recovery_password" \
-    --hostname lucia \
-    --accept-license >/dev/null
-unset recovery_password
-configure_recovery_account "$root"
-sudo rm -f "$root/usr/bin/qemu-aarch64-static"
-sudo sed -i -E \
-    's#^(lucia-recovery:)[^:]*:#\1!:#' \
-    "$root/etc/shadow"
-sudo truncate --size 0 "$root/etc/machine-id"
-sudo rm -f "$root/var/lib/dbus/machine-id"
+if [[ "$release_mode" == "full" ]]; then
+    prepare_bsp "$bsp_dir"
+    root="$bsp_dir/Linux_for_Tegra/rootfs"
+    install_runtime_packages "$root"
+    sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/rootfs/." "$root/"
+    sudo chmod 0755 "$root/usr/libexec/lucia/"*
+    verify_rootfs_helper "$root"
+    sudo chown -R root:root \
+        "$root/etc/lucia" \
+        "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
+        "$root/etc/systemd/journald.conf.d/lucia.conf" \
+        "$root/usr/lib/systemd/system/lucia-"*.service \
+        "$root/usr/libexec/lucia" \
+        "$root/usr/lib/sysusers.d/lucia.conf" \
+        "$root/usr/lib/tmpfiles.d/lucia.conf"
+    printf '%s\n' "$os_version" \
+        | sudo tee "$root/etc/lucia/os-version" >/dev/null
+    sudo mkdir -p "$root/opt/lucia" "$root/var/lib/lucia"
+    grep -q '^PARTLABEL=LUCIA ' "$root/etc/fstab" \
+        || printf 'PARTLABEL=LUCIA /opt/lucia ext4 defaults,nodev,nosuid 0 2\n' \
+            | sudo tee -a "$root/etc/fstab" >/dev/null
+    grep -q '^PARTLABEL=LUCIA_DATA ' "$root/etc/fstab" \
+        || printf 'PARTLABEL=LUCIA_DATA /var/lib/lucia ext4 defaults,nodev,nosuid 0 2\n' \
+            | sudo tee -a "$root/etc/fstab" >/dev/null
+    sudo systemctl --root="$root" enable \
+        lucia-appliance-manager.service \
+        lucia-redis.service \
+        lucia-agenthost.service \
+        lucia-os-update-validation.service \
+        lucia-update-recovery.service
+    sudo cp /usr/bin/qemu-aarch64-static "$root/usr/bin/"
+    recovery_password="$(openssl rand -base64 24)"
+    sudo "$bsp_dir/Linux_for_Tegra/tools/l4t_create_default_user.sh" \
+        --username lucia-recovery \
+        --password "$recovery_password" \
+        --hostname lucia \
+        --accept-license >/dev/null
+    unset recovery_password
+    configure_recovery_account "$root"
+    sudo rm -f "$root/usr/bin/qemu-aarch64-static"
+    sudo sed -i -E \
+        's#^(lucia-recovery:)[^:]*:#\1!:#' \
+        "$root/etc/shadow"
+    sudo truncate --size 0 "$root/etc/machine-id"
+    sudo rm -f "$root/var/lib/dbus/machine-id"
 
-(
-    cd "$bsp_dir/Linux_for_Tegra"
+    (
+        cd "$bsp_dir/Linux_for_Tegra"
+        sudo env \
+            SOURCE_DATE_EPOCH="$source_date_epoch" \
+            USER=root \
+            BOARDID=3767 \
+            BOARDSKU=0005 \
+            FAB=300 \
+            CHIP_SKU=00:00:00:D5 \
+            FUSELEVEL=fuselevel_production \
+            ROOTFS_AB=1 \
+            ./tools/kernel_flash/l4t_initrd_flash_internal.sh \
+                --no-flash \
+                --external-device nvme0n1 \
+                -S 16GiB \
+                -c ./tools/kernel_flash/flash_l4t_nvme_rootfs_ab.xml \
+                --network usb0 \
+                jetson-orin-nano-devkit-super \
+                external
+    )
+
+    sudo "$repo_root/infra/appliance/installer/build-loop-image.sh" \
+        "$bsp_dir/Linux_for_Tegra" \
+        "$work_dir/lucia-nvme-${version}.img" \
+        "$MINIMUM_DISK_BYTES"
     sudo env \
         SOURCE_DATE_EPOCH="$source_date_epoch" \
-        USER=root \
-        BOARDID=3767 \
-        BOARDSKU=0005 \
-        FAB=300 \
-        CHIP_SKU=00:00:00:D5 \
-        FUSELEVEL=fuselevel_production \
-        ROOTFS_AB=1 \
-        ./tools/kernel_flash/l4t_initrd_flash_internal.sh \
-            --no-flash \
-            --external-device nvme0n1 \
-            -S 16GiB \
-            -c ./tools/kernel_flash/flash_l4t_nvme_rootfs_ab.xml \
-            --network usb0 \
-            jetson-orin-nano-devkit-super \
-            external
-)
+        LUCIA_PARTITION_GUID="$LUCIA_PARTITION_GUID" \
+        LUCIA_DATA_PARTITION_GUID="$LUCIA_DATA_PARTITION_GUID" \
+        LUCIA_FILESYSTEM_UUID="$LUCIA_FILESYSTEM_UUID" \
+        LUCIA_DATA_FILESYSTEM_UUID="$LUCIA_DATA_FILESYSTEM_UUID" \
+        "$repo_root/infra/appliance/installer/finalize-loop-image.sh" \
+        "$work_dir/lucia-nvme-${version}.img" \
+        6G \
+        "$bundle_root"
+    sudo zstd -T0 -10 --long=27 --force \
+        "$work_dir/lucia-nvme-${version}.img" \
+        -o "$work_dir/lucia-nvme-${version}.img.zst"
 
-sudo "$repo_root/infra/appliance/installer/build-loop-image.sh" \
-    "$bsp_dir/Linux_for_Tegra" \
-    "$work_dir/lucia-nvme-${version}.img" \
-    "$MINIMUM_DISK_BYTES"
-sudo env \
-    SOURCE_DATE_EPOCH="$source_date_epoch" \
-    LUCIA_PARTITION_GUID="$LUCIA_PARTITION_GUID" \
-    LUCIA_DATA_PARTITION_GUID="$LUCIA_DATA_PARTITION_GUID" \
-    LUCIA_FILESYSTEM_UUID="$LUCIA_FILESYSTEM_UUID" \
-    LUCIA_DATA_FILESYSTEM_UUID="$LUCIA_DATA_FILESYSTEM_UUID" \
-    "$repo_root/infra/appliance/installer/finalize-loop-image.sh" \
-    "$work_dir/lucia-nvme-${version}.img" \
-    6G \
-    "$bundle_root"
-sudo zstd -T0 -10 --long=27 --force \
-    "$work_dir/lucia-nvme-${version}.img" \
-    -o "$work_dir/lucia-nvme-${version}.img.zst"
+    external_images="$bsp_dir/Linux_for_Tegra/tools/kernel_flash/images/external"
+    ota_dir="$work_dir/os-update"
+    mkdir -p "$ota_dir"
+    extract_partition_image() {
+        local label="$1"
+        local output="$2"
+        local start
+        local end
+        read -r start end < <(
+            sgdisk --print "$work_dir/lucia-nvme-${version}.img" \
+                | awk -v label="$label" '$NF == label { print $2, $3 }'
+        )
+        [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$end" -ge "$start" ]] \
+            || die "partition is missing from the appliance image: $label"
+        dd \
+            if="$work_dir/lucia-nvme-${version}.img" \
+            of="$output" \
+            bs=512 \
+            skip="$start" \
+            count="$((end - start + 1))" \
+            iflag=fullblock \
+            conv=sparse \
+            status=progress
+        sync -f "$output"
+        e2fsck -fn "$output" >/dev/null
+    }
+    extract_partition_image APP "$ota_dir/system.img"
+    extract_partition_image APP_b "$ota_dir/system.img_b"
+    cp \
+        "$external_images/boot.img" \
+        "$external_images/boot.img_b" \
+        "$external_images/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb" \
+        "$ota_dir/"
+    tar --sort=name \
+        --mtime="@$source_date_epoch" --clamp-mtime \
+        --pax-option=delete=atime,delete=ctime \
+        -I 'zstd -T0 -10' \
+        -cf "$raw_dir/lucia-appliance-${version}-os.tar.zst" \
+        -C "$ota_dir" \
+        system.img \
+        system.img_b \
+        boot.img \
+        boot.img_b \
+        kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb
 
-external_images="$bsp_dir/Linux_for_Tegra/tools/kernel_flash/images/external"
-ota_dir="$work_dir/os-update"
-mkdir -p "$ota_dir"
-extract_partition_image() {
-    local label="$1"
-    local output="$2"
-    local start
-    local end
-    read -r start end < <(
-        sgdisk --print "$work_dir/lucia-nvme-${version}.img" \
-            | awk -v label="$label" '$NF == label { print $2, $3 }'
-    )
-    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$end" -ge "$start" ]] \
-        || die "partition is missing from the appliance image: $label"
-    dd \
-        if="$work_dir/lucia-nvme-${version}.img" \
-        of="$output" \
-        bs=512 \
-        skip="$start" \
-        count="$((end - start + 1))" \
-        iflag=fullblock \
-        conv=sparse \
-        status=progress
-    sync -f "$output"
-    e2fsck -fn "$output" >/dev/null
-}
-extract_partition_image APP "$ota_dir/system.img"
-extract_partition_image APP_b "$ota_dir/system.img_b"
-cp \
-    "$external_images/boot.img" \
-    "$external_images/boot.img_b" \
-    "$external_images/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb" \
-    "$ota_dir/"
-tar --sort=name \
-    --mtime="@$source_date_epoch" --clamp-mtime \
-    --pax-option=delete=atime,delete=ctime \
-    -I 'zstd -T0 -10' \
-    -cf "$raw_dir/lucia-appliance-${version}-os.tar.zst" \
-    -C "$ota_dir" \
-    system.img \
-    system.img_b \
-    boot.img \
-    boot.img_b \
-    kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb
+    prepare_bsp "$sd_bsp_dir"
+    sd_root="$sd_bsp_dir/Linux_for_Tegra/rootfs"
+    sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/installer/rootfs/." "$sd_root/"
+    sudo chown -R root:root \
+        "$sd_root/etc/NetworkManager/dnsmasq-shared.d/lucia-captive.conf" \
+        "$sd_root/etc/lucia-installer" \
+        "$sd_root/usr/lib/systemd/system/lucia-firstboot-install.service" \
+        "$sd_root/usr/lib/systemd/system/lucia-installer-host.service" \
+        "$sd_root/usr/lib/systemd/system/lucia-network-bootstrap.service" \
+        "$sd_root/usr/libexec/lucia"
+    sudo install -d \
+        "$sd_root/etc/lucia-installer" \
+        "$sd_root/opt/lucia-installer/app" \
+        "$sd_root/var/lib/lucia-installer"
+    sudo install -m 0755 \
+        "$repo_root/infra/appliance/installer/lucia-install" \
+        "$sd_root/usr/libexec/lucia/lucia-install"
+    sudo install -o root -g root -m 0755 \
+        "$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-rootfs-ab-check" \
+        "$sd_root/usr/libexec/lucia/lucia-rootfs-ab-check"
+    sudo cp -a "$installer_publish_dir/." "$sd_root/opt/lucia-installer/app/"
+    sudo chown -R root:root "$sd_root/opt/lucia-installer/app"
+    sudo install -D -m 0755 \
+        "$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-recovery-shell" \
+        "$sd_root/usr/libexec/lucia/lucia-recovery-shell"
+    sudo install -D -m 0644 \
+        "$repo_root/infra/appliance/rootfs/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
+        "$sd_root/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
+    sudo install -D -m 0644 \
+        "$repo_root/infra/appliance/rootfs/etc/systemd/journald.conf.d/lucia.conf" \
+        "$sd_root/etc/systemd/journald.conf.d/lucia.conf"
+    sudo cp \
+        "$sd_root/etc/lucia-installer/installer.env.example" \
+        "$sd_root/etc/lucia-installer/installer.env"
+    printf '%s\n' '# The open setup SSID derives from the Jetson serial at boot.' \
+        | sudo tee "$sd_root/etc/lucia-installer/bootstrap.env" >/dev/null
+    sudo chmod 0600 \
+        "$sd_root/etc/lucia-installer/bootstrap.env" \
+        "$sd_root/etc/lucia-installer/installer.env"
+    sudo install -m 0644 \
+        "$work_dir/lucia-nvme-${version}.img.zst" \
+        "$sd_root/opt/lucia-installer/lucia-nvme.img.zst"
+    nvme_sha256="$(sha256sum "$work_dir/lucia-nvme-${version}.img.zst" | cut -d' ' -f1)"
+    printf '%s  lucia-nvme.img.zst\n' "$nvme_sha256" \
+        | sudo tee "$sd_root/opt/lucia-installer/lucia-nvme.img.zst.sha256" \
+            >/dev/null
+    sudo systemctl --root="$sd_root" enable \
+        lucia-network-bootstrap.service \
+        lucia-installer-host.service \
+        lucia-firstboot-install.service
+    sudo cp /usr/bin/qemu-aarch64-static "$sd_root/usr/bin/"
+    recovery_password="$(openssl rand -base64 24)"
+    sudo "$sd_bsp_dir/Linux_for_Tegra/tools/l4t_create_default_user.sh" \
+        --username lucia-recovery \
+        --password "$recovery_password" \
+        --hostname lucia \
+        --accept-license >/dev/null
+    unset recovery_password
+    configure_recovery_account "$sd_root"
+    sudo rm -f "$sd_root/usr/bin/qemu-aarch64-static"
+    sudo sed -i -E \
+        's#^(lucia-recovery:)[^:]*:#\1!:#' \
+        "$sd_root/etc/shadow"
+    sudo truncate --size 0 "$sd_root/etc/machine-id"
+    sudo rm -f "$sd_root/var/lib/dbus/machine-id"
 
-prepare_bsp "$sd_bsp_dir"
-sd_root="$sd_bsp_dir/Linux_for_Tegra/rootfs"
-sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/installer/rootfs/." "$sd_root/"
-sudo chown -R root:root \
-    "$sd_root/etc/NetworkManager/dnsmasq-shared.d/lucia-captive.conf" \
-    "$sd_root/etc/lucia-installer" \
-    "$sd_root/usr/lib/systemd/system/lucia-firstboot-install.service" \
-    "$sd_root/usr/lib/systemd/system/lucia-installer-host.service" \
-    "$sd_root/usr/lib/systemd/system/lucia-network-bootstrap.service" \
-    "$sd_root/usr/libexec/lucia"
-sudo install -d \
-    "$sd_root/etc/lucia-installer" \
-    "$sd_root/opt/lucia-installer/app" \
-    "$sd_root/var/lib/lucia-installer"
-sudo install -m 0755 \
-    "$repo_root/infra/appliance/installer/lucia-install" \
-    "$sd_root/usr/libexec/lucia/lucia-install"
-sudo install -o root -g root -m 0755 \
-    "$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-rootfs-ab-check" \
-    "$sd_root/usr/libexec/lucia/lucia-rootfs-ab-check"
-sudo cp -a "$installer_publish_dir/." "$sd_root/opt/lucia-installer/app/"
-sudo chown -R root:root "$sd_root/opt/lucia-installer/app"
-sudo install -D -m 0755 \
-    "$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-recovery-shell" \
-    "$sd_root/usr/libexec/lucia/lucia-recovery-shell"
-sudo install -D -m 0644 \
-    "$repo_root/infra/appliance/rootfs/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
-    "$sd_root/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
-sudo install -D -m 0644 \
-    "$repo_root/infra/appliance/rootfs/etc/systemd/journald.conf.d/lucia.conf" \
-    "$sd_root/etc/systemd/journald.conf.d/lucia.conf"
-sudo cp \
-    "$sd_root/etc/lucia-installer/installer.env.example" \
-    "$sd_root/etc/lucia-installer/installer.env"
-printf '%s\n' '# The open setup SSID derives from the Jetson serial at boot.' \
-    | sudo tee "$sd_root/etc/lucia-installer/bootstrap.env" >/dev/null
-sudo chmod 0600 \
-    "$sd_root/etc/lucia-installer/bootstrap.env" \
-    "$sd_root/etc/lucia-installer/installer.env"
-sudo install -m 0644 \
-    "$work_dir/lucia-nvme-${version}.img.zst" \
-    "$sd_root/opt/lucia-installer/lucia-nvme.img.zst"
-nvme_sha256="$(sha256sum "$work_dir/lucia-nvme-${version}.img.zst" | cut -d' ' -f1)"
-printf '%s  lucia-nvme.img.zst\n' "$nvme_sha256" \
-    | sudo tee "$sd_root/opt/lucia-installer/lucia-nvme.img.zst.sha256" \
-        >/dev/null
-sudo systemctl --root="$sd_root" enable \
-    lucia-network-bootstrap.service \
-    lucia-installer-host.service \
-    lucia-firstboot-install.service
-sudo cp /usr/bin/qemu-aarch64-static "$sd_root/usr/bin/"
-recovery_password="$(openssl rand -base64 24)"
-sudo "$sd_bsp_dir/Linux_for_Tegra/tools/l4t_create_default_user.sh" \
-    --username lucia-recovery \
-    --password "$recovery_password" \
-    --hostname lucia \
-    --accept-license >/dev/null
-unset recovery_password
-configure_recovery_account "$sd_root"
-sudo rm -f "$sd_root/usr/bin/qemu-aarch64-static"
-sudo sed -i -E \
-    's#^(lucia-recovery:)[^:]*:#\1!:#' \
-    "$sd_root/etc/shadow"
-sudo truncate --size 0 "$sd_root/etc/machine-id"
-sudo rm -f "$sd_root/var/lib/dbus/machine-id"
+    sudo "$repo_root/infra/appliance/installer/build-sd-image.sh" \
+        "$sd_bsp_dir/Linux_for_Tegra" \
+        "$work_dir/lucia-installer-sd-${version}.img"
+    sudo bash "$repo_root/infra/appliance/installer/verify-built-image.sh" \
+        "$work_dir/lucia-installer-sd-${version}.img"
+    sudo zstd -T0 -10 --long=27 --force \
+        "$work_dir/lucia-installer-sd-${version}.img" \
+        -o "$raw_dir/lucia-appliance-${version}-installer.img.zst"
 
-sudo "$repo_root/infra/appliance/installer/build-sd-image.sh" \
-    "$sd_bsp_dir/Linux_for_Tegra" \
-    "$work_dir/lucia-installer-sd-${version}.img"
-sudo bash "$repo_root/infra/appliance/installer/verify-built-image.sh" \
-    "$work_dir/lucia-installer-sd-${version}.img"
-sudo zstd -T0 -10 --long=27 --force \
-    "$work_dir/lucia-installer-sd-${version}.img" \
-    -o "$raw_dir/lucia-appliance-${version}-installer.img.zst"
-
-printf 'installer=%s\n' "$raw_dir/lucia-appliance-${version}-installer.img.zst"
+    printf 'installer=%s\n' "$raw_dir/lucia-appliance-${version}-installer.img.zst"
+fi
 printf 'lucia=%s\n' "$raw_dir/lucia-appliance-${version}-lucia.tar.zst"
-printf 'os=%s\n' "$raw_dir/lucia-appliance-${version}-os.tar.zst"
+if [[ "$release_mode" == "full" ]]; then
+    printf 'os=%s\n' "$raw_dir/lucia-appliance-${version}-os.tar.zst"
+fi

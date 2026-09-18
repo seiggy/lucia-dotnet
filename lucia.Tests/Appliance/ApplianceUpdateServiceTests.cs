@@ -71,6 +71,36 @@ public sealed class ApplianceUpdateServiceTests
     }
 
     [Fact]
+    public void OperationStatus_TracksNativeProgressContract()
+    {
+        var status = new lucia.AgentHost.Appliance.ApplianceUpdateOperationStatus(
+            "apply",
+            "os",
+            "running",
+            "v1.5.0",
+            "OS update is writing the inactive slot.",
+            Phase: "writing",
+            CompletedBytes: 42,
+            TotalBytes: 100,
+            OperationId: "11111111-1111-1111-1111-111111111111");
+
+        Assert.Equal("writing", status.Phase);
+        Assert.Equal(42L, status.CompletedBytes);
+        Assert.Equal(100L, status.TotalBytes);
+        Assert.Equal("11111111-1111-1111-1111-111111111111", status.OperationId);
+    }
+
+    [Fact]
+    public void OperationStatus_ReadsIndeterminateNativeProgress()
+    {
+        var status = JsonSerializer.Deserialize<ApplianceUpdateOperationStatus>(
+            """{"Action":"apply","Channel":"os","Status":"running","Tag":"v1.5.0","Message":null,"Phase":"validating","CompletedBytes":null,"TotalBytes":null}""");
+        Assert.NotNull(status);
+        Assert.Null(status.CompletedBytes);
+        Assert.Null(status.TotalBytes);
+    }
+
+    [Fact]
     public void EnsureStagingCapacity_RejectsInsufficientFreeSpace()
     {
         Assert.Throws<IOException>(
@@ -345,8 +375,10 @@ public sealed class ApplianceUpdateServiceTests
         }
     }
 
-    [Fact]
-    public async Task CheckAsync_PrefersNewestCompatibleStableRelease()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CheckAsync_PrefersNewestCompatibleStableRelease(bool appOnlyLatest)
     {
         var socketPath = Path.Combine(
             Path.GetTempPath(),
@@ -437,6 +469,15 @@ public sealed class ApplianceUpdateServiceTests
                         : """
                           {"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"v1.2.6","attestationBundleUrl":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/lucia-appliance-attestations.jsonl","version":"1.2.6","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/v1.2.6","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.2.6","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1},"channels":{"lucia":{"version":"1.2.6","bytes":5,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","requires":{"layoutVersion":1,"dataSchemaVersion":1,"source":{"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"target":{"jetsonLinux":"36.6.0","redis":"8.3.0","cuda":"13.0","cudnn":"10.0","onnxRuntime":"2.0.0","sherpaOnnx":"2.0.0"},"reboot":false},"parts":[{"name":"lucia.tar.zst","bytes":5,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/lucia.tar.zst"}]},"os":{"version":"1.3.0","bytes":5,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","requires":{"minimumLuciaVersion":"1.2.3","layoutVersion":1,"source":{"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"target":{"jetsonLinux":"36.6.0","redis":"8.3.0","cuda":"13.0","cudnn":"10.0","onnxRuntime":"2.0.0","sherpaOnnx":"2.0.0"},"reboot":true},"parts":[{"name":"os.tar.zst","bytes":5,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/os.tar.zst"}]}}}
                           """;
+                    if (appOnlyLatest && request.RequestUri.AbsolutePath.Contains("v1.3.0"))
+                    {
+                        var document = System.Text.Json.Nodes.JsonNode.Parse(manifest)!;
+                        document["channels"]!.AsObject().Remove("os");
+                        document["channels"]!["lucia"]!["requires"]!["source"] =
+                            System.Text.Json.Nodes.JsonNode.Parse(
+                                """{"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"}""");
+                        manifest = document.ToJsonString();
+                    }
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new StringContent(
@@ -460,8 +501,11 @@ public sealed class ApplianceUpdateServiceTests
             Assert.True(result.LuciaCompatible);
             Assert.True(result.LuciaNewerDiscovered);
             Assert.True(result.LuciaUpdateAvailable);
-            Assert.Equal("1.2.6", result.LatestLuciaVersion);
-            Assert.Equal("v1.2.6", result.ReleaseTag);
+            Assert.Equal(appOnlyLatest ? "1.3.0" : "1.2.6", result.LatestLuciaVersion);
+            Assert.Equal(appOnlyLatest ? "v1.3.0" : "v1.2.6", result.ReleaseTag);
+            Assert.Equal(appOnlyLatest ? "v1.3.0" : "v1.2.6", result.LuciaReleaseTag);
+            Assert.Equal("v1.2.6", result.OsReleaseTag);
+            Assert.Equal("1.3.0", result.LatestOsVersion);
             Assert.Equal(
                 [
                     new Uri("https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=1"),

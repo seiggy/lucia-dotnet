@@ -8,6 +8,33 @@ namespace lucia.Tests.Appliance;
 
 public sealed class ApplianceUpdateStagingStoreTests
 {
+    [Fact]
+    public void Progress_SurvivesFailureAndReloadWithTheSameOperationId()
+    {
+        var root = Directory.CreateTempSubdirectory("lucia-progress-").FullName;
+        try
+        {
+            var store = CreateStore(root);
+            var operation = store.TryStart("os", "v1.5.0");
+            Assert.NotNull(operation);
+            store.SetRunning("os", "v1.5.0");
+            store.SetProgress("downloading", 30, 100);
+            store.SetProgress("downloading", 20, 100);
+            Assert.Equal(30, store.GetStatus().CompletedBytes);
+            store.SetFailed("os", "v1.5.0", "connection failed");
+            var reloaded = CreateStore(root).GetStatus();
+            Assert.Equal(operation.OperationId, reloaded.OperationId);
+            Assert.Equal("failed", reloaded.Status);
+            Assert.Equal("downloading", reloaded.Phase);
+            Assert.Equal(30, reloaded.CompletedBytes);
+            Assert.Equal(100, reloaded.TotalBytes);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [SkippableTheory]
     [InlineData(false)]
     [InlineData(true)]

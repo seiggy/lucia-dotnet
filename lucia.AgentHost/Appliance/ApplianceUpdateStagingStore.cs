@@ -116,7 +116,36 @@ public sealed partial class ApplianceUpdateStagingStore
             "running",
             tag,
             null,
-            OperationId: _status.OperationId));
+            OperationId: _status.OperationId,
+            Phase: "verifying"));
+
+    public void SetProgress(string phase, long? completedBytes = null, long? totalBytes = null)
+    {
+        if (totalBytes is <= 0 || completedBytes is < 0
+            || completedBytes.HasValue != totalBytes.HasValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(completedBytes));
+        }
+        lock (_gate)
+        {
+            if (_status.Phase == phase && totalBytes.HasValue)
+            {
+                if (_status.TotalBytes.HasValue && _status.TotalBytes != totalBytes)
+                {
+                    throw new InvalidOperationException("The download phase total changed.");
+                }
+                completedBytes = Math.Max(completedBytes!.Value, _status.CompletedBytes ?? 0);
+            }
+            var status = _status with
+            {
+                Phase = phase,
+                CompletedBytes = totalBytes.HasValue ? Math.Min(completedBytes!.Value, totalBytes.Value) : null,
+                TotalBytes = totalBytes,
+            };
+            PersistUnsafe(status, _status);
+            _status = status;
+        }
+    }
 
     public void SetHandingOff(string channel, string tag)
     {
@@ -128,7 +157,8 @@ public sealed partial class ApplianceUpdateStagingStore
                 "running",
                 tag,
                 null,
-                OperationId: _status.OperationId);
+                OperationId: _status.OperationId,
+                Phase: "handing-off");
             PersistUnsafe(status, _status);
             _status = status;
             _isHandoffRequestActive = true;
@@ -150,7 +180,8 @@ public sealed partial class ApplianceUpdateStagingStore
             "running",
             tag,
             null,
-            OperationId: _status.OperationId));
+            OperationId: _status.OperationId,
+            Phase: "verifying"));
 
     public void SetFailed(string channel, string tag, string message) =>
         Set(new(
@@ -169,13 +200,14 @@ public sealed partial class ApplianceUpdateStagingStore
         lock (_gate)
         {
             _isHandoffRequestActive = false;
-            _status = new(
-                "stage",
-                channel,
-                "failed",
-                tag,
-                message,
-                OperationId: _status.OperationId);
+            _status = _status with
+            {
+                Action = "stage",
+                Channel = channel,
+                Status = "failed",
+                Tag = tag,
+                Message = message,
+            };
         }
     }
 
@@ -240,6 +272,15 @@ public sealed partial class ApplianceUpdateStagingStore
     {
         lock (_gate)
         {
+            if (status.Status == "failed" && status.OperationId == _status.OperationId)
+            {
+                status = status with
+                {
+                    Phase = _status.Phase,
+                    CompletedBytes = _status.CompletedBytes,
+                    TotalBytes = _status.TotalBytes,
+                };
+            }
             PersistUnsafe(status, _status);
             _isHandoffRequestActive = false;
             _status = status;

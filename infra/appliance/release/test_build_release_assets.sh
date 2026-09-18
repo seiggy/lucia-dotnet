@@ -161,6 +161,9 @@ grep -q '"$OS_TARGET_REDIS_VERSION"' \
 grep -q 'lucia-os-update-validation.service' \
     "$script_dir/build-release-assets.sh"
 grep -q 'chown -R root:root' "$script_dir/build-release-assets.sh"
+grep -q 'verify_rootfs_helper' "$script_dir/build-release-assets.sh"
+grep -Fq "stat -c '%u:%g %a' \"\$helper\"" "$script_dir/build-release-assets.sh"
+grep -Fq '[[ "$stat_line" == "0:0 755" || "$stat_line" == "0:0 644" ]]' "$script_dir/build-release-assets.sh"
 if grep -Fq '/etc/sudoers.d/lucia-installer' \
     "$script_dir/build-release-assets.sh"; then
     echo "Release build still references the removed installer sudoers rule" >&2

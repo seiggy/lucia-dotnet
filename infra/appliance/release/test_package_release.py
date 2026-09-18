@@ -90,6 +90,8 @@ class PackageReleaseTests(unittest.TestCase):
                     str(output),
                     "--chunk-bytes",
                     "10",
+                    "--image-input-fingerprint",
+                    "a" * 64,
                 ],
                 check=True,
             )
@@ -168,6 +170,217 @@ class PackageReleaseTests(unittest.TestCase):
                         "https://github.com/seiggy/lucia-dotnet/releases/download/"
                         f"v1.2.3/{part['name']}",
                     )
+
+    def test_manifest_allows_app_only_release_without_image_channels(self) -> None:
+        script = pathlib.Path(__file__).with_name("package_release.py")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            lucia = root / "lucia.tar.zst"
+            output = root / "release"
+            lucia.write_bytes(b"lucia-payload")
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(script),
+                    "--repository",
+                    "seiggy/lucia-dotnet",
+                    "--tag",
+                    "v1.2.3",
+                    "--lucia",
+                    str(lucia),
+                    "--lucia-version",
+                    "1.2.4",
+                    "--lucia-source-jetson-linux",
+                    "36.4.3",
+                    "--lucia-source-cuda",
+                    "12.5",
+                    "--lucia-source-redis",
+                    "8.1.0",
+                    "--lucia-source-cudnn",
+                    "9.2.0",
+                    "--lucia-source-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-source-sherpa-onnx",
+                    "1.11.0",
+                    "--lucia-target-jetson-linux",
+                    "36.4.3",
+                    "--lucia-target-redis",
+                    "8.2.9",
+                    "--lucia-target-cuda",
+                    "12.5",
+                    "--lucia-target-cudnn",
+                    "9.2.0",
+                    "--lucia-target-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-target-sherpa-onnx",
+                    "1.11.0",
+                    "--output-dir",
+                    str(output),
+                    "--image-input-fingerprint",
+                    "a" * 64,
+                ],
+                check=True,
+            )
+
+            manifest = json.loads((output / "lucia-appliance-manifest.json").read_text())
+            self.assertEqual(manifest["releaseMode"], "app-only")
+            self.assertEqual(manifest["channels"]["lucia"]["version"], "1.2.4")
+            self.assertNotIn("installer", manifest["channels"])
+            self.assertNotIn("os", manifest["channels"])
+            self.assertEqual(manifest["imageInputFingerprint"], "a" * 64)
+            self.assertEqual(manifest["channels"]["lucia"]["requires"]["source"]["cuda"], "12.5")
+
+    def test_app_only_rejects_os_runtime_fields(self) -> None:
+        script = pathlib.Path(__file__).with_name("package_release.py")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            lucia = root / "lucia.tar.zst"
+            output = root / "release"
+            lucia.write_bytes(b"lucia-payload")
+
+            process = subprocess.run(
+                [
+                    "python3",
+                    str(script),
+                    "--repository",
+                    "seiggy/lucia-dotnet",
+                    "--tag",
+                    "v1.2.3",
+                    "--lucia",
+                    str(lucia),
+                    "--lucia-version",
+                    "1.2.4",
+                    "--lucia-source-jetson-linux",
+                    "36.4.3",
+                    "--lucia-source-cuda",
+                    "12.5",
+                    "--lucia-source-redis",
+                    "8.1.0",
+                    "--lucia-source-cudnn",
+                    "9.2.0",
+                    "--lucia-source-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-source-sherpa-onnx",
+                    "1.11.0",
+                    "--lucia-target-jetson-linux",
+                    "36.4.3",
+                    "--lucia-target-redis",
+                    "8.2.9",
+                    "--lucia-target-cuda",
+                    "12.5",
+                    "--lucia-target-cudnn",
+                    "9.2.0",
+                    "--lucia-target-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-target-sherpa-onnx",
+                    "1.11.0",
+                    "--os-source-jetson-linux",
+                    "36.4.3",
+                    "--output-dir",
+                    str(output),
+                    "--release-mode",
+                    "app-only",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(process.returncode, 0)
+            self.assertIn("app-only release mode rejects OS runtime source metadata", process.stderr)
+
+    def test_full_manifest_keeps_image_input_fingerprint(self) -> None:
+        script = pathlib.Path(__file__).with_name("package_release.py")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            installer = root / "installer.img.zst"
+            lucia = root / "lucia.tar.zst"
+            os_update = root / "os.tar.zst"
+            output = root / "release"
+            installer.write_bytes(b"installer-image-payload")
+            lucia.write_bytes(b"lucia")
+            os_update.write_bytes(b"os-update-payload")
+
+            subprocess.run(
+                [
+                    "python3",
+                    str(script),
+                    "--repository",
+                    "seiggy/lucia-dotnet",
+                    "--tag",
+                    "v1.2.3",
+                    "--installer",
+                    str(installer),
+                    "--lucia",
+                    str(lucia),
+                    "--os",
+                    str(os_update),
+                    "--lucia-version",
+                    "1.2.4",
+                    "--os-version",
+                    "2.0.0",
+                    "--lucia-source-jetson-linux",
+                    "36.4.3",
+                    "--lucia-source-cuda",
+                    "12.5",
+                    "--lucia-source-redis",
+                    "8.1.0",
+                    "--lucia-source-cudnn",
+                    "9.2.0",
+                    "--lucia-source-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-source-sherpa-onnx",
+                    "1.11.0",
+                    "--os-source-jetson-linux",
+                    "36.4.3",
+                    "--os-source-redis",
+                    "8.2.9",
+                    "--os-source-cuda",
+                    "13.0",
+                    "--os-source-cudnn",
+                    "10.0",
+                    "--os-source-onnx-runtime",
+                    "2.0.0",
+                    "--os-source-sherpa-onnx",
+                    "2.0.0",
+                    "--lucia-target-jetson-linux",
+                    "36.4.3",
+                    "--lucia-target-redis",
+                    "8.2.9",
+                    "--lucia-target-cuda",
+                    "12.5",
+                    "--lucia-target-cudnn",
+                    "9.2.0",
+                    "--lucia-target-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-target-sherpa-onnx",
+                    "1.11.0",
+                    "--os-target-jetson-linux",
+                    "36.5.2",
+                    "--os-target-redis",
+                    "8.2.9",
+                    "--os-target-cuda",
+                    "12.6",
+                    "--os-target-cudnn",
+                    "9.3.0.75",
+                    "--os-target-onnx-runtime",
+                    "1.23.2",
+                    "--os-target-sherpa-onnx",
+                    "1.12.34",
+                    "--output-dir",
+                    str(output),
+                    "--image-input-fingerprint",
+                    "a" * 64,
+                ],
+                check=True,
+            )
+
+            manifest = json.loads((output / "lucia-appliance-manifest.json").read_text())
+            self.assertEqual(manifest["releaseMode"], "full")
+            self.assertEqual(manifest["imageInputFingerprint"], "a" * 64)
 
 
 if __name__ == "__main__":

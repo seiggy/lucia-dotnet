@@ -244,6 +244,18 @@ mongodb:
   securityContext:
     allowPrivilegeEscalation: false
 
+## External PostgreSQL. Disable mongodb.enabled when enabling this provider.
+postgres:
+  enabled: false
+  host: ""
+  port: 5432
+  # Existing Secret containing three complete Npgsql connection strings.
+  existingSecret: ""
+  connectionStringKeys:
+    luciaconfig: "luciaconfig"
+    luciatraces: "luciatraces"
+    luciatasks: "luciatasks"
+
 ## LLM Configuration (for ConfigMap and Secrets)
 llm:
   # Default LLM provider: openai, azureopenai, ollama, azureinference

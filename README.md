@@ -178,6 +178,10 @@ individual memories without deleting the voice profile or its recordings.
 | `seiggy/lucia-agenthost:ha-mono` | None | ~350MB | Home Assistant add-on (mono-container, no Redis/MongoDB) |
 | *Self-build only* | AMD ROCm 6.4 | ~25GB | Voice + AMD GPU acceleration |
 
+The application images include `uv` and `uvx` for local Python MCP servers.
+Their cache and tool directories are writable by the runtime user. See the
+[Docker deployment guide](infra/docker/DEPLOYMENT.md) for configuration.
+
 > **Note:** The ROCm image is not published to Docker Hub due to its ~25GB size exceeding CI storage limits. AMD GPU users can build it locally:
 > ```bash
 > docker build -t lucia:voice-rocm -f infra/docker/Dockerfile.voice-rocm .
@@ -900,7 +904,19 @@ failed installation can be diagnosed from the SD card.
 
 See [the appliance release guide](infra/appliance/release/README.md) and
 [implementation status](specs/006-jetson-appliance-image/tasks.md). Stable
-release tags publish separate installer, Lucia, and OS assets.
+releases publish Lucia application updates. OS and installer images are published
+when their build inputs change or a maintainer forces a full build. Application
+updates do not change the installed OS version or replace `lucia.env`.
+For a fresh installation, use the newest supported installer in the
+[release history](https://github.com/seiggy/lucia-dotnet/releases), which may be
+older than the latest application release.
+
+The update page reports progress for the current phase, not an estimated overall
+percentage. Downloads and OS writes show measured bytes; phases without a known
+total remain indeterminate. Reconnecting restores the operation's progress.
+Reaching 100% of a download or write does not mean the update passed validation.
+Older OS images need the matching native helpers before they can report OS-write
+progress.
 
 ### Deployment Modes
 
@@ -936,6 +952,8 @@ helm install lucia infra/kubernetes/helm/lucia-helm \
 ```
 
 The Kubernetes deployment runs in **mesh mode** by default, with Music Agent and Timer Agent as separate pods. See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
+The chart also supports an external PostgreSQL database with credentials supplied
+through Kubernetes Secrets. MongoDB remains the default.
 
 ### systemd
 
