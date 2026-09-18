@@ -1,6 +1,7 @@
 [Unit]
 Description=Validate a newly activated Lucia OS slot
 After=lucia-agenthost.service lucia-redis.service network-online.target
+Before=nv-l4t-bootloader-config.service
 Wants=lucia-agenthost.service lucia-redis.service network-online.target
 ConditionPathExists=/var/lib/lucia/updates/state/os.env
 

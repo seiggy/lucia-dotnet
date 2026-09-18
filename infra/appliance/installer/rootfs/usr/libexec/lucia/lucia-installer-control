@@ -232,6 +232,24 @@ def show_status() -> None:
             phase = "waiting-for-configuration"
 
     status: dict[str, object] = {"phase": phase}
+    check = os.environ.get(
+        "LUCIA_ROOTFS_AB_CHECK_PATH", "/usr/libexec/lucia/lucia-rootfs-ab-check"
+    )
+    try:
+        readiness = subprocess.run(
+            ["bash", check], capture_output=True, text=True, timeout=25, check=False
+        )
+        if readiness.returncode != 0 or readiness.stdout.strip() not in {"0", "1"}:
+            status["osUpdateWarning"] = (
+                "NVIDIA RootFS A/B is not verified. You can install Lucia, but OS "
+                "updates will remain blocked until boot firmware is provisioned "
+                "for rootfs redundancy. Writing the NVMe image does not enable it."
+            )
+    except (OSError, subprocess.TimeoutExpired):
+        status["osUpdateWarning"] = (
+            "Boot-firmware readiness could not be checked. OS updates require a "
+            "verified NVIDIA RootFS A/B setup; the offline installer remains available."
+        )
     dashboard_key_path = state_directory / "dashboard-key.handoff"
     if dashboard_key_path.exists():
         status["dashboardKey"] = dashboard_key_path.read_text(

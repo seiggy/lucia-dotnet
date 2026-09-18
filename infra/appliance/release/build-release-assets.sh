@@ -532,6 +532,9 @@ sudo install -d \
 sudo install -m 0755 \
     "$repo_root/infra/appliance/installer/lucia-install" \
     "$sd_root/usr/libexec/lucia/lucia-install"
+sudo install -o root -g root -m 0755 \
+    "$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-rootfs-ab-check" \
+    "$sd_root/usr/libexec/lucia/lucia-rootfs-ab-check"
 sudo cp -a "$installer_publish_dir/." "$sd_root/opt/lucia-installer/app/"
 sudo chown -R root:root "$sd_root/opt/lucia-installer/app"
 sudo install -D -m 0755 \

@@ -98,6 +98,15 @@ elif [[ "$*" == *"DEVICE,TYPE,STATE device status"* \
 fi
 EOF
 chmod +x "$work_dir/nmcli"
+cat > "$work_dir/rootfs-check" <<'EOF'
+#!/usr/bin/env bash
+[[ "$*" == --layout ]] || exit 64
+if [[ -e "$LUCIA_TEST_DISABLE_AB" ]]; then
+    printf 'RootFS A/B is not enabled.\n' >&2
+    exit 1
+fi
+printf '0\n'
+EOF
 cat > "$work_dir/lucia-update" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -162,6 +171,8 @@ LUCIA_TELEMETRY_ENV_PATH="$telemetry_environment" \
 LUCIA_AGENTHOST_ENV_PATH="$agenthost_environment" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
 LUCIA_UPDATE_PATH="$work_dir/lucia-update" \
+LUCIA_ROOTFS_AB_CHECK_PATH="$work_dir/rootfs-check" \
+LUCIA_TEST_DISABLE_AB="$work_dir/disable-ab" \
 LUCIA_UPDATE_ROOT="$work_dir/updates" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
 LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
@@ -290,6 +301,21 @@ printf 'status=failed\n' > "$work_dir/updates/state/os.env"
 echo "PASS: unfinished Lucia transactions block overlapping updates"
 
 echo "PASS: status reports the appliance and allowlisted services"
+
+touch "$work_dir/disable-ab"
+curl --fail --silent --unix-socket "$socket_path" http://localhost/v1/status \
+    > "$work_dir/response.json"
+grep -q '"rootfsAbEnabled":false' "$work_dir/response.json"
+grep -q 'RootFS A/B is not enabled' "$work_dir/response.json"
+for action in apply rollback; do
+    status="$(curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" --header 'Content-Type: application/json' \
+        --request POST --data '{"tag":"v1.4.0"}' "http://localhost/v1/updates/os/$action")"
+    [[ "$status" == 409 ]]
+    grep -q 'RootFS A/B is not enabled' "$work_dir/response.json"
+done
+rm "$work_dir/disable-ab"
+echo "PASS: disabled RootFS A/B blocks OS apply and rollback with an actionable reason"
 
 printf 'ethernet\n' > "$network_mode"
 curl --silent --output "$work_dir/response.json" \

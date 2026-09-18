@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
+fail() {
+    printf '%s\n' "$1" >&2
+    exit 1
+}
+[[ -x "$nvbootctrl_path" ]] \
+    || fail "RootFS A/B cannot be checked: NVIDIA boot-control tools are unavailable."
+
+# NVIDIA uses exit status 1/2 for enabled A/B, not conventional success status 0.
+if timeout 10 "$nvbootctrl_path" -t rootfs is-rootfs-ab-enabled >/dev/null; then
+    fail "RootFS A/B is not enabled. Provision NVIDIA rootfs redundancy before installing an OS update. Lucia updates remain available."
+else
+    capability=$?
+fi
+[[ "$capability" == 1 || "$capability" == 2 ]] \
+    || fail "RootFS A/B could not be verified. Check NVIDIA boot-control configuration before retrying."
+slot="$(timeout 10 "$nvbootctrl_path" -t rootfs get-current-slot)" \
+    || fail "RootFS A/B current slot is unavailable."
+[[ "$slot" == "$((capability - 1))" ]] \
+    || fail "RootFS A/B capability and current slot disagree. Repair boot configuration before retrying."
+if [[ "${1:-}" == "--layout" ]]; then
+    bootloader_slot="$(timeout 10 "$nvbootctrl_path" get-current-slot)" \
+        || fail "The bootloader slot could not be verified."
+    [[ "$bootloader_slot" == "$slot" ]] \
+        || fail "Bootloader and RootFS A/B slots disagree. Repair the boot configuration before retrying."
+    partitions="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
+    root_mount="${LUCIA_ROOTFS_MOUNT:-/}"
+    efivars="${LUCIA_EFIVARS_PATH:-/sys/firmware/efi/efivars}"
+    mode_file="$efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
+    [[ -r "$mode_file" ]] \
+        || fail "OS boot mode cannot be verified. Keep the appliance running and inspect UEFI configuration."
+    mode="$(od -An -j4 -N4 -tu4 "$mode_file" | tr -d '[:space:]')"
+    [[ "$mode" == 1 ]] \
+        || fail "OS updates require the supported extlinux boot mode. Do not change firmware without a recovery plan."
+    current_label="$([[ "$slot" == 0 ]] && printf APP || printf APP_b)"
+    source="$(findmnt -n -o SOURCE --target "$root_mount")"
+    [[ -b "$source" && -b "$partitions/$current_label" \
+        && "$(stat -Lc '%t:%T' "$source")" == "$(stat -Lc '%t:%T' "$partitions/$current_label")" ]] \
+        || fail "Mounted root filesystem does not match NVIDIA's current RootFS A/B slot."
+    disk="$(lsblk -dn -o PKNAME "$source")"
+    [[ -n "$disk" ]] || fail "The root filesystem's disk could not be identified."
+    for label in APP APP_b A_kernel A_kernel-dtb B_kernel B_kernel-dtb; do
+        [[ -b "$partitions/$label" && "$(lsblk -dn -o PKNAME "$partitions/$label")" == "$disk" ]] \
+            || fail "OS slot partitions are missing or belong to different disks. Repair the partition layout before retrying."
+    done
+    if ! uuid="$(blkid -s PARTUUID -o value "$source")" \
+        || [[ ! "$uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+        fail "The running OS partition has no valid PARTUUID."
+    fi
+    root_argument=""
+    read -r -a arguments < "${LUCIA_CMDLINE_PATH:-/proc/cmdline}"
+    for argument in "${arguments[@]}"; do
+        [[ "$argument" != root=* ]] || root_argument="${argument#root=}"
+    done
+    [[ "${root_argument,,}" == "partuuid=${uuid,,}" ]] \
+        || fail "The running kernel's root PARTUUID does not match its mounted root filesystem."
+elif [[ $# -ne 0 ]]; then
+    fail "Usage: lucia-rootfs-ab-check [--layout]"
+fi
+printf '%s\n' "$slot"

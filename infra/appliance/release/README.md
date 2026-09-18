@@ -132,6 +132,72 @@ AgentHost, and the local health endpoint after boot. A failed check selects the
 previous slot and reboots. Intentional rollback runs the same checks on the
 previous slot and returns to the current slot if that validation fails.
 
+### RootFS A/B prerequisites and recovery
+
+An `APP_b` partition is not proof of working rootfs redundancy. Image generation
+uses `ROOTFS_AB=1` with `--no-flash`; the SD installer writes the resulting NVMe
+image, not the device's QSPI configuration. It reports unverified firmware without
+blocking the hardware-tested offline installer.
+
+The shared `lucia-rootfs-ab-check` reads NVIDIA's native capability result.
+Exit code 0 from `is-rootfs-ab-enabled` means disabled; 1 and 2 mean enabled on
+slots A and B. Other results and disagreement with `get-current-slot` block OS
+updates. The full preflight also requires matching bootloader/rootfs slots,
+the supported extlinux UEFI boot mode,
+the current mounted root and its kernel PARTUUID to agree, and all six root,
+kernel, and DTB partitions to belong to the same disk. It never enables firmware
+features automatically.
+
+The manager reports a blocking reason to the dashboard and rechecks before
+accepting OS operations. The privileged updater checks again before writing.
+Older managers or missing recovery helpers leave OS updates blocked while
+Lucia-only updates remain available. Existing installations need the matching
+root-owned updater, validator, `lucia-rootfs-ab-check`, and
+`lucia-rebind-rootfs.py` helpers installed through an approved recovery procedure.
+The running and fallback OS must both contain the corrected recovery logic.
+An application update does not replace `/usr/libexec/lucia` by itself.
+
+After writing a verified image, the updater changes its extlinux and root fstab
+references to the actual inactive partition's PARTUUID. It does not change the
+device's partition IDs. Directory symlinks and missing boot files are rejected
+before activation. Partition-based kernel boot and GRUB are not accepted by this
+extlinux-specific updater.
+
+Post-boot validation repeats the full layout check before health checks or
+recovery reboots. A healthy application alone cannot prove that Linux mounted
+the requested OS slot. Boot validation uses the shipped `nvbootctrl verify`
+command only after layout, Lucia, and network health pass. It runs before
+NVIDIA's default boot-validation service.
+Recovery persists a maximum of two additional reboot requests per operation.
+If the requested slot never becomes active, readiness cannot be verified, or
+the budget is exhausted, it records a terminal failure rather than rebooting
+forever. The GUI retains the error; a manual power cycle is not the default fix.
+
+For an existing device whose firmware has redundancy disabled:
+
+1. Keep the running OS intact. Back up application data, configuration, recovery
+   access, GPT metadata, and boot configuration before any firmware work.
+2. Prepare the board-matched Jetson Linux BSP using NVIDIA's external-NVMe
+   RootFS A/B flashing procedure. Inspect its flash plan before running it.
+   This repository does not yet provide a hardware-verified firmware-only
+   conversion that preserves an existing installation. Do not toggle EFI bytes
+   or execute a generic full-disk flash command as a substitute.
+3. Arrange USB Force Recovery and serial or HDMI console access. Execute only
+   the reviewed provisioning plan with explicit owner approval.
+4. Verify A-to-B and B-to-A boots, actual root PARTUUIDs, warm and cold boot
+   behavior, health validation, and deliberately failed-update rollback.
+   Preserve user data and confirm that recovery stops with an actionable error.
+
+The software regressions cover disabled/unknown capability, bounded retries,
+device-specific UUID rebinding, API admission, and GUI messages. They do not
+prove firmware provisioning or real slot failover. That hardware acceptance
+remains tracked in #275.
+The mounted-image verifier runs the image's checker against deterministic
+NVIDIA-tool responses for enabled slots A/B, disabled redundancy, and unsupported
+results. It checks both the status and warning behavior without reading the
+x86-64 build host's firmware. Missing root or target PARTUUID metadata returns a
+specific diagnostic rather than an unexplained command failure.
+
 Images older than this updater cannot bootstrap it from the dashboard. Upgrade
 those devices once by reinstalling or manually deploying a release that
 contains the verifier.

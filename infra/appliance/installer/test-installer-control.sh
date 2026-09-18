@@ -50,9 +50,11 @@ PY
 
 echo "PASS: control inventories stable disk identities"
 
+LUCIA_ROOTFS_AB_CHECK_PATH="$work_dir/missing-check" \
 LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
     > "$work_dir/status.json"
 grep -q '"phase":"waiting-for-configuration"' "$work_dir/status.json"
+grep -q 'osUpdateWarning' "$work_dir/status.json"
 
 printf '{}\n' > "$work_dir/state/provisioning.json"
 LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \

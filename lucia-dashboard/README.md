@@ -104,8 +104,16 @@ The dashboard uses API key authentication with HMAC-signed sessions:
 2. **Login** — Users authenticate at `/login` with their API key.
 3. **Route guards** — `AuthContext` redirects unauthenticated users to login and users who haven't completed setup to the wizard.
 
-## Voice onboarding traces
+## Appliance OS update prerequisites
 
+The Appliance page reports why an OS update is blocked, including unavailable
+RootFS A/B checks or disabled redundancy. The manager rechecks prerequisites
+when an operation is submitted. Missing readiness fields from an older manager
+do not count as approval. Lucia-only updates and normal service controls remain
+available. The installer also warns that writing an NVMe image does not enable
+RootFS A/B in firmware; it does not remove the offline setup path.
+
+## Voice onboarding traces
 Cmd Traces labels voice enrollment as **Voice onboarding**. Its detail view shows
 the stage, whether another reply is needed, and the returned conversation ID
 alongside the incoming request context. Personal answers are redacted, and no

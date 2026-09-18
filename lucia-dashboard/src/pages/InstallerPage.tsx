@@ -338,6 +338,11 @@ export default function InstallerPage() {
         <SignalPath step={step} hostname={hostname} />
 
         <section className="glass-panel glow-amber-sm min-w-0 rounded-2xl p-4 sm:p-8">
+          {step !== 'claim' && installerStatus.osUpdateWarning && (
+            <p role="status" className="mb-4 rounded-xl border border-amber/30 bg-amber/5 p-4 text-sm text-amber">
+              {installerStatus.osUpdateWarning}
+            </p>
+          )}
           {step === 'claim' && (
             <ClaimStep
               busy={busy}

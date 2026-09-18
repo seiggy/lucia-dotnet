@@ -72,6 +72,11 @@ export default function AppliancePage() {
   const [pendingRollback, setPendingRollback] = useState<'lucia' | 'os' | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const osBlockReason = updates?.osBlockReason
+    ?? status?.os.updateBlockReason
+    ?? (status && status.os.rootfsAbEnabled !== true
+      ? 'RootFS A/B has not been verified. Update the appliance recovery helpers before installing an OS update. Lucia updates remain available.'
+      : null)
   const isUpdateBusy = stagingUpdate !== null
     || submittingRollback !== null
     || updateOperation?.status === 'queued'
@@ -294,7 +299,7 @@ export default function AppliancePage() {
             title="Jetson OS"
             current={updates?.currentOsVersion ?? status?.os.imageVersion ?? 'unknown'}
             latest={updates?.latestOsVersion}
-            available={updates?.osUpdateAvailable ?? false}
+            available={!osBlockReason && (updates?.osUpdateAvailable ?? false)}
             newerDiscovered={updates?.osNewerDiscovered ?? false}
             manifestAvailable={updates?.manifestAvailable ?? false}
             compatible={updates?.osCompatible ?? true}
@@ -302,11 +307,16 @@ export default function AppliancePage() {
             busy={isUpdateBusy}
             rollbackBusy={submittingRollback !== null
               || (isUpdateBusy && !canInterruptOsValidation)}
-            rollbackAvailable={updateOperation?.osRollbackAvailable ?? false}
+            rollbackAvailable={!osBlockReason && (updateOperation?.osRollbackAvailable ?? false)}
             onInstall={() => setPendingUpdate('os')}
             onRollback={() => setPendingRollback('os')}
           />
         </div>
+        {osBlockReason && (
+          <p role="alert" className="border-t border-stone px-5 py-3 text-sm text-amber">
+            {osBlockReason}
+          </p>
+        )}
         {updates?.message && (
           <p className="border-t border-stone px-5 py-3 text-sm text-amber">
             {updates.message}
