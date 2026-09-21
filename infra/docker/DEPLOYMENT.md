@@ -489,5 +489,8 @@ provide the interpreter and tool packages in advance.
 
 `python infra/docker/test-uv-runtime.py` checks the seven runtime definitions and
 executes a local fixture tool as UIDs 1000 and 1100 in a read-only container.
+The host fixture directory is searchable and its wheel readable by both UIDs,
+even when the host user has a different UID or a restrictive umask. The fixture
+mount stays read-only; uv creates writable runtime directories in `/tmp`.
 It downloads a pinned Python interpreter for the smoke check. It does not build
 the GPU images or validate GPU inference.
