@@ -90,6 +90,21 @@ MongoDB host for ConfigMap and connection strings.
 {{- end }}
 
 {{/*
+PostgreSQL connection strings for every pod using the shared data provider.
+*/}}
+{{- define "lucia.postgres.env" -}}
+{{- if .Values.postgres.enabled }}
+{{- range $database := list "luciaconfig" "luciatraces" "luciatasks" }}
+- name: ConnectionStrings__{{ $database }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $.Values.postgres.existingSecret | quote }}
+      key: {{ required (printf "postgres.connectionStringKeys.%s is required" $database) (index $.Values.postgres.connectionStringKeys $database) | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Format environment variables from map.
 Usage: {{ include "lucia.env" . }}
 */}}

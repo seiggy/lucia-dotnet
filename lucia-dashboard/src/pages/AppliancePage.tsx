@@ -72,6 +72,7 @@ export default function AppliancePage() {
   const [pendingRollback, setPendingRollback] = useState<'lucia' | 'os' | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [reconnecting, setReconnecting] = useState(false)
   const osBlockReason = updates?.osBlockReason
     ?? status?.os.updateBlockReason
     ?? (status && status.os.rootfsAbEnabled !== true
@@ -109,6 +110,21 @@ export default function AppliancePage() {
   }, [load])
 
   useEffect(() => {
+    if (loading || status) return
+    let stopped = false
+    let timer = 0
+    async function reconnect() {
+      await load()
+      if (!stopped) timer = window.setTimeout(() => void reconnect(), 2000)
+    }
+    timer = window.setTimeout(() => void reconnect(), 2000)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
+  }, [load, loading, status])
+
+  useEffect(() => {
     if (updateOperation?.status !== 'queued' && updateOperation?.status !== 'running') return
     let stopped = false
     let timer = 0
@@ -116,10 +132,9 @@ export default function AppliancePage() {
       try {
         const operation = await fetchApplianceUpdateOperation(updateOperation?.operationId)
         if (!stopped) {
+          setError('')
+          setReconnecting(false)
           setUpdateOperation(operation)
-          if (operation.status === 'failed') {
-            setError(operation.message ?? 'Update failed. Rollback is available when a backup exists.')
-          }
           if (operation.status === 'succeeded') {
             setUpdates(null)
             setNotice(operation.action === 'rollback'
@@ -134,9 +149,12 @@ export default function AppliancePage() {
         }
       } catch (pollError: unknown) {
         if (!stopped) {
-          setError(pollError instanceof Error
-            ? pollError.message
-            : 'Update status is unavailable.')
+          setReconnecting(true)
+          if (updateOperation?.phase !== 'restarting') {
+            setError(pollError instanceof Error
+              ? pollError.message
+              : 'Update status is unavailable.')
+          }
         }
       } finally {
         if (!stopped) timer = window.setTimeout(() => void poll(), 2000)
@@ -147,7 +165,7 @@ export default function AppliancePage() {
       stopped = true
       window.clearTimeout(timer)
     }
-  }, [load, updateOperation?.operationId, updateOperation?.status])
+  }, [load, updateOperation?.operationId, updateOperation?.status, updateOperation?.phase])
 
   async function handleCheckUpdates() {
     setCheckingUpdates(true)
@@ -191,10 +209,11 @@ export default function AppliancePage() {
     setError('')
     setStagingUpdate(channel)
     try {
-      if (!updates?.releaseTag) {
+      const tag = channel === 'lucia' ? updates?.luciaReleaseTag : updates?.osReleaseTag
+      if (!tag) {
         throw new Error('Check for updates again before installing.')
       }
-      setUpdateOperation(await installApplianceUpdate(channel, updates.releaseTag))
+      setUpdateOperation(await installApplianceUpdate(channel, tag))
       setNotice(channel === 'os'
         ? 'Downloading and verifying the OS update. The Jetson will reboot when it is staged.'
         : 'Downloading and verifying the Lucia update. The dashboard will reconnect after services restart.')
@@ -256,6 +275,11 @@ export default function AppliancePage() {
           {notice}
         </p>
       )}
+      {reconnecting && (
+        <p role="status" className="text-sm text-fog">
+          Connection lost. Waiting to reconnect to the same update; its last reported progress is shown.
+        </p>
+      )}
 
       {status && <IdentityStrip status={status} />}
 
@@ -264,6 +288,12 @@ export default function AppliancePage() {
           <div>
             <h2 className="font-display text-xl font-semibold text-light">Release channels</h2>
             <p className="mt-1 text-sm text-fog">Lucia and Jetson OS update independently.</p>
+            {updates?.installerReleaseUrl && (
+              <a href={updates.installerReleaseUrl} target="_blank" rel="noreferrer"
+                className="mt-2 inline-flex min-h-11 items-center gap-2 text-sm text-amber underline">
+                Latest supported installer <ExternalLink aria-hidden="true" className="h-4 w-4" />
+              </a>
+            )}
           </div>
           <button
             type="button"
@@ -291,6 +321,10 @@ export default function AppliancePage() {
             busy={isUpdateBusy}
             rollbackBusy={isUpdateBusy}
             rollbackAvailable={updateOperation?.luciaRollbackAvailable ?? false}
+            operation={updateOperation && updateOperation.channel === 'lucia'
+              && updateOperation.status !== 'idle' && updateOperation.status !== 'succeeded'
+              ? updateOperation
+              : null}
             onInstall={() => setPendingUpdate('lucia')}
             onRollback={() => setPendingRollback('lucia')}
           />
@@ -308,6 +342,10 @@ export default function AppliancePage() {
             rollbackBusy={submittingRollback !== null
               || (isUpdateBusy && !canInterruptOsValidation)}
             rollbackAvailable={!osBlockReason && (updateOperation?.osRollbackAvailable ?? false)}
+            operation={updateOperation && updateOperation.channel === 'os'
+              && updateOperation.status !== 'idle' && updateOperation.status !== 'succeeded'
+              ? updateOperation
+              : null}
             onInstall={() => setPendingUpdate('os')}
             onRollback={() => setPendingRollback('os')}
           />
@@ -491,6 +529,7 @@ function UpdateRail({
   busy,
   rollbackBusy,
   rollbackAvailable,
+  operation,
   onInstall,
   onRollback,
 }: {
@@ -506,25 +545,52 @@ function UpdateRail({
   busy: boolean
   rollbackBusy: boolean
   rollbackAvailable: boolean
+  operation: ApplianceUpdateOperationStatus | null
   onInstall: () => void
   onRollback: () => void
 }) {
   const verificationRequired = checked && newerDiscovered
   const unavailable = checked && !manifestAvailable
   const incompatible = checked && manifestAvailable && !compatible
+  const progressTotal = operation?.totalBytes ?? null
+  const completedBytes = operation?.completedBytes ?? null
+  const progressPercent = progressTotal !== null && progressTotal > 0 && completedBytes !== null
+    ? Math.min(100, Math.max(0, (completedBytes / progressTotal) * 100))
+    : undefined
+  const phaseLabel = formatPhase(operation?.phase ?? operation?.status ?? null)
   return (
     <div className="grid gap-4 border-b border-stone p-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-basalt text-amber">
-          <Icon className="h-5 w-5" />
-        </span>
-        <div className="min-w-0">
-          <h3 className="font-display text-base font-semibold text-light">{title}</h3>
-          <p className="mt-1 text-sm text-fog">
-            Installed {current}
-            {latest && ` · Latest ${latest}`}
-          </p>
+      <div className="min-w-0">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-basalt text-amber">
+            <Icon className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="font-display text-base font-semibold text-light">{title}</h3>
+            <p className="mt-1 text-sm text-fog">
+              Installed {current}
+              {latest && ` · Latest ${latest}`}
+            </p>
+          </div>
         </div>
+        {operation && (
+          <div className="mt-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-fog">
+              <span role="status">{phaseLabel}{operation.status === 'failed' ? ' failed' : ''}</span>
+              <span>{progressPercent !== undefined ? `${Math.floor(progressPercent)}% of this phase` : 'Progress not measurable in this phase'}</span>
+            </div>
+            <progress
+              aria-label={`${title} update phase progress`}
+              aria-valuetext={progressPercent !== undefined ? `${phaseLabel}: ${Math.floor(progressPercent)}% of this phase` : `${phaseLabel}: progress indeterminate`}
+              max={100}
+              value={progressPercent}
+              className="block h-2.5 w-full accent-amber"
+            />
+            {completedBytes !== null && progressTotal !== null && (
+              <p className="text-xs text-fog">{formatBytes(completedBytes)} of {formatBytes(progressTotal)}</p>
+            )}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <span className={`text-sm font-medium ${
@@ -577,6 +643,28 @@ function UpdateRail({
       </div>
     </div>
   )
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return '0 B'
+  }
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
+  let value = bytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  const precision = value >= 10 || unitIndex === 0 ? 0 : 1
+  return `${value.toFixed(precision)} ${units[unitIndex]}`
+}
+
+function formatPhase(phase: string | null): string {
+  if (!phase) return 'Preparing'
+  return phase
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase())
 }
 
 function ServiceRow({

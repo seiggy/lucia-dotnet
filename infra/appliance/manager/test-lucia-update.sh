@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 updater="$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-update"
 os_validator="$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-validate-os-update"
 python3 "$repo_root/infra/appliance/manager/test-os-boot-validation.py"
+python3 "$repo_root/infra/appliance/manager/test-update-progress.py"
 work="$(mktemp -d)"
 loop_device=""
 mounted_path=""
@@ -32,6 +33,10 @@ mkdir -p \
 ln -s releases/1.0.0 "$work/current"
 printf 'old-app\n' > "$work/releases/1.0.0/app/version"
 printf 'old-db\n' > "$work/data/db/lucia.db"
+printf 'owner-config\n' > "$work/data/config/lucia.env"
+printf 'owner-credential\n' > "$work/data/config/credentials"
+mkdir -p "$work/data/voice-clips"
+printf 'recording\n' > "$work/data/voice-clips/sample.wav"
 printf 'old-plugin\n' > "$work/data/plugins/official.plugin"
 printf 'removed-plugin\n' > "$work/data/plugins/removed.plugin"
 printf 'user-plugin\n' > "$work/data/plugins/user.plugin"
@@ -165,6 +170,10 @@ run_update() {
     if [[ "${2:-}" == os && -n "$loop_device" ]]; then
         mount_running_root
     fi
+    if [[ -n "${LUCIA_TEST_OPERATION_ID:-}" && ( "$1" == apply || "$1" == rollback ) ]]; then
+        printf '{"Action":"%s","Channel":"%s","Status":"running","OperationId":"%s"}\n' \
+            "$1" "$2" "$LUCIA_TEST_OPERATION_ID" > "$work/updates/state/operation.json"
+    fi
     LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_DATA_ROOT="$work/data" \
     LUCIA_CURRENT_LINK="$work/current" \
@@ -253,6 +262,15 @@ mkdir -p "$work/releases/0.9.0"
 printf 'old-backup\n' > "$work/updates/backups/lucia-v0.9.0.tar.zst"
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
+write_manifest os v1.1.0 1.1.0 "$work/lucia.tar.zst"
+if output="$(run_update apply lucia v1.1.0 2>&1)"; then
+    echo "A release without the selected channel was accepted" >&2
+    exit 1
+fi
+grep -q 'Release v1.1.0 has no lucia update.' <<< "$output"
+[[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
+write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
+
 touch "$work/reject-attestation"
 if run_update apply lucia v1.1.0; then
     echo "Unverified Lucia update was accepted" >&2
@@ -315,13 +333,20 @@ rm "$work/fail-manager-validation"
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
-run_update apply lucia v1.1.0
+LUCIA_TEST_OPERATION_ID=11111111-1111-1111-1111-111111111111 \
+    run_update apply lucia v1.1.0
+grep -q '"Phase":"restarting"' "$work/updates/state/operation.json"
+grep -qx 'owner-config' "$work/data/config/lucia.env"
+grep -qx 'owner-credential' "$work/data/config/credentials"
+grep -qx 'recording' "$work/data/voice-clips/sample.wav"
+grep -qx '1.0.0' "$work/os-version"
 grep -qx 'phase=manager-pending' "$work/updates/state/lucia.env"
 printf '{"Action":"apply","Channel":"lucia","Status":"running","Tag":"v1.1.0","Message":null}\n' \
     > "$work/updates/state/operation.json"
 run_update finalize lucia
 grep -qx 'phase=committed' "$work/updates/state/lucia.env"
 grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
+grep -q '"Phase":"complete"' "$work/updates/state/operation.json"
 grep -q 'manager startup validation' "$work/updates/state/operation.json"
 grep -q '"redis":"8.3.0"' "$work/runtime.json"
 [[ "$(stat --format '%a' "$work/updates/state/lucia.env")" == "600" ]]
@@ -409,6 +434,10 @@ grep -q "update-validation/$rollback_validation_token?consume=true" \
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
 grep -q '"redis":"8.2.9"' "$work/runtime.json"
+grep -qx 'owner-config' "$work/data/config/lucia.env"
+grep -qx 'owner-credential' "$work/data/config/credentials"
+grep -qx 'recording' "$work/data/voice-clips/sample.wav"
+grep -qx '1.0.0' "$work/os-version"
 grep -qx 'old-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'old-redis-config' "$work/redis.conf"
 [[ "$(stat --format '%a' "$work/redis.conf")" == "640" ]]

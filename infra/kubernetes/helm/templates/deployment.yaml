@@ -98,6 +98,30 @@ spec:
               echo "MongoDB failed to become ready"
               exit 1
         {{- end }}
+        {{- if .Values.postgres.enabled }}
+        - name: wait-for-postgres
+          image: busybox:1.36
+          env:
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.postgres.port | quote }}
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for PostgreSQL to be ready..."
+              for i in $(seq 1 60); do
+                if nc -z "$POSTGRES_HOST" "$POSTGRES_PORT"; then
+                  echo "PostgreSQL is ready"
+                  exit 0
+                fi
+                echo "Attempt $i: PostgreSQL not ready, retrying in 1 second..."
+                sleep 1
+              done
+              echo "PostgreSQL failed to become ready"
+              exit 1
+        {{- end }}
 
       containers:
         - name: {{ .Chart.Name }}
@@ -122,6 +146,7 @@ spec:
 
           # Additional environment variables
           env:
+            {{- include "lucia.postgres.env" . | nindent 12 }}
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
             - name: ASPNETCORE_URLS

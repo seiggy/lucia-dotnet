@@ -129,6 +129,11 @@ spec:
             - secretRef:
                 name: {{ include "lucia.fullname" . }}
 
+          {{- if .Values.postgres.enabled }}
+          env:
+            {{- include "lucia.postgres.env" . | nindent 12 }}
+          {{- end }}
+
           {{- with .Values.a2aAgents.timerAgent.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

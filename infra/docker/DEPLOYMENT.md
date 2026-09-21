@@ -471,3 +471,27 @@ The docker-compose.yml includes security hardening by default:
 4. **Add Monitoring** — Integrate OpenTelemetry for tracing and metrics
 
 See [Kubernetes Deployment Guide](../kubernetes/README.md) for HA setup.
+
+## Local Python MCP servers
+
+AgentHost Docker variants include `uv` and `uvx` 0.12.16 from Astral's
+digest-pinned multi-architecture image. Configure a stdio MCP server with `uvx`
+as its command and the server package name as an argument. Git-based tools still
+need Git and any project files required by that tool; uv does not clone arbitrary
+repositories during the Lucia image build.
+
+The runtime user creates its cache, tools, and managed Python under `/tmp/uv-*`.
+This works with Kubernetes' writable `/tmp` volume and a read-only container root.
+These directories are disposable; mount persistent writable directories and set
+`UV_CACHE_DIR`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`, `UV_PYTHON_CACHE_DIR`, and
+`UV_PYTHON_INSTALL_DIR` if downloads must survive container replacement.
+First use may download Python and the selected package. For offline operation,
+provide the interpreter and tool packages in advance.
+
+`python infra/docker/test-uv-runtime.py` checks the seven runtime definitions and
+executes a local fixture tool as UIDs 1000 and 1100 in a read-only container.
+The host fixture directory is searchable and its wheel readable by both UIDs,
+even when the host user has a different UID or a restrictive umask. The fixture
+mount stays read-only; uv creates writable runtime directories in `/tmp`.
+It downloads a pinned Python interpreter for the smoke check. It does not build
+the GPU images or validate GPU inference.

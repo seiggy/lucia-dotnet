@@ -113,6 +113,18 @@ do not count as approval. Lucia-only updates and normal service controls remain
 available. The installer also warns that writing an NVMe image does not enable
 RootFS A/B in firmware; it does not remove the offline setup path.
 
+The two update controls can target different release tags. App-only releases
+do not hide an older compatible OS update or the latest supported installer.
+The installer link opens the release that actually contains its image.
+
+Progress shows the current phase, not a weighted estimate of the whole update.
+Downloads aggregate all parts; OS writes use uncompressed partition sizes.
+Unknown totals use an indeterminate progress bar. Validation and restart are
+separate phases, and reaching 100% does not mark an update successful.
+Reloading or reconnecting retrieves the same operation ID. Failures keep their
+last phase and measured bytes. Older OS helpers report indeterminate apply
+progress until updated through an approved OS or repair path.
+
 ## Voice onboarding traces
 Cmd Traces labels voice enrollment as **Voice onboarding**. Its detail view shows
 the stage, whether another reply is needed, and the returned conversation ID

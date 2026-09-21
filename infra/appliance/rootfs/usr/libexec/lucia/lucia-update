@@ -43,6 +43,12 @@ state_dir="$update_root/state"
 validation_credential_path="${LUCIA_VALIDATION_CREDENTIAL_PATH:-$state_dir/validation.key}"
 backups_dir="$update_root/backups"
 work_dir="$update_root/work"
+progress_helper="$(dirname "${BASH_SOURCE[0]}")/lucia-update-progress.py"
+
+report_progress() {
+    LUCIA_UPDATE_ROOT="$update_root" LUCIA_UPDATE_OPERATION_ID="$operation_id" \
+        python3 "$progress_helper" phase "$@"
+}
 
 issue_validation_credential() {
     local credential
@@ -529,7 +535,10 @@ if (
     raise SystemExit("incompatible appliance hardware")
 channel = manifest.get("channels", {}).get(channel_name)
 if not isinstance(channel, dict):
-    raise SystemExit("manifest channel is missing")
+    raise SystemExit(
+        f"Release {expected_tag} has no {channel_name} update. "
+        "Select a release that publishes this channel."
+    )
 version = channel.get("version")
 sha256 = channel.get("sha256")
 size = channel.get("bytes")
@@ -689,6 +698,7 @@ apply_lucia() {
     local bundled_plugin
     local previous_state="$state_dir/lucia.previous.env"
 
+    report_progress verifying
     verified_output="$(verify_and_assemble lucia "$selected_tag")" \
         || die "Lucia update verification failed"
     mapfile -t verified <<< "$verified_output"
@@ -738,6 +748,7 @@ apply_lucia() {
         || die "insufficient free space for the Lucia release"
     rm -rf "$extract_dir"
     mkdir -p "$extract_dir"
+    report_progress extracting
     xargs -d '\n' cat < "$parts_list" \
         | tar -I zstd -xf - -C "$extract_dir" \
             "./opt/lucia/releases/$version" \
@@ -804,6 +815,7 @@ apply_lucia() {
         exit "$exit_code"
     }
     trap restore_failed_apply ERR
+    report_progress backing-up
     services_stopped=true
     "$systemctl_path" stop lucia-agenthost.service lucia-redis.service
     rm -f "$backup_temporary"
@@ -818,6 +830,7 @@ apply_lucia() {
     backup_ready=true
     write_lucia_state \
         prepared "$previous_target" "releases/$version" "$backup" "$validation_token"
+    report_progress installing
     rm -rf "$releases_dir/.${version}.new"
     cp -a "$extract_dir/opt/lucia/releases/$version" "$releases_dir/.${version}.new"
     mv "$releases_dir/.${version}.new" "$releases_dir/$version"
@@ -840,6 +853,7 @@ apply_lucia() {
     cp -a "$extract_dir/var/lib/lucia/plugins/." "$data_root/plugins/"
     write_lucia_state \
         switched "$previous_target" "releases/$version" "$backup" "$validation_token"
+    report_progress validating
     "$systemctl_path" start lucia-redis.service lucia-agenthost.service
     if ! wait_for_lucia_health "$validation_token" "$validation_credential"; then
         printf 'Error: new Lucia release failed its health check\n' >&2
@@ -849,6 +863,7 @@ apply_lucia() {
     sync -f "$(dirname "$current_link")"
     write_lucia_state \
         manager-pending "$previous_target" "releases/$version" "$backup" "$validation_token"
+    report_progress restarting
     rm -f "$validation_credential_path"
     trap - ERR
     rm -rf "$update_root/staging/$selected_tag"
@@ -901,6 +916,8 @@ status["Status" if "Status" in status else "status"] = "succeeded"
 status["Message" if "Message" in status else "message"] = (
     "Lucia update passed manager startup validation."
 )
+for key, value in (("Phase", "complete"), ("CompletedBytes", None), ("TotalBytes", None)):
+    status[key if "Status" in status else key[0].lower() + key[1:]] = value
 temporary = path.with_suffix(path.suffix + ".tmp")
 descriptor = os.open(
     temporary,
@@ -958,6 +975,7 @@ rollback_lucia() {
         && -d "$releases_dir/${previous#releases/}" \
         && "$backup_real" == "$backups_real/"* ]] \
         || die "Lucia rollback state is invalid"
+    report_progress restoring
     rollback_validation_token="$(cat /proc/sys/kernel/random/uuid)"
     validation_credential="$(issue_validation_credential)"
     trap 'rm -f "$validation_credential_path"' ERR
@@ -994,6 +1012,7 @@ rollback_lucia() {
     sync -f "$releases_dir"
     sync -f "$(dirname "$current_link")"
     "$systemctl_path" start lucia-redis.service lucia-agenthost.service
+    report_progress validating
     prepare_lucia_validation \
         "$rollback_validation_token" "$validation_credential"
     if ! wait_for_lucia_health \
@@ -1115,7 +1134,11 @@ apply_os() {
     local current_label
     local current_device
     local target_uuid
+    local write_bytes
+    local written_bytes
+    local -a writes=()
 
+    report_progress verifying
     current_slot="$(bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout)" \
         || die "RootFS A/B preflight failed; no OS partitions were written."
     verified_output="$(verify_and_assemble os "$selected_tag")" \
@@ -1192,6 +1215,8 @@ apply_os() {
     [[ "$system_bytes" =~ ^[0-9]+$ \
         && "$system_bytes" -le "$(blockdev --getsize64 "$partlabel_dir/$app_label")" ]] \
         || die "OS rootfs image exceeds inactive partition"
+    write_bytes="$system_bytes"
+    writes=("$system_image $app_label $system_bytes")
     for image_and_label in \
         "$boot_image $kernel_label" \
         "$dtb_image $dtb_label"; do
@@ -1204,6 +1229,8 @@ apply_os() {
         [[ "$image_size" =~ ^[0-9]+$ \
             && "$image_size" -le "$(blockdev --getsize64 "$partlabel_dir/$label")" ]] \
             || die "OS image exceeds inactive partition: $label"
+        write_bytes="$((write_bytes + image_size))"
+        writes+=("$image $label $image_size")
     done
     restore_failed_slot_change() {
         local exit_code=$?
@@ -1230,15 +1257,16 @@ apply_os() {
     sync -f "$state_dir/os.env.tmp"
     mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
     sync -f "$state_dir"
-    xargs -d '\n' cat < "$parts_list" \
-        | tar -I zstd -xOf - "$system_image" \
-        | "$dd_path" of="$partlabel_dir/$app_label" bs=4M conv=fsync status=progress
-    xargs -d '\n' cat < "$parts_list" \
-        | tar -I zstd -xOf - "$boot_image" \
-        | "$dd_path" of="$partlabel_dir/$kernel_label" bs=4M conv=fsync status=none
-    xargs -d '\n' cat < "$parts_list" \
-        | tar -I zstd -xOf - "$dtb_image" \
-        | "$dd_path" of="$partlabel_dir/$dtb_label" bs=4M conv=fsync status=none
+    written_bytes=0
+    for image_and_label in "${writes[@]}"; do
+        read -r image label image_size <<< "$image_and_label"
+        xargs -d '\n' cat < "$parts_list" \
+            | tar -I zstd -xOf - "$image" \
+            | python3 "$progress_helper" dd "$written_bytes" "$write_bytes" -- \
+                "$dd_path" of="$partlabel_dir/$label" bs=4M conv=fsync status=progress
+        written_bytes="$((written_bytes + image_size))"
+    done
+    report_progress validating
     e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
     findmnt -rn "$slot_mount" >/dev/null \
         && die "inactive OS slot work directory is already mounted"
@@ -1265,12 +1293,14 @@ apply_os() {
     slot_changed=true
     rm -rf "$update_root/staging/$selected_tag"
     rm -rf "$parts_list" "$input_dir"
+    report_progress restarting
     "$systemctl_path" --no-block reboot
     trap - ERR
     trap - EXIT
 }
 
 rollback_os() {
+    report_progress verifying
     bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout >/dev/null \
         || die "RootFS A/B preflight failed; no rollback or reboot was requested."
     local state="$state_dir/os.env"
@@ -1396,6 +1426,7 @@ rollback_os() {
     mv -f "$temporary" "$state"
     sync -f "$state_dir"
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    report_progress restarting
     "$systemctl_path" --no-block reboot
     trap - ERR
 }

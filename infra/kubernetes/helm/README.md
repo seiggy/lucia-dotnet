@@ -73,6 +73,43 @@ curl http://localhost:8080/health
 
 ## Configuration
 
+### External PostgreSQL
+
+Create the `luciaconfig`, `luciatraces`, and `luciatasks` databases on your
+PostgreSQL server. Lucia creates its tables, not the databases. In the release
+namespace, create an existing Secret with one complete Npgsql connection string
+per key. Keep passwords and TLS options in that Secret, not in Helm values.
+The default keys are `luciaconfig`, `luciatraces`, and `luciatasks`.
+
+```yaml
+mongodb:
+  enabled: false
+postgres:
+  enabled: true
+  host: lucia-pg-rw.lucia.svc.cluster.local
+  port: 5432
+  existingSecret: lucia-postgres
+  connectionStringKeys:
+    luciaconfig: luciaconfig
+    luciatraces: luciatraces
+    luciatasks: luciatasks
+```
+
+Each Secret value uses Npgsql's `Host=...;Database=...;Username=...;Password=...`
+format. Set the database name and TLS options for that connection. CNPG-generated
+URI keys are not automatically rewritten; provide the three Npgsql connection
+strings in a Secret, or map `connectionStringKeys` to existing DSN keys.
+
+The chart selects `DataProvider__Store=PostgreSQL`, waits for the external host's
+TCP port, and injects each connection string through `secretKeyRef` into both
+AgentHost and the enabled Timer Agent pod. The Timer Agent waits for AgentHost
+health before starting. The chart neither deploys PostgreSQL nor reads Secret
+contents during rendering. Enabling both
+MongoDB and PostgreSQL is rejected. Redis configuration is unchanged.
+Restart both deployments after rotating the external Secret.
+
+Run chart regressions with `python tests/render_regressions.py`.
+
 ### Basic Installation Scenarios
 
 #### Scenario 1: Home Lab with Local Storage

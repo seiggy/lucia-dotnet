@@ -8,4 +8,7 @@ public sealed record UpdateOperationStatus(
     string? Message,
     bool LuciaRollbackAvailable = false,
     bool OsRollbackAvailable = false,
-    string? OperationId = null);
+    string? OperationId = null,
+    string? Phase = null,
+    long? CompletedBytes = null,
+    long? TotalBytes = null);

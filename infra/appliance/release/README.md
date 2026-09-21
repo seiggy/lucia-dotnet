@@ -1,7 +1,56 @@
 # Appliance release assets
 
-`appliance-release.yml` builds three independent appliance channels for stable
-GitHub releases:
+`appliance-release.yml` always publishes Lucia. It builds OS and installer images
+only when image inputs changed, no usable published image baseline exists, or a
+maintainer selects `force-full` on a manual dispatch from the release tag.
+The workflow summary records the mode, baseline tag, fingerprint, and reason.
+
+`planner.py` compares against the most recently published full manifest, not the
+previous application tag. Unpublished builds and releases without a final manifest
+cannot advance that baseline. A GitHub API failure, invalid manifest, or missing
+published payload stops planning instead of guessing.
+
+Image inputs include rootfs and installer overlays, systemd units, installer and
+image-building scripts, installer host source, SDK settings, pinned system packages,
+partition layout, and the native voice asset build stages. Application and dashboard
+source changes do not rebuild images. In `appliance.lock`, source compatibility
+requirements and Lucia target metadata are excluded from the image fingerprint;
+OS target metadata, actual system-package pins, and partition identifiers are not.
+Changes to those excluded prerequisites still undergo updater compatibility checks.
+
+App-only builds package the application, manager, Redis, verification tools, and
+native voice libraries without preparing a BSP/rootfs or creating/compressing a
+disk image. ARM64 Redis, manager startup validation, and native library dependency
+checks run in the native build's digest-pinned JetPack container. Full builds also
+validate Redis and curl inside the assembled Jetson rootfs.
+
+Application and OS channel versions are independent. `os-version` on manual
+dispatch sets the full image's OS version; otherwise it defaults to the release
+version. An app-only manifest contains no OS or installer channel and never
+relabels an old image. App updates do not replace `lucia.env` or OS helpers.
+
+Install a full release containing the new discovery code before relying on
+app-only updates from an older updater that requires all channels. Respect the
+manifest's source and target runtimes and the OS channel's minimum Lucia version.
+For a fresh installation, scan the [release history](https://github.com/seiggy/lucia-dotnet/releases)
+for the newest supported manifest with an `installer` channel, rather than assuming
+GitHub's latest release contains an image.
+
+Updates report measured progress for the current phase. Multipart downloads share
+one total; OS writing uses the uncompressed sizes of the selected rootfs, kernel,
+and device tree. Backup, validation, and restart phases are indeterminate.
+Reloading recovers the same operation ID. A completed download or write is not a
+successful update; health validation must pass. Failures retain their last phase.
+Old OS helpers cannot report write progress until replaced through an approved OS
+update or repair procedure, even if the application already has the new UI.
+
+Payloads, checksums, and attestations upload before the manifest. A partial release
+can be rerun before its manifest is published. Once published, differing assets
+are rejected, and reruns retain the existing channel set. Use a new tag to change
+published inputs or switch an app-only release to full. No published image is
+overwritten by `force-full`.
+
+The full release contains these channels:
 
 | Channel | Purpose |
 | --- | --- |

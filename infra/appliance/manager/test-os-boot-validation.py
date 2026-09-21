@@ -124,9 +124,23 @@ esac
 
     def test_disabled_ab_stops_without_rebooting(self):
         (self.root / "ab").write_text("0")
+        (self.state / "operation.json").write_text(
+            json.dumps(
+                {
+                    "OperationId": "11111111-1111-1111-1111-111111111111",
+                    "Channel": "os",
+                    "Phase": "writing",
+                    "CompletedBytes": 30,
+                    "TotalBytes": 100,
+                }
+            )
+        )
         self.run_validator()
         self.assertEqual(self.operation()["Status"], "failed")
         self.assertIn("RootFS A/B", self.operation()["Message"])
+        self.assertEqual(self.operation()["Phase"], "writing")
+        self.assertEqual(self.operation()["CompletedBytes"], 30)
+        self.assertEqual(self.operation()["TotalBytes"], 100)
         self.assertNotIn("reboot", self.log.read_text())
         self.assertNotIn("set-active-boot-slot", self.log.read_text())
         self.run_validator()
@@ -152,6 +166,8 @@ esac
         self.set_mounted_slot(1)
         self.run_validator()
         self.assertEqual(self.operation()["Status"], "succeeded")
+        self.assertEqual(self.operation()["Phase"], "complete")
+        self.assertIsNone(self.operation()["TotalBytes"])
         self.assertIn("nvbootctrl verify\n", self.log.read_text())
         self.assertNotIn("mark-boot-successful", self.log.read_text())
         self.assertNotIn("reboot", self.log.read_text())
