@@ -471,6 +471,7 @@ The docker-compose.yml includes security hardening by default:
 4. **Add Monitoring** — Integrate OpenTelemetry for tracing and metrics
 
 See [Kubernetes Deployment Guide](../kubernetes/README.md) for HA setup.
+
 ## Local Python MCP servers
 
 AgentHost Docker variants include `uv` and `uvx` 0.12.16 from Astral's
