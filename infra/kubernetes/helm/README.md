@@ -101,10 +101,12 @@ URI keys are not automatically rewritten; provide the three Npgsql connection
 strings in a Secret, or map `connectionStringKeys` to existing DSN keys.
 
 The chart selects `DataProvider__Store=PostgreSQL`, waits for the external host's
-TCP port, and injects each connection string through `secretKeyRef`. It neither
-deploys PostgreSQL nor reads Secret contents during rendering. Enabling both
+TCP port, and injects each connection string through `secretKeyRef` into both
+AgentHost and the enabled Timer Agent pod. The Timer Agent waits for AgentHost
+health before starting. The chart neither deploys PostgreSQL nor reads Secret
+contents during rendering. Enabling both
 MongoDB and PostgreSQL is rejected. Redis configuration is unchanged.
-Restart the Lucia deployment after rotating the external Secret.
+Restart both deployments after rotating the external Secret.
 
 Run chart regressions with `python tests/render_regressions.py`.
 

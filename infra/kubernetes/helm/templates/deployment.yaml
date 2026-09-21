@@ -146,15 +146,7 @@ spec:
 
           # Additional environment variables
           env:
-            {{- if .Values.postgres.enabled }}
-            {{- range $database := list "luciaconfig" "luciatraces" "luciatasks" }}
-            - name: ConnectionStrings__{{ $database }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $.Values.postgres.existingSecret | quote }}
-                  key: {{ required (printf "postgres.connectionStringKeys.%s is required" $database) (index $.Values.postgres.connectionStringKeys $database) | quote }}
-            {{- end }}
-            {{- end }}
+            {{- include "lucia.postgres.env" . | nindent 12 }}
             - name: ASPNETCORE_ENVIRONMENT
               value: "Production"
             - name: ASPNETCORE_URLS
