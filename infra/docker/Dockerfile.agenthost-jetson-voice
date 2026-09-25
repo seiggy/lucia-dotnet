@@ -278,11 +278,11 @@ RUN mkdir -p /assets/models/kws \
           f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a \
  && tar -xjf /tmp/kws.tar.bz2 -C /assets/models/kws && rm /tmp/kws.tar.bz2
 
-# --- Speaker embedding: 3D-Speaker ERes2Net (voice-print verification / enrollment) ----
-RUN mkdir -p /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k \
- && fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx" \
-          /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx \
-          1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b
+# --- Speaker embedding: NVIDIA TitaNet Small English (voice-print verification) -------
+RUN mkdir -p /assets/models/speaker-embedding/nemo_en_titanet_small \
+ && fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx" \
+          /assets/models/speaker-embedding/nemo_en_titanet_small/nemo_en_titanet_small.onnx \
+          ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e
 
 # --- Speech enhancement: GTCRN simple (pinned to gtcrn commit 3862c448, not main) ------
 RUN mkdir -p /assets/models/speech-enhancement/gtcrn_simple \
@@ -406,6 +406,8 @@ RUN set -eux; \
 # busybox; ca-certificates ship in the Microsoft aspnet base for outbound TLS.
 # ============================================================================
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8@sha256:e3736b0d423db99c6988e1ddf5ea725c14b12579bb120024e5ff7ff204a14080 AS runtime
+ARG VERSION=development
+ENV LUCIA_VERSION=${VERSION}
 WORKDIR /app
 
 # Static, digest-pinned busybox (arm64) for the container healthcheck — no apt, no drift.
@@ -478,7 +480,7 @@ RUN { \
       echo 'need_onnx /app/models/stt/sherpa-onnx-streaming-zipformer-en-2023-06-26 "Streaming-STT/Zipformer"'; \
       echo 'need_file /app/models/vad/silero_vad_v5/silero_vad_v5.onnx "Silero-VAD-v5"'; \
       echo 'need_onnx /app/models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 "KWS/Zipformer"'; \
-      echo 'need_onnx /app/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k "Speaker-Embedding/ERes2Net"'; \
+      echo 'need_onnx /app/models/speaker-embedding/nemo_en_titanet_small "Speaker-Embedding/TitaNet-Small"'; \
       echo 'need_file /app/models/speech-enhancement/gtcrn_simple/gtcrn_simple.onnx "GTCRN-Enhancement"'; \
       echo '# --- Native provider libraries ---'; \
       echo 'need_file "$N/libsherpa-onnx-c-api.so" "sherpa-onnx-c-api"'; \

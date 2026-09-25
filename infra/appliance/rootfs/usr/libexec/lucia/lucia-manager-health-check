@@ -10,6 +10,18 @@ attempts="${LUCIA_MANAGER_HEALTH_ATTEMPTS:-10}"
 delay="${LUCIA_MANAGER_HEALTH_DELAY_SECONDS:-1}"
 
 [[ "$attempts" =~ ^[1-9][0-9]?$ && "$delay" =~ ^[0-9]$ ]] || exit 1
+restore_redis_exporter() {
+    # Optional telemetry: warn instead of failing an otherwise healthy manager.
+    local status=0
+    "$systemctl_path" is-enabled --quiet lucia-redis-exporter.service || status=$?
+    if [[ "$status" == 0 ]]; then
+        "$systemctl_path" start lucia-redis-exporter.service \
+            || echo "warning: lucia-redis-exporter.service did not start" >&2
+    elif [[ "$status" != 1 && "$status" != 4 ]]; then
+        echo "warning: lucia-redis-exporter.service enablement could not be checked" >&2
+    fi
+}
+
 for ((attempt = 0; attempt < attempts; attempt++)); do
     if "$curl_path" --fail --silent --show-error \
             --max-time 1 \
@@ -17,6 +29,7 @@ for ((attempt = 0; attempt < attempts; attempt++)); do
             http://localhost/v1/updates/operation \
             >/dev/null; then
         if "$updater_path" finalize lucia; then
+            restore_redis_exporter
             exit 0
         fi
         break
@@ -28,4 +41,5 @@ done
 "$updater_path" recover lucia
 "$systemctl_path" --no-block start \
     lucia-redis.service lucia-agenthost.service
+restore_redis_exporter
 exit 1

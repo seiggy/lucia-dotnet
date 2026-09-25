@@ -161,11 +161,13 @@ RUN RID=$(case "$TARGETARCH" in\
 # Stage 4: Final Production Image
 # ============================================================================
 FROM base AS final
+ARG VERSION=development
+ENV LUCIA_VERSION=${VERSION}
 
 # Set metadata labels
 LABEL maintainer="Lucia Project"
 LABEL description="Lucia Agent Host - Multi-agent orchestration service"
-LABEL version="1.0.0"
+LABEL version="${VERSION}"
 
 # Set environment variables for .NET runtime
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \

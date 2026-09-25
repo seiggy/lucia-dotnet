@@ -166,6 +166,16 @@ checks. If validation fails, the updater returns to the current release and
 keeps the rollback backup. A Lucia update remains recoverable until the
 restarted appliance manager binds its socket and finalizes the transaction.
 
+Lucia updates and rollback restore `lucia-redis-exporter` after Redis restarts
+only when its systemd unit is enabled. Disabled telemetry remains off.
+The manager also restores an enabled exporter at startup, allowing the first
+application upgrade from an older updater to recover it without requiring an
+OS update or re-enabling telemetry. Failure recovery uses the same rule.
+The exporter is optional telemetry: if it fails to start, the updater and
+manager log a warning and do not fail or roll back the Lucia update. The
+manager restores it only after its socket is serving, and stops waiting on a
+stalled exporter `systemctl` call after 10 seconds.
+
 Update-state writes flush both the file and its containing directory. The
 managed updater uses libc directory APIs so this durability step works on
 ARM64 as well as x86-64; Linux open-flag values are not portable between them.

@@ -26,6 +26,7 @@ public static class SystemApi
         }
 
         group.MapGet("/restart-required", GetRestartRequired);
+        group.MapGet("/version", GetVersion);
         group.MapPost("/restart", TriggerRestartAsync);
 
         return group;
@@ -33,6 +34,14 @@ public static class SystemApi
 
     private static Ok<object> GetRestartRequired(PluginChangeTracker tracker) =>
         TypedResults.Ok<object>(new { RestartRequired = tracker.IsRestartRequired });
+
+    private static Ok<object> GetVersion(IConfiguration configuration) =>
+        TypedResults.Ok<object>(new
+        {
+            Version = string.IsNullOrWhiteSpace(configuration["LUCIA_VERSION"])
+                ? "development"
+                : configuration["LUCIA_VERSION"],
+        });
 
     private static async Task<IResult> TriggerRestartAsync(
         IHostApplicationLifetime lifetime,

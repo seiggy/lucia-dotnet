@@ -248,8 +248,12 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           COMMIT_IMAGE: ${{ matrix.image }}:sha-${{ steps.build-ref.outputs.full_sha }}${{ matrix.tag_suffix }}
+          VERSIONED_BUILD: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.preview == true) }}
         run: |
-          if docker manifest inspect "$COMMIT_IMAGE" >/dev/null 2>&1; then
+          # A release must embed its version, not reuse a master image's metadata.
+          if [[ "$VERSIONED_BUILD" == "true" ]]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          elif docker manifest inspect "$COMMIT_IMAGE" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -322,7 +326,7 @@ jobs:
             ASSET_IMAGE=${{ github.event_name == 'pull_request' && needs.prepare-assets.outputs.image_ref || format('{0}:sha-{1}', env.ASSET_IMAGE, steps.asset-hash.outputs.hash) }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ steps.preview.outputs.version_tag != '' && format('{0}{1}', steps.preview.outputs.version_tag, matrix.tag_suffix) || steps.meta.outputs.version }}
 
       - name: Image digest
         env:
@@ -372,12 +376,7 @@ jobs:
           full_sha=$EFFECTIVE_SHA
           suffixes=("" "-voice" "-voice-cpu" "-ha-mono")
           if [[ "$IS_DISPATCH_PREVIEW" == "true" ]]; then
-            version="0.0.0-preview.${EFFECTIVE_SHA:0:7}"
-            for suffix in "${suffixes[@]}"; do
-              docker buildx imagetools create \
-                -t "seiggy/lucia-agenthost:$version${suffix}" \
-                "seiggy/lucia-agenthost:sha-$full_sha${suffix}"
-            done
+            # The build published the versioned preview images with matching metadata.
             exit 0
           fi
 
@@ -385,10 +384,7 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
             minor="${version%.*}"
             for suffix in "${suffixes[@]}"; do
-              source="seiggy/lucia-agenthost:sha-$full_sha${suffix}"
-              docker buildx imagetools create \
-                -t "seiggy/lucia-agenthost:$version${suffix}" \
-                "$source"
+              source="seiggy/lucia-agenthost:$version${suffix}"
               if [[ "$version" != *-* ]]; then
                 docker buildx imagetools create \
                   -t "seiggy/lucia-agenthost:$minor${suffix}" \
@@ -415,15 +411,19 @@ jobs:
               seiggy/lucia-agenthost:sha-$full_sha-ha-mono
           fi
 
+          source_tag="sha-$full_sha"
+          if [[ "$IS_RELEASE_TAG" == "true" ]]; then
+            source_tag="$version"
+          fi
           docker buildx imagetools create \
             -t seiggy/lucia-agenthost:latest \
-            seiggy/lucia-agenthost:sha-$full_sha
+            "seiggy/lucia-agenthost:$source_tag"
           docker buildx imagetools create \
             -t seiggy/lucia-agenthost:voice \
-            seiggy/lucia-agenthost:sha-$full_sha-voice
+            "seiggy/lucia-agenthost:$source_tag-voice"
           docker buildx imagetools create \
             -t seiggy/lucia-agenthost:ha-mono \
-            seiggy/lucia-agenthost:sha-$full_sha-ha-mono
+            "seiggy/lucia-agenthost:$source_tag-ha-mono"
 
   # ==========================================================================
   # Security scan on push to main

@@ -311,6 +311,14 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
                 .Select(entity => entity.EntityId)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+
+            // Embedding matches are guesses. Actuate only a single target; let the agent handle the rest.
+            if (resolvedIds.Count > 0 && !IsSingleFuzzyTarget(fuzzyResult, resolvedIds))
+            {
+                throw new EntityResolutionBailException(
+                    BailReason.Ambiguous.ToString(),
+                    $"Embedding fallback was not specific enough: {fuzzyResult.ResolutionReason}");
+            }
         }
 
         if (resolvedIds.Count == 0)
@@ -329,6 +337,16 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         return resolvedIds.ToArray();
     }
+
+    private static bool IsSingleFuzzyTarget(HierarchicalSearchResult fuzzyResult, IReadOnlyList<string> resolvedIds) =>
+        fuzzyResult.ResolutionStrategy switch
+        {
+            ResolutionStrategy.Entity => resolvedIds.Count == 1
+                && !resolvedIds[0].StartsWith("switch.", StringComparison.OrdinalIgnoreCase),
+            ResolutionStrategy.Area => fuzzyResult.AreaMatches.Count == 1,
+            ResolutionStrategy.Floor => fuzzyResult.FloorMatches.Count == 1,
+            _ => false,
+        };
 
     private async Task<string> ResolveSingleEntityWithCascadeAsync(
         CommandRouteResult route,

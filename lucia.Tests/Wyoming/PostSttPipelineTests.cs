@@ -88,7 +88,8 @@ public sealed class PostSttPipelineTests
         var voiceOptions = Options.Create(new VoiceProfileOptions { IgnoreUnknownVoices = true });
         var router = new TestCommandRouter(CreateMatchedRoute());
         var unknownTracker = new UnknownSpeakerTracker(profileStore, voiceOptions, NullLogger<UnknownSpeakerTracker>.Instance);
-        var speakerFilter = new SpeakerVerificationFilter(voiceOptions, NullLogger<SpeakerVerificationFilter>.Instance);
+        var speakerFilter = new SpeakerVerificationFilter(
+            new OptionsMonitorStub<VoiceProfileOptions>(voiceOptions.Value), NullLogger<SpeakerVerificationFilter>.Instance);
 
         var (listener, client, serverClient, services, session, writer, parser) = await CreateConnectedSessionAsync(
             options,

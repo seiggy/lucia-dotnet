@@ -30,7 +30,12 @@ public sealed class CommandPatternRouterTests
         Id = "test-light",
         SkillId = "LightControlSkill",
         Action = "toggle",
-        Templates = ["turn {action:on|off} [the] {entity}"],
+        Templates =
+        [
+            "turn {action:on|off} [the] {entity}",
+            "{action:on|off} [the] {entity}",
+            "[the] {entity} {action:on|off}",
+        ],
         MinConfidence = 0.6f,
     };
 
@@ -76,6 +81,54 @@ public sealed class CommandPatternRouterTests
 
         Assert.False(result.IsMatch);
         Assert.Null(result.MatchedPattern);
+    }
+
+    [Theory]
+    [InlineData("are the office lights on")]
+    [InlineData("ARE THE OFFICE LIGHTS ON?")]
+    [InlineData("is the office lights on")]
+    [InlineData("do the office lights work")]
+    [InlineData("does the office lights work")]
+    [InlineData("or the office lights on")]
+    [InlineData("is the porch on")]
+    [InlineData("are office lights on right now")]
+    [InlineData("office lights on?")]
+    [InlineData("was the kitchen off")]
+    [InlineData("were the ceiling lights on")]
+    [InlineData("why are the office lights on")]
+    [InlineData("or the office on")]
+    [InlineData("should the porch light be on")]
+    [InlineData("will the office lights turn on")]
+    [InlineData("can the office lights turn on")]
+    [InlineData("would the kitchen lights be off")]
+    [InlineData("must the porch light stay on")]
+    public async Task Route_StatusQuestionLikeTranscript_DoesNotMatchFastPath(string transcript)
+    {
+        var router = CreateRouter(patterns: TestLightPattern);
+
+        var result = await router.RouteAsync(transcript, default);
+
+        Assert.False(result.IsMatch);
+        Assert.Null(result.MatchedPattern);
+    }
+
+    [Theory]
+    [InlineData("turn on office lights")]
+    [InlineData("office lights on")]
+    [InlineData("turn on the office lights")]
+    [InlineData("please turn on the office lights")]
+    [InlineData("can you turn on the office lights")]
+    [InlineData("could you turn off the office lights")]
+    [InlineData("would you turn on the office lights")]
+    [InlineData("will you turn off the office lights")]
+    public async Task Route_ImperativeLightCommand_StillMatchesFastPath(string transcript)
+    {
+        var router = CreateRouter(patterns: TestLightPattern);
+
+        var result = await router.RouteAsync(transcript, default);
+
+        Assert.True(result.IsMatch);
+        Assert.Equal("LightControlSkill", result.MatchedPattern!.SkillId);
     }
 
     [Fact]

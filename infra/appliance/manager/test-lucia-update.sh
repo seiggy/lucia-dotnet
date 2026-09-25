@@ -66,6 +66,17 @@ cat > "$work/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
+if [[ "$*" == "is-enabled --quiet lucia-redis-exporter.service" ]]; then
+    [[ -e "$LUCIA_TEST_EXPORTER_ENABLED" ]]
+    exit $?
+fi
+if [[ "$1" == stop && "$*" == *"lucia-redis.service"* ]]; then
+    rm -f "$LUCIA_TEST_EXPORTER_ACTIVE"
+fi
+if [[ "$*" == "start lucia-redis-exporter.service" ]]; then
+    [[ ! -e "$LUCIA_TEST_FAIL_EXPORTER_START" ]] || exit 1
+    touch "$LUCIA_TEST_EXPORTER_ACTIVE"
+fi
 if [[ "$*" == "start lucia-redis.service lucia-agenthost.service" \
     && -e "$LUCIA_TEST_FAIL_SERVICE_START_ONCE" ]]; then
     rm -f "$LUCIA_TEST_FAIL_SERVICE_START_ONCE"
@@ -175,6 +186,9 @@ run_update() {
             "$1" "$2" "$LUCIA_TEST_OPERATION_ID" > "$work/updates/state/operation.json"
     fi
     LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_TEST_EXPORTER_ENABLED="$work/exporter-enabled" \
+    LUCIA_TEST_EXPORTER_ACTIVE="$work/exporter-active" \
+    LUCIA_TEST_FAIL_EXPORTER_START="$work/fail-exporter-start" \
     LUCIA_DATA_ROOT="$work/data" \
     LUCIA_CURRENT_LINK="$work/current" \
     LUCIA_RELEASES_DIR="$work/releases" \
@@ -333,8 +347,10 @@ rm "$work/fail-manager-validation"
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
+touch "$work/exporter-enabled" "$work/exporter-active"
 LUCIA_TEST_OPERATION_ID=11111111-1111-1111-1111-111111111111 \
     run_update apply lucia v1.1.0
+[[ -e "$work/exporter-active" ]] || { echo "Enabled Redis exporter was not restored after apply" >&2; exit 1; }
 grep -q '"Phase":"restarting"' "$work/updates/state/operation.json"
 grep -qx 'owner-config' "$work/data/config/lucia.env"
 grep -qx 'owner-credential' "$work/data/config/credentials"
@@ -377,6 +393,7 @@ if run_update apply lucia v1.1.1; then
     exit 1
 fi
 rm "$work/fail-health"
+[[ -e "$work/exporter-active" ]] || { echo "Enabled Redis exporter was not restored after failed apply" >&2; exit 1; }
 cmp "$work/prior-lucia.env" "$work/updates/state/lucia.env"
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
 [[ ! -e "$work/releases/.1.1.1.new" ]]
@@ -388,6 +405,7 @@ if run_update rollback lucia; then
     exit 1
 fi
 rm "$work/fail-health"
+[[ -e "$work/exporter-active" ]] || { echo "Enabled Redis exporter was not restored after failed rollback" >&2; exit 1; }
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
 grep -qx 'migrated-db' "$work/data/db/lucia.db"
 grep -qx 'phase=committed' "$work/updates/state/lucia.env"
@@ -422,7 +440,12 @@ previous_validation_token="$(
     sed -n 's/^validation_token=//p' "$work/updates/state/lucia.env"
 )"
 : > "$work/curl.log"
+touch "$work/fail-exporter-start"
+exporter_start_attempts="$(grep -c '^start lucia-redis-exporter.service$' "$work/systemctl.log")"
 run_update rollback lucia
+rm "$work/fail-exporter-start"
+[[ ! -e "$work/exporter-active" ]] || { echo "Failed Redis exporter start was reported as active" >&2; exit 1; }
+(( $(grep -c '^start lucia-redis-exporter.service$' "$work/systemctl.log") > exporter_start_attempts ))
 rollback_validation_token="$(
     sed -n 's|.*update-validation/prepare/||p' "$work/curl.log" \
         | tail -1
@@ -445,6 +468,7 @@ grep -qx 'old-redis-config' "$work/redis.conf"
 [[ ! -e "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
 
 echo "PASS: Lucia update verifies, switches atomically, and rolls back data"
+rm -f "$work/exporter-enabled" "$work/exporter-active"
 
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 printf 'current-db\n' > "$work/data/db/lucia.db"
@@ -503,6 +527,7 @@ rm "$work/fail-health"
 grep -qx 'old-db' "$work/data/db/lucia.db"
 
 echo "PASS: unhealthy Lucia release restores its predecessor automatically"
+[[ ! -e "$work/exporter-active" ]] || { echo "Disabled Redis exporter was started during update recovery" >&2; exit 1; }
 [[ ! -e "$work/updates/state/validation.key" ]]
 [[ "$(grep -c '^stop lucia-agenthost.service lucia-redis.service$' \
     "$work/systemctl.log")" -ge 3 ]]

@@ -39,6 +39,7 @@ import UserMemoriesPage from './pages/UserMemoriesPage'
 import TaskTracker from './components/TaskTracker'
 import { ThemeSelector } from './theme/ThemeSelector'
 import { isInstallerMode } from './installer-api'
+import { fetchAppVersion } from './api'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -108,6 +109,26 @@ function AppRoutes() {
   const { authenticated, setupComplete, loading, logout } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [hasAppliance, setHasAppliance] = useState<boolean | null>(null)
+  const [appVersion, setAppVersion] = useState('Loading version...')
+
+  useEffect(() => {
+    if (!authenticated || !setupComplete || hasAppliance !== false) {
+      return
+    }
+    const controller = new AbortController()
+    async function loadVersion() {
+      try {
+        const version = await fetchAppVersion(controller.signal)
+        setAppVersion(`Lucia ${version}`)
+      } catch {
+        if (!controller.signal.aborted) {
+          setAppVersion('Version unavailable')
+        }
+      }
+    }
+    void loadVersion()
+    return () => controller.abort()
+  }, [authenticated, setupComplete, hasAppliance])
 
   useEffect(() => {
     if (!authenticated || !setupComplete) {
@@ -252,7 +273,7 @@ function AppRoutes() {
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-stone/40 px-3 py-3">
+        <div className="shrink-0 border-t border-stone/40 px-3 py-3">
           <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-dust">Appearance</p>
           <ThemeSelector className="mb-2" />
           <button
@@ -262,6 +283,11 @@ function AppRoutes() {
             <LogOut className="h-[18px] w-[18px]" />
             Sign Out
           </button>
+          {hasAppliance === false && (
+            <p aria-label="Application version" className="mt-2 break-words px-3 text-xs text-dust">
+              {appVersion}
+            </p>
+          )}
         </div>
       </aside>
 

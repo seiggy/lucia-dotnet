@@ -304,7 +304,7 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
             voiceOptions,
             NullLogger<UnknownSpeakerTracker>.Instance);
         var speakerFilter = new SpeakerVerificationFilter(
-            voiceOptions,
+            new OptionsMonitorStub<VoiceProfileOptions>(voiceOptions.Value),
             NullLogger<SpeakerVerificationFilter>.Instance);
 
         var (listener, client, serverClient, services, session, writer, parser) = await CreateConnectedSessionAsync(

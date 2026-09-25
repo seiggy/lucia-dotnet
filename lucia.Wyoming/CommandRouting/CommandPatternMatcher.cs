@@ -24,9 +24,10 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         }
 
         // Bail immediately when the transcript contains words that signal a complex
-        // intent the fast-path cannot safely handle (temporal scheduling, color
-        // control, or multi-step conjunctions). These ALWAYS fall to LLM.
-        if (ContainsBailSignalTokens(tokens))
+        // intent the fast-path cannot safely handle (yes/no status questions,
+        // temporal scheduling, color control, or multi-step conjunctions).
+        // These fall to the LLM/orchestrator so read-only queries never mutate state.
+        if (ContainsBailSignalTokens(tokens) || transcript.Contains('?') || IsStatusQuestion(tokens))
         {
             return CommandRouteResult.NoMatch(Stopwatch.GetElapsedTime(startedAt));
         }
@@ -634,6 +635,19 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         }
 
         return false;
+    }
+
+    private static bool IsStatusQuestion(IReadOnlyList<string> tokens)
+    {
+        return tokens[0] is "is" or "are" or "do" or "does" or "did" or "am"
+            or "was" or "were" or "what" or "why" or "when" or "where" or "which"
+            or "how" or "has" or "have"
+            // STT can transcribe "are the ... on" as "or the ... on".
+            || (tokens.Count >= 3 && tokens[0] == "or" && tokens[1] is "the" or "my" or "our")
+            // "should the porch light be on" is a question; "can you turn on ..." is a polite command.
+            || (tokens[0] is "can" or "could" or "would" or "will" or "should" or "shall"
+                    or "may" or "might" or "must"
+                && (tokens.Count < 2 || tokens[1] is not ("you" or "u")));
     }
 
     /// <summary>

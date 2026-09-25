@@ -401,6 +401,181 @@ public sealed class DirectSkillExecutorTests
         Assert.NotNull(result.Error);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_CascadeMissWithSeveralWeakEntityMatches_DefersWithoutActuating()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var result = await ExecuteFuzzyFallbackAsync(
+            haClient,
+            new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches = [],
+                EntityMatches = [],
+                ResolvedEntities =
+                [
+                    new() { EntityId = "light.hall", FriendlyName = "Hall Light" },
+                    new() { EntityId = "light.den", FriendlyName = "Den Lamp" },
+                    new() { EntityId = "switch.plug", FriendlyName = "Smart Plug" },
+                ],
+                ResolutionStrategy = ResolutionStrategy.Entity,
+                ResolutionReason = "Entity path: best entity score 0.6797",
+            });
+
+        Assert.False(result.Success);
+        Assert.Equal(nameof(BailReason.Ambiguous), result.BailReason);
+        AssertNoServiceCalls(haClient);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CascadeMissWithSingleFuzzySwitch_DefersWithoutActuating()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var result = await ExecuteFuzzyFallbackAsync(
+            haClient,
+            new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches = [],
+                EntityMatches = [],
+                ResolvedEntities = [new() { EntityId = "switch.coffee_maker", FriendlyName = "Coffee Maker" }],
+                ResolutionStrategy = ResolutionStrategy.Entity,
+                ResolutionReason = "Entity path: best entity score 0.61",
+            });
+
+        Assert.Equal(nameof(BailReason.Ambiguous), result.BailReason);
+        AssertNoServiceCalls(haClient);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CascadeMissMatchingSeveralAreas_DefersWithoutActuating()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var result = await ExecuteFuzzyFallbackAsync(
+            haClient,
+            new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches =
+                [
+                    new() { Entity = new AreaInfo { AreaId = "office", Name = "Office" }, HybridScore = 0.62, EmbeddingSimilarity = 0.62 },
+                    new() { Entity = new AreaInfo { AreaId = "den", Name = "Den" }, HybridScore = 0.58, EmbeddingSimilarity = 0.58 },
+                ],
+                EntityMatches = [],
+                ResolvedEntities =
+                [
+                    new() { EntityId = "light.office", FriendlyName = "Office Light" },
+                    new() { EntityId = "light.den", FriendlyName = "Den Lamp" },
+                ],
+                ResolutionStrategy = ResolutionStrategy.Area,
+                ResolutionReason = "Area path: best area score 0.62",
+            });
+
+        Assert.Equal(nameof(BailReason.Ambiguous), result.BailReason);
+        AssertNoServiceCalls(haClient);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_CascadeMissMatchingOneArea_ControlsThatAreasLights()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var result = await ExecuteFuzzyFallbackAsync(
+            haClient,
+            new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches =
+                [
+                    new() { Entity = new AreaInfo { AreaId = "office", Name = "Office" }, HybridScore = 0.91, EmbeddingSimilarity = 0.91 },
+                ],
+                EntityMatches = [],
+                ResolvedEntities =
+                [
+                    new() { EntityId = "light.office_desk", FriendlyName = "Office Desk" },
+                    new() { EntityId = "light.office_ceiling", FriendlyName = "Office Ceiling" },
+                ],
+                ResolutionStrategy = ResolutionStrategy.Area,
+                ResolutionReason = "Area path: best area score 0.91",
+            });
+
+        Assert.True(result.Success, result.Error);
+        A.CallTo(() => haClient.CallServiceAsync(
+                "light", "turn_on", A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .MustHaveHappened();
+    }
+
+    private async Task<SkillExecutionResult> ExecuteFuzzyFallbackAsync(
+        IHomeAssistantClient haClient,
+        HierarchicalSearchResult fuzzyResult)
+    {
+        var locationService = A.Fake<IEntityLocationService>(
+            options => options.Implements<IAgentFilteredEntityLocationService>());
+        var filteredLocationService = (IAgentFilteredEntityLocationService)locationService;
+        var cascadingResolver = A.Fake<ICascadingEntityResolver>();
+        var featureManager = A.Fake<IFeatureManager>();
+        var options = A.Fake<IOptionsMonitor<LightControlSkillOptions>>();
+
+        A.CallTo(() => featureManager.IsEnabledAsync(A<string>._)).Returns(true);
+        A.CallTo(() => options.CurrentValue).Returns(new LightControlSkillOptions());
+        A.CallTo(() => cascadingResolver.Resolve(
+                A<string>._, A<string?>._, A<string?>._,
+                A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
+            .Returns(new CascadeResult
+            {
+                IsResolved = false,
+                BailReason = BailReason.NoMatch,
+                Explanation = "No deterministic match",
+            });
+        A.CallTo(() => filteredLocationService.SearchHierarchyForAgentAsync(
+                A<string>._, A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._,
+                "light-agent", A<CancellationToken>._))
+            .Returns(fuzzyResult);
+        foreach (var entity in fuzzyResult.ResolvedEntities)
+        {
+            A.CallTo(() => locationService.ExactMatchEntities(entity.EntityId, A<IReadOnlyList<string>?>._))
+                .Returns([entity]);
+        }
+        A.CallTo(() => haClient.CallServiceAsync(
+                A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .Returns([]);
+
+        var skill = new LightControlSkill(
+            haClient, A.Fake<ILogger<LightControlSkill>>(), locationService, options);
+        A.CallTo(() => _serviceProvider.GetService(typeof(LightControlSkill))).Returns(skill);
+
+        var executor = new DirectSkillExecutor(
+            _serviceProvider,
+            locationService,
+            cascadingResolver,
+            featureManager,
+            A.Fake<ILogger<DirectSkillExecutor>>());
+        return await executor.ExecuteAsync(
+            new CommandRouteResult
+            {
+                IsMatch = true,
+                Confidence = 0.9f,
+                NormalizedTranscript = "turn on the ofice lights",
+                MatchedPattern = new CommandPattern
+                {
+                    Id = "light-toggle",
+                    SkillId = "LightControlSkill",
+                    Action = "toggle",
+                    Templates = ["turn {action} {entity}"],
+                },
+                CapturedValues = new Dictionary<string, string>
+                {
+                    ["action"] = "on",
+                    ["entity"] = "ofice lights",
+                },
+            },
+            CreateContext());
+    }
+
+    private static void AssertNoServiceCalls(IHomeAssistantClient haClient) =>
+        A.CallTo(() => haClient.CallServiceAsync(
+                A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+
     private static bool HasExpectedThreshold(HybridMatchOptions? matchOptions) =>
         matchOptions is { Threshold: 0.77 };
 
