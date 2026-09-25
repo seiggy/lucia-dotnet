@@ -171,6 +171,8 @@ only when its systemd unit is enabled. Disabled telemetry remains off.
 The manager also restores an enabled exporter at startup, allowing the first
 application upgrade from an older updater to recover it without requiring an
 OS update or re-enabling telemetry. Failure recovery uses the same rule.
+The exporter is optional telemetry: if it fails to start, the updater and
+manager log a warning and do not fail or roll back the Lucia update.
 
 Update-state writes flush both the file and its containing directory. The
 managed updater uses libc directory APIs so this durability step works on

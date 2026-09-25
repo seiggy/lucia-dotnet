@@ -2,11 +2,13 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace lucia.ApplianceManager;
 
 public sealed partial class ApplianceUpdateCoordinator
 {
+    private readonly ILogger<ApplianceUpdateCoordinator> _logger;
     private readonly object _gate = new();
     private readonly string _updaterPath =
         Environment.GetEnvironmentVariable("LUCIA_UPDATE_PATH")
@@ -25,8 +27,9 @@ public sealed partial class ApplianceUpdateCoordinator
     private UpdateOperationStatus _status =
         new("none", "none", "idle", null, null);
 
-    public ApplianceUpdateCoordinator()
+    public ApplianceUpdateCoordinator(ILogger<ApplianceUpdateCoordinator> logger)
     {
+        _logger = logger;
         _operationPath = Path.Combine(_statePath, "operation.json");
         Directory.CreateDirectory(_statePath);
         if (OperatingSystem.IsLinux())
@@ -664,15 +667,25 @@ public sealed partial class ApplianceUpdateCoordinator
         }
     }
 
+    // The exporter is optional telemetry, so a failure here must never fail an update or manager startup.
     public void RestoreEnabledRedisExporter()
     {
-        if (!CheckUnitState("is-active", "lucia-redis.service")
-            || !CheckUnitState("is-enabled", "lucia-redis-exporter.service"))
+        try
         {
-            return;
+            if (CheckUnitState("is-active", "lucia-redis.service")
+                && CheckUnitState("is-enabled", "lucia-redis-exporter.service"))
+            {
+                RunCommand(_systemctlPath, "start", "lucia-redis-exporter.service");
+            }
         }
-        RunCommand(_systemctlPath, "start", "lucia-redis-exporter.service");
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        {
+            LogRedisExporterRestoreFailed(exception);
+        }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not restore the enabled Redis exporter.")]
+    private partial void LogRedisExporterRestoreFailed(Exception exception);
 
     private bool CheckUnitState(string command, string unit)
     {

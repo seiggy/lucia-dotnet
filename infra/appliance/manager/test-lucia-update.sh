@@ -74,6 +74,7 @@ if [[ "$1" == stop && "$*" == *"lucia-redis.service"* ]]; then
     rm -f "$LUCIA_TEST_EXPORTER_ACTIVE"
 fi
 if [[ "$*" == "start lucia-redis-exporter.service" ]]; then
+    [[ ! -e "$LUCIA_TEST_FAIL_EXPORTER_START" ]] || exit 1
     touch "$LUCIA_TEST_EXPORTER_ACTIVE"
 fi
 if [[ "$*" == "start lucia-redis.service lucia-agenthost.service" \
@@ -187,6 +188,7 @@ run_update() {
     LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_TEST_EXPORTER_ENABLED="$work/exporter-enabled" \
     LUCIA_TEST_EXPORTER_ACTIVE="$work/exporter-active" \
+    LUCIA_TEST_FAIL_EXPORTER_START="$work/fail-exporter-start" \
     LUCIA_DATA_ROOT="$work/data" \
     LUCIA_CURRENT_LINK="$work/current" \
     LUCIA_RELEASES_DIR="$work/releases" \
@@ -438,8 +440,12 @@ previous_validation_token="$(
     sed -n 's/^validation_token=//p' "$work/updates/state/lucia.env"
 )"
 : > "$work/curl.log"
+touch "$work/fail-exporter-start"
+exporter_start_attempts="$(grep -c '^start lucia-redis-exporter.service$' "$work/systemctl.log")"
 run_update rollback lucia
-[[ -e "$work/exporter-active" ]] || { echo "Enabled Redis exporter was not restored after rollback" >&2; exit 1; }
+rm "$work/fail-exporter-start"
+[[ ! -e "$work/exporter-active" ]] || { echo "Failed Redis exporter start was reported as active" >&2; exit 1; }
+(( $(grep -c '^start lucia-redis-exporter.service$' "$work/systemctl.log") > exporter_start_attempts ))
 rollback_validation_token="$(
     sed -n 's|.*update-validation/prepare/||p' "$work/curl.log" \
         | tail -1
@@ -462,7 +468,7 @@ grep -qx 'old-redis-config' "$work/redis.conf"
 [[ ! -e "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
 
 echo "PASS: Lucia update verifies, switches atomically, and rolls back data"
-rm "$work/exporter-enabled" "$work/exporter-active"
+rm -f "$work/exporter-enabled" "$work/exporter-active"
 
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 printf 'current-db\n' > "$work/data/db/lucia.db"

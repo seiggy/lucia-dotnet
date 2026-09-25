@@ -112,6 +112,11 @@ Questions and explicit question punctuation do not enter the action-template
 fast path. They retain their original text for the agent to interpret, including
 the common STT confusion between "are the ... on" and "or the ... on".
 
+When deterministic entity resolution misses, the fast path retries through
+embedding search but acts only on a single target: one entity, one area or one
+floor. Several fuzzy matches, or a fuzzy match to a `switch` entity, defer to
+the agent instead of being switched together.
+
 ## Voice onboarding
 
 The Satellite1 path is Satellite1 audio to Home Assistant Assist, then Lucia's

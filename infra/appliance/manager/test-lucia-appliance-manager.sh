@@ -48,6 +48,11 @@ if [[ "$*" == "is-enabled --quiet lucia-redis-exporter.service" ]]; then
     [[ -e "${LUCIA_TEST_EXPORTER_ENABLED:-}" ]]
     exit $?
 fi
+if [[ "$*" == "start lucia-redis-exporter.service" \
+        && -e "${LUCIA_TEST_FAIL_EXPORTER_START:-}" ]]; then
+    printf 'simulated exporter start failure\n' >&2
+    exit 1
+fi
 if [[ "$1" == "enable" && -f "$LUCIA_TEST_FAIL_ENABLE_FILE" ]]; then
     printf 'simulated enable failure\n' >&2
     exit 1
@@ -267,6 +272,21 @@ LUCIA_MANAGER_HEALTH_ATTEMPTS=1 \
 LUCIA_MANAGER_HEALTH_DELAY_SECONDS=0 \
     bash <(sed 's/\r$//' "$manager_health")
 grep -qx 'finalize lucia' "$update_log"
+touch "$work_dir/health-exporter-enabled" "$work_dir/fail-exporter-start"
+LUCIA_APPLIANCE_SOCKET="$socket_path" \
+LUCIA_CURL_PATH="$(command -v curl)" \
+LUCIA_UPDATE_PATH="$work_dir/lucia-update" \
+LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+LUCIA_TEST_UPDATE_LOG="$update_log" \
+LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/health-exporter-systemctl.log" \
+LUCIA_TEST_EXPORTER_ENABLED="$work_dir/health-exporter-enabled" \
+LUCIA_TEST_FAIL_EXPORTER_START="$work_dir/fail-exporter-start" \
+LUCIA_MANAGER_HEALTH_ATTEMPTS=1 \
+LUCIA_MANAGER_HEALTH_DELAY_SECONDS=0 \
+    bash <(sed 's/\r$//' "$manager_health") \
+    || { echo "Exporter start failure failed a finalized manager health check" >&2; exit 1; }
+grep -qx 'start lucia-redis-exporter.service' "$work_dir/health-exporter-systemctl.log"
+rm "$work_dir/health-exporter-enabled" "$work_dir/fail-exporter-start"
 cat > "$work_dir/curl-failure" <<'EOF'
 #!/usr/bin/env bash
 exit 1
@@ -842,18 +862,21 @@ echo "PASS: failed telemetry enable restores prior configuration and state"
 kill "$manager_pid"
 wait "$manager_pid" 2>/dev/null || true
 manager_pid=""
-touch "$work_dir/exporter-enabled"
+touch "$work_dir/exporter-enabled" "$work_dir/fail-exporter-start"
 exporter_starts="$(grep -c '^start lucia-redis-exporter.service$' "$systemctl_log")"
 LUCIA_APPLIANCE_SOCKET="$work_dir/restarted.sock" \
 LUCIA_UPDATE_ROOT="$work_dir/restarted-updates" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
 LUCIA_TEST_EXPORTER_ENABLED="$work_dir/exporter-enabled" \
+LUCIA_TEST_FAIL_EXPORTER_START="$work_dir/fail-exporter-start" \
     "${manager_command[@]}" > "$work_dir/restarted.log" 2>&1 &
 manager_pid=$!
+restarted_ready=false
 for _ in {1..120}; do
     if curl --fail --silent --unix-socket "$work_dir/restarted.sock" \
         http://localhost/v1/updates/operation >/dev/null 2>&1; then
+        restarted_ready=true
         break
     fi
     if ! kill -0 "$manager_pid" 2>/dev/null; then
@@ -862,9 +885,16 @@ for _ in {1..120}; do
     fi
     sleep 0.25
 done
+if [[ "$restarted_ready" != true ]]; then
+    cat "$work_dir/restarted.log" >&2
+    echo "Manager did not serve its socket after the exporter failed to start" >&2
+    exit 1
+fi
+rm "$work_dir/fail-exporter-start"
 if [[ "$(grep -c '^start lucia-redis-exporter.service$' "$systemctl_log")" -le "$exporter_starts" ]]; then
     cat "$work_dir/restarted.log" >&2
     echo "Manager startup did not restore the enabled Redis exporter" >&2
     exit 1
 fi
-echo "PASS: a new manager restores the enabled exporter after a legacy updater"
+grep -q 'Could not restore the enabled Redis exporter' "$work_dir/restarted.log"
+echo "PASS: a new manager tries to restore the enabled exporter and still serves when it fails"
