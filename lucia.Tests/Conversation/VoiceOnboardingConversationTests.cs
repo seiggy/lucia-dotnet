@@ -145,6 +145,19 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     }
 
     [Fact]
+    public async Task EnrolledOnly_AllowsDashboardChatThatSimulatesAHomeAssistantDevice()
+    {
+        _configuration[$"{VoiceProfileOptions.SectionName}:IgnoreUnknownVoices"] = "true";
+        var request = CreateRequest("what time is it", "conversation.lucia");
+        request = request with { Context = request.Context with { IsDashboardSession = true } };
+
+        var result = await _processor.ProcessAsync(request);
+
+        Assert.NotNull(result.LlmPrompt);
+        A.CallTo(() => _router.RouteAsync("what time is it", A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task EnrolledOnly_AllowsVerifiedSpeakerAndReloadsTheSavedFlag()
     {
         _configuration[$"{VoiceProfileOptions.SectionName}:IgnoreUnknownVoices"] = "true";

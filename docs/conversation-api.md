@@ -103,8 +103,11 @@ verified voice metadata is rejected when the option is enabled.
 
 The saved flag follows the configuration provider's reload cycle. Explicit
 enrollment and its follow-up turns remain available to unknown speakers.
-Turning the option off restores ordinary unknown-speaker routing, and typed
-dashboard requests without satellite context remain available in either mode. Rejections create a
+Turning the option off restores ordinary unknown-speaker routing. Typed
+dashboard chat, which authenticates with a dashboard session cookie, remains
+available in either mode, including when it simulates a Home Assistant device
+ID. Requests authenticated with an API key and carrying a device ID are treated
+as satellite requests. Rejections create a
 redacted command-trace error without copying the speech into that trace.
 Existing transcript recording and retention remain unchanged.
 

@@ -41,6 +41,13 @@ public sealed record ConversationContext
     [JsonIgnore]
     public bool IsVoiceRequest { get; init; }
 
+    /// <summary>
+    /// Set server-side when the request is authenticated by a dashboard session cookie
+    /// rather than an API key, so a simulated Home Assistant device ID is not treated as speech.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsDashboardSession { get; init; }
+
     [JsonPropertyName("location")]
     public string? Location { get; init; }
 }
