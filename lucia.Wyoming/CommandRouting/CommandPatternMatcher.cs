@@ -643,7 +643,11 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
             or "was" or "were" or "what" or "why" or "when" or "where" or "which"
             or "how" or "has" or "have"
             // STT can transcribe "are the ... on" as "or the ... on".
-            || (tokens.Count >= 3 && tokens[0] == "or" && tokens[1] is "the" or "my" or "our");
+            || (tokens.Count >= 3 && tokens[0] == "or" && tokens[1] is "the" or "my" or "our")
+            // "should the porch light be on" is a question; "can you turn on ..." is a polite command.
+            || (tokens[0] is "can" or "could" or "would" or "will" or "should" or "shall"
+                    or "may" or "might" or "must"
+                && (tokens.Count < 2 || tokens[1] is not ("you" or "u")));
     }
 
     /// <summary>

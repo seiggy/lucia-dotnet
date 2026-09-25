@@ -97,6 +97,11 @@ public sealed class CommandPatternRouterTests
     [InlineData("were the ceiling lights on")]
     [InlineData("why are the office lights on")]
     [InlineData("or the office on")]
+    [InlineData("should the porch light be on")]
+    [InlineData("will the office lights turn on")]
+    [InlineData("can the office lights turn on")]
+    [InlineData("would the kitchen lights be off")]
+    [InlineData("must the porch light stay on")]
     public async Task Route_StatusQuestionLikeTranscript_DoesNotMatchFastPath(string transcript)
     {
         var router = CreateRouter(patterns: TestLightPattern);
@@ -114,6 +119,8 @@ public sealed class CommandPatternRouterTests
     [InlineData("please turn on the office lights")]
     [InlineData("can you turn on the office lights")]
     [InlineData("could you turn off the office lights")]
+    [InlineData("would you turn on the office lights")]
+    [InlineData("will you turn off the office lights")]
     public async Task Route_ImperativeLightCommand_StillMatchesFastPath(string transcript)
     {
         var router = CreateRouter(patterns: TestLightPattern);
