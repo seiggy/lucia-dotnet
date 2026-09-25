@@ -39,16 +39,38 @@ public static class VoiceConfigApi
         {
             const string prefix = VoiceProfileOptions.SectionName;
 
+            if (request.SpeakerVerificationThreshold.HasValue)
+            {
+                var threshold = request.SpeakerVerificationThreshold.Value;
+                if (!VoiceProfileOptions.IsValidSpeakerVerificationThreshold(threshold))
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        [nameof(VoiceConfigUpdateRequest.SpeakerVerificationThreshold)] =
+                        [$"The value must be a finite number between {0.10f:0.00} and {0.95f:0.00}."]
+                    });
+
+                await configStore.SetAsync($"{prefix}:SpeakerVerificationThreshold", threshold.ToString("F2"), "voice-config-ui").ConfigureAwait(false);
+            }
+
+            if (request.ProvisionalMatchThreshold.HasValue)
+            {
+                var threshold = request.ProvisionalMatchThreshold.Value;
+                if (!VoiceProfileOptions.IsValidProvisionalMatchThreshold(threshold))
+                    return Results.ValidationProblem(new Dictionary<string, string[]>
+                    {
+                        [nameof(VoiceConfigUpdateRequest.ProvisionalMatchThreshold)] =
+                        [$"The value must be a finite number between {0.10f:0.00} and {0.95f:0.00}."]
+                    });
+
+                await configStore.SetAsync($"{prefix}:ProvisionalMatchThreshold", threshold.ToString("F2"), "voice-config-ui").ConfigureAwait(false);
+            }
+
             if (request.IgnoreUnknownVoices.HasValue)
                 await configStore.SetAsync($"{prefix}:IgnoreUnknownVoices", request.IgnoreUnknownVoices.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.AutoCreateProvisionalProfiles.HasValue)
                 await configStore.SetAsync($"{prefix}:AutoCreateProvisionalProfiles", request.AutoCreateProvisionalProfiles.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.MaxAutoProfiles.HasValue)
                 await configStore.SetAsync($"{prefix}:MaxAutoProfiles", request.MaxAutoProfiles.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
-            if (request.SpeakerVerificationThreshold.HasValue)
-                await configStore.SetAsync($"{prefix}:SpeakerVerificationThreshold", request.SpeakerVerificationThreshold.Value.ToString("F2"), "voice-config-ui").ConfigureAwait(false);
-            if (request.ProvisionalMatchThreshold.HasValue)
-                await configStore.SetAsync($"{prefix}:ProvisionalMatchThreshold", request.ProvisionalMatchThreshold.Value.ToString("F2"), "voice-config-ui").ConfigureAwait(false);
             if (request.AdaptiveProfiles.HasValue)
                 await configStore.SetAsync($"{prefix}:AdaptiveProfiles", request.AdaptiveProfiles.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.ProvisionalRetentionDays.HasValue)

@@ -48,12 +48,12 @@
       "output_dir": "/assets/models/kws",
       "size_approx": "10MB"
     },
-    "speaker-embedding-3dspeaker": {
-      "version": "16k",
-      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+    "speaker-embedding-titanet-small": {
+      "version": "small",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx",
       "format": "raw",
-      "output_dir": "/assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
-      "output_filename": "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+      "output_dir": "/assets/models/speaker-embedding/nemo_en_titanet_small",
+      "output_filename": "nemo_en_titanet_small.onnx",
       "size_approx": "40MB"
     },
     "speech-enhancement-gtcrn": {

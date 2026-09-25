@@ -93,6 +93,17 @@ atomic_symlink() {
     mv -Tf "$temporary" "$current_link"
 }
 
+start_lucia_services() {
+    "$systemctl_path" start lucia-redis.service lucia-agenthost.service || return
+    if "$systemctl_path" is-enabled --quiet lucia-redis-exporter.service; then
+        "$systemctl_path" start lucia-redis-exporter.service
+    else
+        local status=$?
+        [[ "$status" == 1 || "$status" == 4 ]] \
+            || die "Redis exporter enablement could not be checked."
+    fi
+}
+
 write_lucia_state() {
     local phase="$1"
     local previous="$2"
@@ -808,8 +819,8 @@ apply_lucia() {
                 sync -f "$releases_dir"
                 sync -f "$backups_dir"
             fi
-            "$systemctl_path" start \
-                lucia-redis.service lucia-agenthost.service || true
+            start_lucia_services \
+                || printf 'Error: services could not be fully restored after the failed update\n' >&2
         fi
         rm -rf "$input_dir" "$parts_list" "$extract_dir"
         exit "$exit_code"
@@ -854,7 +865,7 @@ apply_lucia() {
     write_lucia_state \
         switched "$previous_target" "releases/$version" "$backup" "$validation_token"
     report_progress validating
-    "$systemctl_path" start lucia-redis.service lucia-agenthost.service
+    start_lucia_services
     if ! wait_for_lucia_health "$validation_token" "$validation_credential"; then
         printf 'Error: new Lucia release failed its health check\n' >&2
         false
@@ -990,8 +1001,7 @@ rollback_lucia() {
         restore_replaced_data
         write_lucia_state \
             committed "$previous" "$current" "$backup_real" "$rollback_validation_token"
-        if "$systemctl_path" start \
-                lucia-redis.service lucia-agenthost.service \
+        if start_lucia_services \
             && prepare_lucia_validation \
                 "$rollback_validation_token" "$validation_credential" \
             && wait_for_lucia_health \
@@ -1011,7 +1021,7 @@ rollback_lucia() {
     restore_data_backup "$backup_real" true
     sync -f "$releases_dir"
     sync -f "$(dirname "$current_link")"
-    "$systemctl_path" start lucia-redis.service lucia-agenthost.service
+    start_lucia_services
     report_progress validating
     prepare_lucia_validation \
         "$rollback_validation_token" "$validation_credential"

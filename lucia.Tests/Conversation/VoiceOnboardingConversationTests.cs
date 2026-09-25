@@ -14,6 +14,7 @@ using lucia.Tests.Wyoming;
 using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Diarization;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 
@@ -29,6 +30,9 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     private readonly VoiceTurnStore _turns;
     private readonly float[] _embedding = Enumerable.Repeat(0.1f, 128).ToArray();
     private readonly ICommandRouter _router = A.Fake<ICommandRouter>();
+    private readonly IDirectSkillExecutor _executor = A.Fake<IDirectSkillExecutor>();
+    private readonly ConfigurationManager _configuration = new();
+    private readonly ServiceProvider _services;
     private readonly AgentHostTelemetrySource _telemetry = new();
     private readonly VoiceOnboardingService _enrollment;
     private readonly TestDiarizationEngine _diarization;
@@ -49,21 +53,130 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         _workflow = new VoiceOnboardingWorkflow(
             _enrollment, new TestDiarizationEngine(), _memories,
             _clock, NullLogger<VoiceOnboardingWorkflow>.Instance);
-        _processor = new ConversationCommandProcessor(
+        var services = new ServiceCollection();
+        services.AddOptions<VoiceProfileOptions>().Bind(_configuration.GetSection(VoiceProfileOptions.SectionName));
+        services.AddSingleton<Microsoft.Extensions.Logging.ILogger<SpeakerVerificationFilter>>(NullLogger<SpeakerVerificationFilter>.Instance);
+        services.AddSingleton<SpeakerVerificationFilter>();
+        _services = services.BuildServiceProvider();
+        _processor = ActivatorUtilities.CreateInstance<ConversationCommandProcessor>(
+            _services,
             _router,
-            A.Fake<IDirectSkillExecutor>(),
+            _executor,
             new ResponseTemplateRenderer(A.Fake<IResponseTemplateRepository>(), NullLogger<ResponseTemplateRenderer>.Instance),
             new ContextReconstructor(new UserContextProvider(_memories)),
             new ConversationTelemetry(_telemetry),
             _traces,
             new CommandTraceChannel(),
-            A.Fake<IServiceProvider>(),
+            _services,
             NullLogger<ConversationCommandProcessor>.Instance,
             new OptionsMonitorStub<CommandRoutingOptions>(new CommandRoutingOptions()),
             new OptionsMonitorStub<PersonalityPromptOptions>(new PersonalityPromptOptions()),
-            voiceTurns: _turns,
-            speakerProfiles: _profiles,
-            onboarding: _workflow);
+            _turns,
+            _profiles,
+            _workflow);
+    }
+
+    [Theory]
+    [InlineData("unknown", "turn on the bedroom fan")]
+    [InlineData("unknown", "let's go around")]
+    [InlineData("provisional", "turn off the porch light")]
+    [InlineData("revoked", "turn on the office lights")]
+    [InlineData("missing", "what do you remember about me")]
+    [InlineData("non-finite", "turn on the office lights")]
+    [InlineData("unauthorized", "turn on the office lights")]
+    [InlineData("below-threshold", "turn on the office lights")]
+    public async Task EnrolledOnly_BlocksUnverifiedVoiceBeforeRouting(string mode, string text)
+    {
+        _configuration[$"{VoiceProfileOptions.SectionName}:IgnoreUnknownVoices"] = "true";
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._))
+            .Returns(new CommandRouteResult
+            {
+                IsMatch = true,
+                Confidence = 1,
+                MatchedPattern = new CommandPattern
+                {
+                    Id = "would-control-light", SkillId = "LightControlSkill",
+                    Action = "toggle", Templates = ["turn on {entity}"],
+                },
+            });
+        if (mode != "missing")
+        {
+            await _profiles.CreateAsync(new SpeakerProfile
+            {
+                Id = "profile-a", Name = "Alice",
+                IsProvisional = mode == "provisional",
+                IsAuthorized = mode != "revoked",
+            }, CancellationToken.None);
+        }
+        var speaker = mode == "unknown" ? null : new SpeakerIdentification
+        {
+            ProfileId = "profile-a", Name = "Alice",
+            IsAuthorized = mode != "unauthorized",
+            Similarity = mode == "non-finite" ? float.NaN : mode == "below-threshold" ? 0.1f : 0.95f,
+        };
+
+        var result = await ProcessAsync(text, speaker: speaker);
+
+        Assert.Null(result.LlmPrompt);
+        Assert.Equal("error", result.Response?.Type);
+        Assert.False(result.Response?.NeedsInput);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+        A.CallTo(() => _executor.ExecuteAsync(A<CommandRouteResult>._, A<ConversationContext>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+        var trace = Assert.Single((await _traces.ListAsync(new CommandTraceFilter())).Items);
+        Assert.Equal(CommandTraceOutcome.Error, trace.Outcome);
+        Assert.Null(trace.LlmFallback);
+        Assert.Null(trace.Execution);
+        Assert.DoesNotContain(text, trace.RawText);
+        Assert.Contains("enrolled", trace.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("<Alice />turn on the lights")]
+    [InlineData("turn on the lights")]
+    public async Task EnrolledOnly_BlocksUnverifiedSatelliteRequestsWithoutVoiceTokens(string text)
+    {
+        _configuration[$"{VoiceProfileOptions.SectionName}:IgnoreUnknownVoices"] = "true";
+        var result = await _processor.ProcessAsync(CreateRequest(text));
+
+        Assert.Null(result.LlmPrompt);
+        Assert.Equal("error", result.Response?.Type);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task EnrolledOnly_AllowsVerifiedSpeakerAndReloadsTheSavedFlag()
+    {
+        _configuration[$"{VoiceProfileOptions.SectionName}:IgnoreUnknownVoices"] = "true";
+        await _profiles.CreateAsync(new SpeakerProfile
+        {
+            Id = "profile-a", Name = "Alice", IsAuthorized = true,
+        }, CancellationToken.None);
+        var result = await ProcessAsync("what time is it", speaker: new SpeakerIdentification
+        {
+            ProfileId = "profile-a", Name = "Alice", IsAuthorized = true, Similarity = 0.95f,
+        });
+        Assert.NotNull(result.LlmPrompt);
+        Assert.Equal("profile-a", result.SpeakerContext?.EnrolledProfileId);
+
+        Assert.Null((await ProcessAsync("unknown voice")).LlmPrompt);
+        _configuration[$"{VoiceProfileOptions.SectionName}:IgnoreUnknownVoices"] = "false";
+        ((IConfigurationRoot)_configuration).Reload();
+        Assert.NotNull((await ProcessAsync("unknown voice")).LlmPrompt);
+    }
+
+    [Fact]
+    public async Task EnrolledOnly_PreservesExplicitOnboardingAndTextConversation()
+    {
+        _configuration[$"{VoiceProfileOptions.SectionName}:IgnoreUnknownVoices"] = "true";
+        Assert.Equal("onboarding", (await SayAsync("learn my voice")).Type);
+        Assert.Contains("name", (await SayAsync("yes")).Text, StringComparison.OrdinalIgnoreCase);
+        await SayAsync("cancel");
+        var textRequest = CreateRequest("what time is it") with
+        {
+            Context = new ConversationContext { ConversationId = "dashboard-text", UserId = "admin" },
+        };
+        Assert.NotNull((await _processor.ProcessAsync(textRequest)).LlmPrompt);
     }
 
     [Theory]
@@ -538,6 +651,8 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         _enrollment.Dispose();
         _turns.Dispose();
         _telemetry.Dispose();
+        _services.Dispose();
+        _configuration.Dispose();
         if (Directory.Exists(_clipPath))
         {
             Directory.Delete(_clipPath, recursive: true);

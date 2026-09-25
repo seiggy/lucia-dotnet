@@ -52,6 +52,8 @@ RUN dotnet publish lucia.AgentHost/lucia.AgentHost.csproj \
 
 # Runtime stage — slim aspnet image, no GPU libs
 FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:8c0b6857eab7b2aa57884c839bf4678414606bd7d17370f18a842ac5cf414711
+ARG VERSION=development
+ENV LUCIA_VERSION=${VERSION}
 WORKDIR /app
 
 # Install curl for health check

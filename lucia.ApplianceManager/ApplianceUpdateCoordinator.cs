@@ -271,6 +271,10 @@ public sealed partial class ApplianceUpdateCoordinator
             await process.WaitForExitAsync().ConfigureAwait(false);
             var output = (await outputTask.ConfigureAwait(false)).Trim();
             var error = (await errorTask.ConfigureAwait(false)).Trim();
+            if (channel == "lucia")
+            {
+                RestoreEnabledRedisExporter();
+            }
             UpdateOperationStatus result = process.ExitCode == 0
                 ? channel == "os"
                     ? new(
@@ -656,7 +660,35 @@ public sealed partial class ApplianceUpdateCoordinator
                 "start",
                 "lucia-redis.service",
                 "lucia-agenthost.service");
+            RestoreEnabledRedisExporter();
         }
+    }
+
+    public void RestoreEnabledRedisExporter()
+    {
+        if (!CheckUnitState("is-active", "lucia-redis.service")
+            || !CheckUnitState("is-enabled", "lucia-redis-exporter.service"))
+        {
+            return;
+        }
+        RunCommand(_systemctlPath, "start", "lucia-redis-exporter.service");
+    }
+
+    private bool CheckUnitState(string command, string unit)
+    {
+        using var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = _systemctlPath,
+            ArgumentList = { command, "--quiet", unit },
+            UseShellExecute = false,
+        }) ?? throw new InvalidOperationException($"Failed to check {unit}.");
+        process.WaitForExit();
+        return process.ExitCode switch
+        {
+            0 => true,
+            1 or 3 or 4 => false,
+            _ => throw new InvalidOperationException($"systemctl {command} {unit} failed with code {process.ExitCode}."),
+        };
     }
 
     private static void RunCommand(string fileName, params string[] arguments)

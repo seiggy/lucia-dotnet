@@ -355,7 +355,7 @@ public sealed class SpeakerVerificationComponentTests
     private static SpeakerVerificationFilter CreateSpeakerVerificationFilter(bool ignoreUnknownVoices)
     {
         return new SpeakerVerificationFilter(
-            Options.Create(new VoiceProfileOptions { IgnoreUnknownVoices = ignoreUnknownVoices }),
+            new OptionsMonitorStub<VoiceProfileOptions>(new VoiceProfileOptions { IgnoreUnknownVoices = ignoreUnknownVoices }),
             NullLogger<SpeakerVerificationFilter>.Instance);
     }
 

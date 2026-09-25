@@ -1155,13 +1155,16 @@ export default function VoicePlatformPage() {
                   </div>
                   <input
                     type="range"
-                    min={0.5}
+                    min={0.1}
                     max={0.95}
                     step={0.05}
                     className="w-full accent-amber"
                     value={voiceConfig.speakerVerificationThreshold}
                     onChange={event => setVoiceConfig({ ...voiceConfig, speakerVerificationThreshold: Number(event.target.value) })}
                   />
+                  <p className="text-xs leading-relaxed text-dust">
+                    Provisional default: 0.35. This starting point is not calibrated to your recordings yet.
+                  </p>
                 </label>
 
                 <label className="space-y-1 text-sm text-light">

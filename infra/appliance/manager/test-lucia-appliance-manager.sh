@@ -44,6 +44,10 @@ cat > "$work_dir/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
+if [[ "$*" == "is-enabled --quiet lucia-redis-exporter.service" ]]; then
+    [[ -e "${LUCIA_TEST_EXPORTER_ENABLED:-}" ]]
+    exit $?
+fi
 if [[ "$1" == "enable" && -f "$LUCIA_TEST_FAIL_ENABLE_FILE" ]]; then
     printf 'simulated enable failure\n' >&2
     exit 1
@@ -187,6 +191,7 @@ LUCIA_ROOTFS_AB_CHECK_PATH="$work_dir/rootfs-check" \
 LUCIA_TEST_DISABLE_AB="$work_dir/disable-ab" \
 LUCIA_UPDATE_ROOT="$work_dir/updates" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
+LUCIA_TEST_EXPORTER_ENABLED="$work_dir/exporter-enabled" \
 LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
 LUCIA_TEST_FAIL_COLLECTOR_RESTART_FILE="$fail_collector_restart" \
 LUCIA_TEST_BLOCK_RESTART_FILE="$block_restart" \
@@ -438,6 +443,8 @@ curl --silent --output "$work_dir/response.json" \
 
 echo "PASS: failed operation persistence leaves the manager retryable"
 
+! grep -qx 'start lucia-redis-exporter.service' "$systemctl_log"
+touch "$work_dir/exporter-enabled"
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
@@ -461,6 +468,9 @@ curl --silent --output "$work_dir/response.json" \
 grep -q '"operationId":"11111111-1111-1111-1111-111111111111"' \
     "$work_dir/response.json"
 grep -qx 'apply lucia v1.4.0' "$update_log"
+grep -qx 'start lucia-redis-exporter.service' "$systemctl_log"
+rm "$work_dir/exporter-enabled"
+exporter_starts="$(grep -c '^start lucia-redis-exporter.service$' "$systemctl_log")"
 for _ in {1..40}; do
     grep -q '^--no-block restart lucia-appliance-manager.service lucia-agenthost.service$' \
         "$systemctl_log" && break
@@ -491,6 +501,8 @@ done
     "$systemctl_log")" -ge 2 ]]
 
 echo "PASS: Lucia apply and rollback restart manager and AgentHost together"
+[[ "$(grep -c '^start lucia-redis-exporter.service$' "$systemctl_log")" == "$exporter_starts" ]]
+echo "PASS: enabled Redis exporter recovers after apply and disabled exporter stays stopped on rollback"
 
 touch "$work_dir/updates/hold"
 status="$(
@@ -825,3 +837,34 @@ grep -qx -- 'disable --now lucia-otelcol.service lucia-redis-exporter.service' \
     "$systemctl_log"
 
 echo "PASS: failed telemetry enable restores prior configuration and state"
+
+# A newly installed manager must recover the exporter even when the prior updater is old.
+kill "$manager_pid"
+wait "$manager_pid" 2>/dev/null || true
+manager_pid=""
+touch "$work_dir/exporter-enabled"
+exporter_starts="$(grep -c '^start lucia-redis-exporter.service$' "$systemctl_log")"
+LUCIA_APPLIANCE_SOCKET="$work_dir/restarted.sock" \
+LUCIA_UPDATE_ROOT="$work_dir/restarted-updates" \
+LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
+LUCIA_TEST_EXPORTER_ENABLED="$work_dir/exporter-enabled" \
+    "${manager_command[@]}" > "$work_dir/restarted.log" 2>&1 &
+manager_pid=$!
+for _ in {1..120}; do
+    if curl --fail --silent --unix-socket "$work_dir/restarted.sock" \
+        http://localhost/v1/updates/operation >/dev/null 2>&1; then
+        break
+    fi
+    if ! kill -0 "$manager_pid" 2>/dev/null; then
+        cat "$work_dir/restarted.log" >&2
+        exit 1
+    fi
+    sleep 0.25
+done
+if [[ "$(grep -c '^start lucia-redis-exporter.service$' "$systemctl_log")" -le "$exporter_starts" ]]; then
+    cat "$work_dir/restarted.log" >&2
+    echo "Manager startup did not restore the enabled Redis exporter" >&2
+    exit 1
+fi
+echo "PASS: a new manager restores the enabled exporter after a legacy updater"

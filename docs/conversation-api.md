@@ -92,6 +92,26 @@ data: {"text":"The weather is 72°F and sunny.","conversationId":"abc-123","need
 | `done` | Final event with the complete response text and `needsInput` flag |
 | `error` | Sent if the LLM pipeline fails: `{"error":"Error message"}` |
 
+## Voice admission and fast-path questions
+
+`Wyoming:VoiceProfiles:IgnoreUnknownVoices`, shown as **Enrolled voices only**,
+is enforced in the conversation processor before either fast-path execution or
+LLM fallback. The processor consumes the server-issued voice token and checks
+that its identified speaker is still enrolled and authorized. Display-name
+tags alone do not establish an enrolled identity. A satellite request without
+verified voice metadata is rejected when the option is enabled.
+
+The saved flag follows the configuration provider's reload cycle. Explicit
+enrollment and its follow-up turns remain available to unknown speakers.
+Turning the option off restores ordinary unknown-speaker routing, and typed
+dashboard requests without satellite context remain available in either mode. Rejections create a
+redacted command-trace error without copying the speech into that trace.
+Existing transcript recording and retention remain unchanged.
+
+Questions and explicit question punctuation do not enter the action-template
+fast path. They retain their original text for the agent to interpret, including
+the common STT confusion between "are the ... on" and "or the ... on".
+
 ## Voice onboarding
 
 The Satellite1 path is Satellite1 audio to Home Assistant Assist, then Lucia's

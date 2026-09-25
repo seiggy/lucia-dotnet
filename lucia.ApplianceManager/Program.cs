@@ -118,6 +118,7 @@ if (args is ["--validate"])
     return;
 }
 
+app.Services.GetRequiredService<ApplianceUpdateCoordinator>().RestoreEnabledRedisExporter();
 await app.RunAsync().ConfigureAwait(false);
 
 static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)

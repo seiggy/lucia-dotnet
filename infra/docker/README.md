@@ -33,6 +33,13 @@ See also:
 
 ## Quick Start
 
+The dashboard sidebar shows the version embedded in the running image. Published
+release builds set `LUCIA_VERSION` from their build-time `VERSION` argument.
+For a self-built image, pass `--build-arg VERSION=your-version`; the default is
+`development`, not an assumed release number. Retagging an existing image does
+not change its embedded version. Release CI rebuilds the metadata layer for a
+versioned release rather than reusing a `master` image's version.
+
 ### 1. Start Services
 
 ```bash

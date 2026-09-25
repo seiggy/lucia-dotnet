@@ -58,6 +58,17 @@ Lucia server instance.
 Lucia keeps an active enrollment bound to its satellite even if the caller changes
 the conversation ID between turns. Cmd Traces shows these turns as voice
 onboarding, with stage and continuation metadata rather than an LLM invocation.
+With **Enrolled voices only** enabled, Lucia rejects ordinary voice requests
+before command routing or agent invocation unless the captured voice matches an
+authorized enrolled profile. Unknown voices can still enter the explicit
+enrollment flow. Typed dashboard conversations are unaffected.
+
+New installations use NVIDIA's English TitaNet Small speaker model
+(`nemo_en_titanet_small`) with a 0.35 match threshold. The threshold accepts
+values from 0.10 to 0.95. Neither default has been calibrated against recordings
+from real homes yet. Installations that have already activated a speaker model
+keep it. Voice profiles store embeddings only for the model that created them,
+so re-enroll each voice after switching the speaker model.
 
 Other facts and preferences can come up during normal conversations instead of
 an onboarding questionnaire. Once enrolled, ask Lucia to remember, recall, or
@@ -70,6 +81,9 @@ for the turn sequence and deployment requirements.
 The dashboard's **User memories** page shows the personal facts stored for each
 enrolled voice profile. Administrators can search, edit values, and delete
 individual memories without deleting the voice profile or its recordings.
+Status questions such as "Are the office lights on?" go to the agent rather than
+matching an imperative fast-path template. Explicit commands such as "office
+lights on" retain the fast path.
 
 ### Supported Inference Platforms
 
