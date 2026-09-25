@@ -10,6 +10,13 @@ previous application tag. Unpublished builds and releases without a final manife
 cannot advance that baseline. A GitHub API failure, invalid manifest, or missing
 published payload stops planning instead of guessing.
 
+Pre-verifier manifests such as v1.4.0 did not publish an attestation bundle.
+The planner checks their declared payloads and checksums but does not require
+that later artifact. They cannot provide an image fingerprint, so the first
+release without a usable baseline still builds full. New manifests must have
+their attestation bundle. Release pagination uses `gh api --paginate --jq` and
+does not require the newer `--slurp` option.
+
 Image inputs include rootfs and installer overlays, systemd units, installer and
 image-building scripts, installer host source, SDK settings, pinned system packages,
 partition layout, and the native voice asset build stages. Application and dashboard

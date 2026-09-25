@@ -97,12 +97,14 @@ def choose_release_mode(current_fingerprint, published_manifests, *, force_full=
 
 
 def fetch_published_manifests(repository: str) -> list[dict]:
-    pages = json.loads(subprocess.check_output(
-        ["gh", "api", "--paginate", "--slurp", f"repos/{repository}/releases?per_page=100"],
-        text=True,
-    ))
+    output = subprocess.check_output(
+        ["gh", "api", "--paginate", "--jq", ".[] | @json",
+         f"repos/{repository}/releases?per_page=100"],
+        text=True, encoding="utf-8",
+    )
+    releases = [json.loads(line) for line in output.splitlines() if line.strip()]
     releases = sorted(
-        (release for page in pages for release in page
+        (release for release in releases
          if not release["draft"] and not release["prerelease"]),
         key=lambda release: release["published_at"], reverse=True,
     )
@@ -115,12 +117,16 @@ def fetch_published_manifests(repository: str) -> list[dict]:
         manifest = json.loads(subprocess.check_output(
             ["gh", "api", "-H", "Accept: application/octet-stream",
              f"repos/{repository}/releases/assets/{asset['id']}"],
-            text=True,
+            text=True, encoding="utf-8",
         ))
         if manifest.get("repository") != repository or manifest.get("tag") != release["tag_name"]:
             raise ValueError(f"Published manifest identity mismatch: {release['tag_name']}")
         available = {asset["name"] for asset in release["assets"]}
-        required = {"SHA256SUMS", "lucia-appliance-attestations.jsonl"}
+        required = {"SHA256SUMS"}
+        # Pre-verifier releases have no bundle and cannot supply an image fingerprint.
+        if any(key in manifest for key in
+               ("attestationBundleUrl", "releaseMode", "imageInputFingerprint")):
+            required.add("lucia-appliance-attestations.jsonl")
         required.update(part["name"] for channel in manifest["channels"].values()
                         for part in channel["parts"])
         if not required <= available:

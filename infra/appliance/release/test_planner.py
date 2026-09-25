@@ -147,12 +147,56 @@ class PlannerTests(unittest.TestCase):
             release("v1.10.0", "2026-09-02", 10),
             release("v1.11.0", "2026-09-03", 11, False),
         ]]
-        with patch.object(planner.subprocess, "check_output", side_effect=[
-            json.dumps(pages), json.dumps(new, indent=2), json.dumps(old, indent=2),
-        ]) as command:
+        def response(args, **kwargs):
+            if "--paginate" in args:
+                self.assertNotIn("--slurp", args)
+                self.assertEqual(args[args.index("--jq") + 1], ".[] | @json")
+                self.assertEqual(kwargs["encoding"], "utf-8")
+                return "\n".join(json.dumps(item) for page in pages for item in page)
+            return json.dumps(new if args[-1].endswith("/10") else old, indent=2)
+        with patch.object(planner.subprocess, "check_output", side_effect=response) as command:
             self.assertEqual(planner.fetch_published_manifests("owner/repo"), [new, old])
             self.assertEqual(command.call_count, 3)
             self.assertIn("repos/owner/repo/releases/assets/10", command.call_args_list[1].args[0])
+
+    def test_legacy_manifest_without_attestations_cannot_be_an_app_only_baseline(self):
+        legacy = {
+            "repository": "owner/repo", "tag": "v1.4.0", "schemaVersion": 1,
+            "channels": {name: {"parts": [{"name": "payload"}]}
+                         for name in ("lucia", "os", "installer")},
+        }
+        release = {
+            "tag_name": "v1.4.0", "published_at": "2026-09-01",
+            "draft": False, "prerelease": False,
+            "assets": [{"id": 1, "name": name} for name in
+                       ("lucia-appliance-manifest.json", "payload", "SHA256SUMS")],
+        }
+
+        def response(args, **kwargs):
+            if "--paginate" in args:
+                return json.dumps([[release]]) if "--slurp" in args else json.dumps(release)
+            return json.dumps(legacy)
+
+        with patch.object(planner.subprocess, "check_output", side_effect=response):
+            manifests = planner.fetch_published_manifests("owner/repo")
+            self.assertEqual(planner.choose_release_mode("a" * 64, manifests)["release_mode"], "full")
+            with self.assertRaisesRegex(ValueError, "Published release inputs differ"):
+                planner.choose_release_mode("a" * 64, manifests, release_tag="v1.4.0")
+
+            for metadata in (
+                {"attestationBundleUrl": "https://example.test/bundle"},
+                {"releaseMode": "full", "imageInputFingerprint": "a" * 64},
+            ):
+                with self.subTest(metadata=metadata):
+                    legacy.update(metadata)
+                    with self.assertRaisesRegex(ValueError, "missing assets"):
+                        planner.fetch_published_manifests("owner/repo")
+                    for key in metadata:
+                        del legacy[key]
+
+            release["assets"] = [asset for asset in release["assets"] if asset["name"] != "payload"]
+            with self.assertRaisesRegex(ValueError, "missing assets"):
+                planner.fetch_published_manifests("owner/repo")
 
     def test_cli_emits_github_outputs_and_summary(self):
         with tempfile.TemporaryDirectory() as temporary:
