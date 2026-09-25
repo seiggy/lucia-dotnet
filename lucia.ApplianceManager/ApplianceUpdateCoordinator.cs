@@ -8,6 +8,7 @@ namespace lucia.ApplianceManager;
 
 public sealed partial class ApplianceUpdateCoordinator
 {
+    private static readonly TimeSpan ExporterSystemctlTimeout = TimeSpan.FromSeconds(10);
     private readonly ILogger<ApplianceUpdateCoordinator> _logger;
     private readonly object _gate = new();
     private readonly string _updaterPath =
@@ -673,9 +674,10 @@ public sealed partial class ApplianceUpdateCoordinator
         try
         {
             if (CheckUnitState("is-active", "lucia-redis.service")
-                && CheckUnitState("is-enabled", "lucia-redis-exporter.service"))
+                && CheckUnitState("is-enabled", "lucia-redis-exporter.service")
+                && RunExporterSystemctl("start", "lucia-redis-exporter.service") != 0)
             {
-                RunCommand(_systemctlPath, "start", "lucia-redis-exporter.service");
+                throw new InvalidOperationException("systemctl could not start lucia-redis-exporter.service.");
             }
         }
         catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
@@ -687,21 +689,30 @@ public sealed partial class ApplianceUpdateCoordinator
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not restore the enabled Redis exporter.")]
     private partial void LogRedisExporterRestoreFailed(Exception exception);
 
-    private bool CheckUnitState(string command, string unit)
-    {
-        using var process = Process.Start(new ProcessStartInfo
-        {
-            FileName = _systemctlPath,
-            ArgumentList = { command, "--quiet", unit },
-            UseShellExecute = false,
-        }) ?? throw new InvalidOperationException($"Failed to check {unit}.");
-        process.WaitForExit();
-        return process.ExitCode switch
+    private bool CheckUnitState(string command, string unit) =>
+        RunExporterSystemctl(command, "--quiet", unit) switch
         {
             0 => true,
             1 or 3 or 4 => false,
-            _ => throw new InvalidOperationException($"systemctl {command} {unit} failed with code {process.ExitCode}."),
+            var code => throw new InvalidOperationException($"systemctl {command} {unit} failed with code {code}."),
         };
+
+    private int RunExporterSystemctl(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo { FileName = _systemctlPath, UseShellExecute = false };
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start systemctl.");
+        if (!process.WaitForExit(ExporterSystemctlTimeout))
+        {
+            process.Kill();
+            throw new InvalidOperationException(
+                $"systemctl {string.Join(' ', arguments)} did not finish within {ExporterSystemctlTimeout.TotalSeconds:0} seconds.");
+        }
+        return process.ExitCode;
     }
 
     private static void RunCommand(string fileName, params string[] arguments)
