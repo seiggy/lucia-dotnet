@@ -17,7 +17,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         }
 
         var normalizedTranscript = TranscriptNormalizer.Normalize(transcript);
-        var tokens = TranscriptNormalizer.Tokenize(normalizedTranscript);
+        var tokens = StripPoliteWrapper(TranscriptNormalizer.Tokenize(normalizedTranscript));
         if (tokens.Length is 0)
         {
             return CommandRouteResult.NoMatch(Stopwatch.GetElapsedTime(startedAt));
@@ -60,6 +60,12 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
                 // skip it — the LLM should handle non-light devices. This does
                 // not screen the area capture.
                 if (pattern.SkillId == "LightControlSkill" && CapturesContainNonLightDevice(captures))
+                {
+                    continue;
+                }
+
+                // "set the office lights to 50" asks for brightness, not a thermostat setting.
+                if (pattern.SkillId == "ClimateControlSkill" && EntityCaptureNamesLight(captures))
                 {
                     continue;
                 }
@@ -112,7 +118,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
             return (false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), 0f);
         }
 
-        return (true, match.Captures, CalculateConfidence(transcriptTokens.Count - match.TokenIndex, match.ConstrainedCaptureMatches));
+        return (true, match.Captures, CalculateConfidence(match.ConstrainedCaptureMatches));
     }
 
     private static bool IsBetterMatch(
@@ -287,11 +293,14 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
     {
         if (segmentIndex >= segments.Count)
         {
-            return new MatchState(
-                Matched: true,
-                TokenIndex: tokenIndex,
-                Captures: captures,
-                ConstrainedCaptureMatches: constrainedCaptureMatches);
+            // Every word must belong to the template. Words left over are often the
+            // condition or question that makes the utterance something other than a command.
+            return tokenIndex == transcriptTokens.Count
+                ? new MatchState(
+                    Matched: true,
+                    Captures: captures,
+                    ConstrainedCaptureMatches: constrainedCaptureMatches)
+                : default;
         }
 
         var segment = segments[segmentIndex];
@@ -300,8 +309,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
             SegmentKind.Literal => MatchLiteral(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
             SegmentKind.OptionalLiteral => ChooseBetterMatch(
                 MatchSegments(segments, transcriptTokens, segmentIndex + 1, tokenIndex, CloneCaptures(captures), constrainedCaptureMatches),
-                MatchOptionalLiteral(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
-                transcriptTokens.Count),
+                MatchOptionalLiteral(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches)),
             SegmentKind.OptionalAlternatives => MatchOptionalAlternatives(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
             SegmentKind.Capture => MatchCapture(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
             SegmentKind.ConstrainedCapture => MatchConstrainedCapture(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
@@ -387,7 +395,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
                 CloneCaptures(captures),
                 constrainedCaptureMatches);
 
-            bestMatch = ChooseBetterMatch(bestMatch, candidate, transcriptTokens.Count);
+            bestMatch = ChooseBetterMatch(bestMatch, candidate);
         }
 
         return bestMatch;
@@ -422,7 +430,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
                 nextCaptures,
                 constrainedCaptureMatches + 1);
 
-            bestMatch = ChooseBetterMatch(bestMatch, candidate, transcriptTokens.Count);
+            bestMatch = ChooseBetterMatch(bestMatch, candidate);
         }
 
         return bestMatch;
@@ -445,8 +453,25 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         }
 
         var bestMatch = default(MatchState);
+        var hasNameToken = false;
         for (var captureEnd = tokenIndex + 1; captureEnd <= maximumExclusive; captureEnd++)
         {
+            var token = transcriptTokens[captureEnd - 1];
+
+            // A capture holds a name. Once it would take in a clause word, it is swallowing a
+            // question, negation or condition, and every longer capture would too.
+            if (ClauseTokens.Contains(token))
+            {
+                break;
+            }
+
+            // "the" or "all the" alone is not a name.
+            hasNameToken |= !DeterminerTokens.Contains(token);
+            if (!hasNameToken)
+            {
+                continue;
+            }
+
             var nextCaptures = CloneCaptures(captures);
             nextCaptures[segment.Name!] = string.Join(' ', transcriptTokens.Skip(tokenIndex).Take(captureEnd - tokenIndex));
 
@@ -458,7 +483,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
                 nextCaptures,
                 constrainedCaptureMatches);
 
-            bestMatch = ChooseBetterMatch(bestMatch, candidate, transcriptTokens.Count);
+            bestMatch = ChooseBetterMatch(bestMatch, candidate);
         }
 
         return bestMatch;
@@ -500,7 +525,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         return true;
     }
 
-    private static MatchState ChooseBetterMatch(MatchState current, MatchState candidate, int totalTokens)
+    private static MatchState ChooseBetterMatch(MatchState current, MatchState candidate)
     {
         if (!candidate.Matched)
         {
@@ -512,46 +537,29 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
             return candidate;
         }
 
-        var currentConfidence = CalculateConfidence(totalTokens - current.TokenIndex, current.ConstrainedCaptureMatches);
-        var candidateConfidence = CalculateConfidence(totalTokens - candidate.TokenIndex, candidate.ConstrainedCaptureMatches);
-
-        if (candidateConfidence > currentConfidence)
-        {
-            return candidate;
-        }
-
-        if (candidateConfidence < currentConfidence)
-        {
-            return current;
-        }
-
-        if (candidate.TokenIndex > current.TokenIndex)
-        {
-            return candidate;
-        }
-
-        if (candidate.TokenIndex < current.TokenIndex)
-        {
-            return current;
-        }
-
-        return candidate.Captures.Count >= current.Captures.Count ? candidate : current;
+        // Complete parses of one template cover the same words, so prefer the one whose
+        // optional literals explain the most of them: "dim the office lights to 20 percent"
+        // captures "office lights" and "20", not "office lights to 20" and "percent".
+        return CountCapturedTokens(candidate.Captures) <= CountCapturedTokens(current.Captures)
+            ? candidate
+            : current;
     }
 
-    private static float CalculateConfidence(int leftoverTokens, int constrainedCaptureMatches)
+    private static int CountCapturedTokens(Dictionary<string, string> captures)
     {
-        var confidence = 0.5f;
-        if (constrainedCaptureMatches > 0)
+        var count = 0;
+        foreach (var value in captures.Values)
         {
-            confidence += 0.3f;
+            count += value.Count(static character => character == ' ') + 1;
         }
 
-        confidence += leftoverTokens is 0
-            ? 0.1f
-            : -0.05f * leftoverTokens;
-
-        return Math.Clamp(confidence, 0f, 1f);
+        return count;
     }
+
+    // Templates consume the whole utterance, so confidence only reflects whether a
+    // constrained capture such as {action:on|off} anchored the match.
+    private static float CalculateConfidence(int constrainedCaptureMatches) =>
+        constrainedCaptureMatches > 0 ? 0.9f : 0.6f;
 
     private static Dictionary<string, string> CloneCaptures(Dictionary<string, string> captures) =>
         new(captures, StringComparer.OrdinalIgnoreCase);
@@ -570,10 +578,47 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         "when", "after",
         "minutes", "minute", "hours", "hour", "seconds", "second",
         "tomorrow", "tonight", "later", "timer",
+        "morning", "afternoon", "evening", "noon", "midnight", "bedtime",
+        "sunrise", "sunset", "dawn", "dusk",
         // Color
         "red", "blue", "green", "warm", "cool", "color",
         // Multi-step conjunctions
         "and", "then", "also",
+    };
+
+    /// <summary>
+    /// Words that never belong in a device, area, scene or value name. A free capture
+    /// stops before them, so "[the] {entity} {action:on|off}" cannot read "can you tell
+    /// me whether the office light is on" as a command, and "turn {action:on|off} [the]
+    /// {entity}" cannot drop the condition from "turn on the lights if nobody is home".
+    /// </summary>
+    private static readonly HashSet<string> ClauseTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Questions and embedded questions
+        "who", "whom", "whose", "what", "which", "where", "why", "how", "whether", "if",
+        // Auxiliaries and modals. "can", "will" and "may" are left out because they
+        // also name things: can lights, Will's room.
+        "is", "are", "am", "was", "were", "be", "been", "being",
+        "do", "does", "did", "has", "have", "had",
+        "could", "would", "should", "shall", "might", "must",
+        // Pronouns and pointing words that need conversation context
+        "i", "me", "you", "u", "we", "us", "he", "him", "she", "they", "them", "it",
+        "this", "that", "these", "those",
+        "someone", "somebody", "anyone", "anybody", "everyone", "everybody", "nobody",
+        // Negation and cancellation. "don't" normalizes to "don t".
+        "not", "no", "never", "t", "dont", "doesnt", "didnt", "cant", "wont", "isnt",
+        "arent", "wasnt", "werent", "shouldnt", "wouldnt", "couldnt",
+        "cancel", "nevermind", "wait",
+        // Conditions, exceptions, alternatives and times
+        "or", "but", "unless", "until", "till", "before", "while", "because", "since",
+        "except", "than", "every", "at",
+        // A second command verb means the capture took in another clause
+        "turn", "turned", "turning", "switched", "switching",
+    };
+
+    private static readonly HashSet<string> DeterminerTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "a", "an", "all", "some", "any", "my", "our", "your", "his", "her", "their",
     };
 
     /// <summary>
@@ -641,14 +686,37 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
     {
         return tokens[0] is "is" or "are" or "do" or "does" or "did" or "am"
             or "was" or "were" or "what" or "why" or "when" or "where" or "which"
-            or "how" or "has" or "have"
+            or "how" or "has" or "have" or "who" or "whose"
             // STT can transcribe "are the ... on" as "or the ... on".
             || (tokens.Count >= 3 && tokens[0] == "or" && tokens[1] is "the" or "my" or "our")
-            // "should the porch light be on" is a question; "can you turn on ..." is a polite command.
-            || (tokens[0] is "can" or "could" or "would" or "will" or "should" or "shall"
-                    or "may" or "might" or "must"
-                && (tokens.Count < 2 || tokens[1] is not ("you" or "u")));
+            // Polite "can you ..." requests are unwrapped before this check, so a leading
+            // modal asks a question: "should the porch light be on".
+            || tokens[0] is "can" or "could" or "would" or "will" or "should" or "shall"
+                or "may" or "might" or "must";
     }
+
+    /// <summary>
+    /// Removes the polite wrapper from a request, so "can you turn off the lights for me"
+    /// matches the same templates as "turn off the lights". Other leading modals stay in
+    /// place for <see cref="IsStatusQuestion"/> to read as questions.
+    /// </summary>
+    private static string[] StripPoliteWrapper(string[] tokens)
+    {
+        var start = tokens.Length > 2
+            && tokens[0] is "can" or "could" or "would" or "will"
+            && tokens[1] is "you" or "u"
+                ? 2
+                : 0;
+        var end = tokens.Length - start > 2 && tokens[^2] == "for" && tokens[^1] == "me"
+            ? tokens.Length - 2
+            : tokens.Length;
+
+        return start == 0 && end == tokens.Length ? tokens : tokens[start..end];
+    }
+
+    private static bool EntityCaptureNamesLight(Dictionary<string, string> captures) =>
+        captures.TryGetValue("entity", out var entityValue)
+        && entityValue.Split(' ', StringSplitOptions.RemoveEmptyEntries).Any(LightIdentifyingTokens.Contains);
 
     /// <summary>
     /// Tokens that identify a light entity in a capture value.  When a capture
@@ -711,7 +779,6 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
 
     private readonly record struct MatchState(
         bool Matched,
-        int TokenIndex,
         Dictionary<string, string> Captures,
         int ConstrainedCaptureMatches);
 }

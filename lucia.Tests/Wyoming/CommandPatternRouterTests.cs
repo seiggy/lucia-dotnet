@@ -102,6 +102,10 @@ public sealed class CommandPatternRouterTests
     [InlineData("can the office lights turn on")]
     [InlineData("would the kitchen lights be off")]
     [InlineData("must the porch light stay on")]
+    [InlineData("can you tell me whether the office light is on")]
+    [InlineData("could you check if the office lights are off")]
+    [InlineData("lucia is the office light on")]
+    [InlineData("who left the porch light on")]
     public async Task Route_StatusQuestionLikeTranscript_DoesNotMatchFastPath(string transcript)
     {
         var router = CreateRouter(patterns: TestLightPattern);
@@ -129,6 +133,34 @@ public sealed class CommandPatternRouterTests
 
         Assert.True(result.IsMatch);
         Assert.Equal("LightControlSkill", result.MatchedPattern!.SkillId);
+    }
+
+    [Theory]
+    [InlineData("office lights on if nobody is home")]
+    [InlineData("office lights off unless someone is outside")]
+    [InlineData("turn the office lights on if nobody is home")]
+    [InlineData("never turn the office lights on")]
+    public async Task Route_WordsOutsideTheTemplate_DoNotMatchAtLowThreshold(string transcript)
+    {
+        var router = CreateRouter(patterns: TestLightPattern);
+
+        var result = await router.RouteAsync(transcript, default);
+
+        Assert.False(result.IsMatch, $"'{transcript}' matched {result.MatchedTemplate}");
+    }
+
+    [Theory]
+    [InlineData("can you turn on the office lights")]
+    [InlineData("could you turn off the office lights")]
+    [InlineData("please turn on the office lights")]
+    public async Task Route_PoliteCommand_CapturesOnlyTheTarget(string transcript)
+    {
+        var router = CreateRouter(patterns: TestLightPattern);
+
+        var result = await router.RouteAsync(transcript, default);
+
+        Assert.True(result.IsMatch);
+        Assert.Equal("office lights", result.CapturedValues!["entity"]);
     }
 
     [Fact]

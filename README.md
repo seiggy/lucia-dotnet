@@ -81,9 +81,11 @@ for the turn sequence and deployment requirements.
 The dashboard's **User memories** page shows the personal facts stored for each
 enrolled voice profile. Administrators can search, edit values, and delete
 individual memories without deleting the voice profile or its recordings.
-Status questions such as "Are the office lights on?" go to the agent rather than
-matching an imperative fast-path template. Explicit commands such as "office
-lights on" retain the fast path.
+
+Status questions, negations and conditional requests, such as "Are the office
+lights on?", "Don't turn on the porch light" or "Turn on the lights if nobody is
+home", go to the agent instead of a fast-path template. Explicit commands such
+as "office lights on" keep the fast path.
 
 ### Supported Inference Platforms
 

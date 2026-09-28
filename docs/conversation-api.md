@@ -112,11 +112,17 @@ redacted command-trace error without copying the speech into that trace.
 Existing transcript recording and retention remain unchanged.
 
 Questions and explicit question punctuation do not enter the action-template
-fast path. They retain their original text for the agent to interpret, including
-the common STT confusion between "are the ... on" and "or the ... on". Leading
-modals such as "should", "will" or "can" are treated as questions unless the
-next word is "you", so "can you turn on the office lights" stays on the fast
-path while "will the office lights turn on" goes to the agent.
+fast path. They keep their original text for the agent to interpret, including
+the common STT confusion between "are the ... on" and "or the ... on". A
+template must account for every word of the command, and a capture such as
+`{entity}` holds only a name. Captures stop at question words, pronouns,
+negations, conditions and times, so "can you tell me whether the office light
+is on", "don't turn the office lights on" and "turn on the lights if nobody is
+home" go to the agent. A polite "can you ... for me" wrapper is removed before
+matching, so "can you turn on the office lights" keeps the fast path. Any other
+leading modal marks a question, so "will the office lights turn on" goes to the
+agent. A climate template never matches a light, so "set the office lights to
+50" cannot change a thermostat.
 
 When deterministic entity resolution misses, the fast path retries through
 embedding search but acts only on a single target: one entity, one area or one

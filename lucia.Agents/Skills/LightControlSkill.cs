@@ -67,6 +67,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
             Templates =
             [
                 "turn {action:on|off} [the] {entity}",
+                "turn [the] {entity} {action:on|off}",
                 "{action:on|off} [the] {entity}",
                 "[the] {entity} {action:on|off}",
                 "lights {action:on|off} [in] [the] {area}",
