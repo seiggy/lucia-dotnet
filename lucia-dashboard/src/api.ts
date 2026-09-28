@@ -1613,6 +1613,18 @@ export async function fetchPluginConfigSchemas(): Promise<import('./types').Plug
 
 // ─── System ───
 
+/** Read the version embedded in the running server's Docker image. */
+export async function fetchAppVersion(signal?: AbortSignal): Promise<string> {
+  const res = await fetch(`${BASE}/system/version`, { signal, cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to read application version: ${res.status}`);
+  const value: unknown = await res.json();
+  if (typeof value !== 'object' || value === null || !('version' in value)
+      || typeof value.version !== 'string' || !value.version.trim()) {
+    throw new Error('The server returned invalid version metadata.');
+  }
+  return value.version;
+}
+
 export async function fetchRestartRequired(): Promise<{ restartRequired: boolean }> {
   const res = await fetch(`${BASE}/system/restart-required`);
   if (!res.ok) throw new Error(`Failed to check restart status`);

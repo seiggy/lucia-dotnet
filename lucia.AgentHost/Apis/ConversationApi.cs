@@ -50,6 +50,13 @@ public static class ConversationApi
             return;
         }
 
+        request = request with
+        {
+            Context = request.Context with
+            {
+                IsDashboardSession = httpContext.User.FindFirst("auth_method")?.Value == "session",
+            },
+        };
         var result = await processor.ProcessAsync(request, ct).ConfigureAwait(false);
 
         switch (result.Kind)

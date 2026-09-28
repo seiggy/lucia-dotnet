@@ -125,6 +125,14 @@ Reloading or reconnecting retrieves the same operation ID. Failures keep their
 last phase and measured bytes. Older OS helpers report indeterminate apply
 progress until updated through an approved OS or repair path.
 
+## Running version
+
+Non-appliance deployments display the running server's version below Sign Out
+in the sidebar, including in the mobile drawer. Docker builds embed `VERSION`
+as `LUCIA_VERSION`; the footer reads it through the authenticated
+`GET /api/system/version` endpoint. Untagged local builds report `development`.
+An unavailable endpoint shows `Version unavailable` without blocking navigation.
+
 ## Voice onboarding traces
 Cmd Traces labels voice enrollment as **Voice onboarding**. Its detail view shows
 the stage, whether another reply is needed, and the returned conversation ID

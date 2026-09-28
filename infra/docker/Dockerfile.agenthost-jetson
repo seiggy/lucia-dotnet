@@ -142,11 +142,13 @@ RUN dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
 # Stage 4: Final Production Image (Minimal for Jetson Nano)
 # ============================================================================
 FROM base AS final
+ARG VERSION=development
+ENV LUCIA_VERSION=${VERSION}
 
 # Set metadata labels
 LABEL maintainer="Lucia Project"
 LABEL description="Lucia Agent Host - ARM64 Jetson Nano (without speech pipeline)"
-LABEL version="1.0.0"
+LABEL version="${VERSION}"
 LABEL platform="linux/arm64"
 
 # Set environment variables for .NET runtime

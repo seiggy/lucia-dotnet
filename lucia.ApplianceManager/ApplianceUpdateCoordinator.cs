@@ -2,11 +2,14 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace lucia.ApplianceManager;
 
 public sealed partial class ApplianceUpdateCoordinator
 {
+    private static readonly TimeSpan ExporterSystemctlTimeout = TimeSpan.FromSeconds(10);
+    private readonly ILogger<ApplianceUpdateCoordinator> _logger;
     private readonly object _gate = new();
     private readonly string _updaterPath =
         Environment.GetEnvironmentVariable("LUCIA_UPDATE_PATH")
@@ -25,8 +28,9 @@ public sealed partial class ApplianceUpdateCoordinator
     private UpdateOperationStatus _status =
         new("none", "none", "idle", null, null);
 
-    public ApplianceUpdateCoordinator()
+    public ApplianceUpdateCoordinator(ILogger<ApplianceUpdateCoordinator> logger)
     {
+        _logger = logger;
         _operationPath = Path.Combine(_statePath, "operation.json");
         Directory.CreateDirectory(_statePath);
         if (OperatingSystem.IsLinux())
@@ -271,6 +275,10 @@ public sealed partial class ApplianceUpdateCoordinator
             await process.WaitForExitAsync().ConfigureAwait(false);
             var output = (await outputTask.ConfigureAwait(false)).Trim();
             var error = (await errorTask.ConfigureAwait(false)).Trim();
+            if (channel == "lucia")
+            {
+                RestoreEnabledRedisExporter();
+            }
             UpdateOperationStatus result = process.ExitCode == 0
                 ? channel == "os"
                     ? new(
@@ -656,7 +664,55 @@ public sealed partial class ApplianceUpdateCoordinator
                 "start",
                 "lucia-redis.service",
                 "lucia-agenthost.service");
+            RestoreEnabledRedisExporter();
         }
+    }
+
+    // The exporter is optional telemetry, so a failure here must never fail an update or manager startup.
+    public void RestoreEnabledRedisExporter()
+    {
+        try
+        {
+            if (CheckUnitState("is-active", "lucia-redis.service")
+                && CheckUnitState("is-enabled", "lucia-redis-exporter.service")
+                && RunExporterSystemctl("start", "lucia-redis-exporter.service") != 0)
+            {
+                throw new InvalidOperationException("systemctl could not start lucia-redis-exporter.service.");
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        {
+            LogRedisExporterRestoreFailed(exception);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not restore the enabled Redis exporter.")]
+    private partial void LogRedisExporterRestoreFailed(Exception exception);
+
+    private bool CheckUnitState(string command, string unit) =>
+        RunExporterSystemctl(command, "--quiet", unit) switch
+        {
+            0 => true,
+            1 or 3 or 4 => false,
+            var code => throw new InvalidOperationException($"systemctl {command} {unit} failed with code {code}."),
+        };
+
+    private int RunExporterSystemctl(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo { FileName = _systemctlPath, UseShellExecute = false };
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Failed to start systemctl.");
+        if (!process.WaitForExit(ExporterSystemctlTimeout))
+        {
+            process.Kill();
+            throw new InvalidOperationException(
+                $"systemctl {string.Join(' ', arguments)} did not finish within {ExporterSystemctlTimeout.TotalSeconds:0} seconds.");
+        }
+        return process.ExitCode;
     }
 
     private static void RunCommand(string fileName, params string[] arguments)

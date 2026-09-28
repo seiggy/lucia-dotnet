@@ -43,10 +43,13 @@ public sealed class SherpaOnnxCatalogProviderTests
     }
 
     [Fact]
-    public async Task GetModelsAsync_SpeakerEmbedding_IncludesSpeakerNetCandidate()
+    public async Task GetModelsAsync_SpeakerEmbedding_DefaultsToEnglishTitanet()
     {
         var models = await _provider.GetModelsAsync(EngineType.SpeakerEmbedding);
 
+        var defaultModel = Assert.Single(models, model => model.IsDefault);
+        Assert.Equal("nemo_en_titanet_small", defaultModel.Id);
+        Assert.Equal(["en"], defaultModel.Languages);
         Assert.Contains(models, model =>
             model.Id == "nemo_en_speakerverification_speakernet"
             && model.Languages.SequenceEqual(["en"]));

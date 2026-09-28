@@ -39,6 +39,7 @@ public sealed partial class ConversationCommandProcessor
     private readonly VoiceTurnStore? _voiceTurns;
     private readonly ISpeakerProfileStore? _speakerProfiles;
     private readonly VoiceOnboardingWorkflow? _onboarding;
+    private readonly SpeakerVerificationFilter? _speakerFilter;
 
     public ConversationCommandProcessor(
         ICommandRouter commandRouter,
@@ -56,7 +57,8 @@ public sealed partial class ConversationCommandProcessor
         ChatHistoryProvider? chatHistoryProvider = null,
         VoiceTurnStore? voiceTurns = null,
         ISpeakerProfileStore? speakerProfiles = null,
-        VoiceOnboardingWorkflow? onboarding = null)
+        VoiceOnboardingWorkflow? onboarding = null,
+        SpeakerVerificationFilter? speakerFilter = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
@@ -74,6 +76,7 @@ public sealed partial class ConversationCommandProcessor
         _voiceTurns = voiceTurns;
         _speakerProfiles = speakerProfiles;
         _onboarding = onboarding;
+        _speakerFilter = speakerFilter;
     }
 
     /// <summary>
@@ -96,7 +99,8 @@ public sealed partial class ConversationCommandProcessor
         {
             SpeakerId = speakerId ?? request.Context.SpeakerId,
             EnrolledProfileId = null,
-            IsVoiceRequest = voiceToken is not null || speakerId is not null,
+            IsVoiceRequest = voiceToken is not null || speakerId is not null
+                || (!request.Context.IsDashboardSession && !string.IsNullOrWhiteSpace(request.Context.DeviceId)),
         };
 
         // Ensure a stable conversationId for multi-turn continuity
@@ -152,6 +156,27 @@ public sealed partial class ConversationCommandProcessor
             sw.Stop();
             await SaveOnboardingTraceAsync(cleanRequest, response, sw).ConfigureAwait(false);
             return ProcessingResult.CommandHandled(response);
+        }
+
+        if (context.IsVoiceRequest && _speakerFilter is not null
+            && !_speakerFilter.ShouldProcessCommand(context.EnrolledProfileId is null ? null : voiceTurn?.Speaker))
+        {
+            const string Reason = "This voice command was ignored because no enrolled speaker was recognized.";
+            activity?.SetTag("conversation.routing_path", "voice_rejected");
+            LogVoiceRejected(conversationId);
+            sw.Stop();
+            await SaveCommandTraceAsync(
+                "[Rejected voice command]",
+                cleanRequest with { Text = "[Rejected voice command]" },
+                CommandRouteResult.NoMatch(TimeSpan.Zero),
+                null, Reason, sw, CommandTraceOutcome.Error, error: Reason).ConfigureAwait(false);
+            return ProcessingResult.CommandHandled(new ConversationResponse
+            {
+                Type = "error",
+                Text = Reason,
+                ConversationId = conversationId,
+                NeedsInput = false,
+            });
         }
 
         // Step 1: Try command pattern matching (on clean text, without speaker tag)
@@ -380,6 +405,9 @@ public sealed partial class ConversationCommandProcessor
                 NeedsInput = response.NeedsInput,
             });
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Rejected voice command in conversation {ConversationId}: enrolled speaker verification is required")]
+    private partial void LogVoiceRejected(string conversationId);
 
     private async Task SaveCommandTraceAsync(
         string originalText,

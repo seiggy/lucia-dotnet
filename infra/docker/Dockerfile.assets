@@ -83,12 +83,12 @@ RUN mkdir -p /assets/models/kws && \
     rm /tmp/kws-model.tar.bz2
 
 # ============================================================================
-# Voice Models — Speaker embedding 3dspeaker (~25MB)
+# Voice Models — Speaker embedding NVIDIA TitaNet Small English (~40MB)
 # ============================================================================
-RUN mkdir -p /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k && \
+RUN mkdir -p /assets/models/speaker-embedding/nemo_en_titanet_small && \
     curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx" \
-      -o /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
+      "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx" \
+      -o /assets/models/speaker-embedding/nemo_en_titanet_small/nemo_en_titanet_small.onnx
 
 # ============================================================================
 # Voice Models — Speech enhancement GTCRN simple (~535KB)

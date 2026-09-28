@@ -15,6 +15,9 @@ public sealed record CommandPattern
     /// Template patterns with placeholders.
     /// Syntax: {name} = required capture, {name:opt1|opt2} = capture with allowed values, [word] = optional literal.
     /// E.g., "turn {action:on|off} [the] {entity}"
+    /// A template must account for every word of the command. A {name} capture holds a name and
+    /// stops before question, pronoun, negation, condition and time words, so utterances that
+    /// carry those words go to the agent.
     /// </summary>
     public required IReadOnlyList<string> Templates { get; init; }
 
