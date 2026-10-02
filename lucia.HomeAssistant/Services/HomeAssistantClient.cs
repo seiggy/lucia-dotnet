@@ -484,13 +484,15 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     /// <summary>
     /// Returns voice assistant exposure settings for all entities via WebSocket.
-    /// The <c>homeassistant/expose_entity/list</c> command returns a dictionary
-    /// mapping entity IDs to their assistant exposure flags.
+    /// The <c>homeassistant/expose_entity/list</c> command wraps the entity map in an
+    /// <c>exposed_entities</c> envelope; this unwraps it into a dictionary mapping
+    /// entity IDs to their assistant exposure flags.
     /// </summary>
     public async Task<Dictionary<string, ExposedEntityAssistants>> GetExposedEntitiesAsync(CancellationToken cancellationToken = default)
     {
-        return await SendWebSocketCommandAsync<Dictionary<string, ExposedEntityAssistants>>(
-            "homeassistant/expose_entity/list", cancellationToken) ?? [];
+        var response = await SendWebSocketCommandAsync<ExposedEntityListResponse>(
+            "homeassistant/expose_entity/list", cancellationToken);
+        return response?.ExposedEntities ?? [];
     }
 
     // ── Media Source ───────────────────────────────────────────────────
