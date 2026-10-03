@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using Anthropic;
 using Azure;
 using Azure.AI.Inference;
@@ -155,7 +156,10 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     {
         var client = new OpenAIClient(
             new ApiKeyCredential(GetLlamaCppApiKey(provider.Auth.ApiKey)),
-            new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
+            new OpenAIClientOptions
+            {
+                Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint)
+            });
         return client.GetChatClient(provider.ModelName).AsIChatClient();
     }
 
@@ -168,8 +172,13 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             options.Endpoint = new Uri(resolvedEndpoint);
         }
 
+        options.Transport = CreateToolSchemaCompatTransport();
+
         return options;
     }
+
+    private static PipelineTransport CreateToolSchemaCompatTransport() =>
+        new HttpClientPipelineTransport(new HttpClient(new ToolSchemaCompatHandler()));
 
     private static IChatClient CreateAzureOpenAIClient(ModelProvider provider)
     {
@@ -274,7 +283,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             : "https://generativelanguage.googleapis.com/v1beta/openai/";
 
         var credential = new ApiKeyCredential(apiKey);
-        var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
+        var options = new OpenAIClientOptions
+        {
+            Endpoint = new Uri(endpoint),
+            Transport = CreateToolSchemaCompatTransport()
+        };
         var client = new OpenAIClient(credential, options);
         return client.GetChatClient(provider.ModelName).AsIChatClient()
             .AsBuilder()
