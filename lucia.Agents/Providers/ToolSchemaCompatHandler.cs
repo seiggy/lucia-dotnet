@@ -19,6 +19,12 @@ public sealed class ToolSchemaCompatHandler : DelegatingHandler
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
+    /// <summary>
+    /// Creates a handler that terminates an HTTP chain: it rewrites the request body and
+    /// forwards it over the network via <see cref="SocketsHttpHandler"/>.
+    /// </summary>
+    public static ToolSchemaCompatHandler CreateForNetwork() => new() { InnerHandler = new SocketsHttpHandler() };
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         if (request.Method == HttpMethod.Post

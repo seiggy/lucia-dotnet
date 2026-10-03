@@ -178,7 +178,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     }
 
     private static PipelineTransport CreateToolSchemaCompatTransport() =>
-        new HttpClientPipelineTransport(new HttpClient(new ToolSchemaCompatHandler()));
+        new HttpClientPipelineTransport(new HttpClient(ToolSchemaCompatHandler.CreateForNetwork()));
 
     private static IChatClient CreateAzureOpenAIClient(ModelProvider provider)
     {

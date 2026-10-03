@@ -266,6 +266,15 @@ public sealed class ToolSchemaCompatHandlerTests
     }
 
     [Fact]
+    public void CreateForNetworkAssignsInnerHandler()
+    {
+        var handler = ToolSchemaCompatHandler.CreateForNetwork();
+
+        Assert.NotNull(handler.InnerHandler);
+        Assert.IsType<SocketsHttpHandler>(handler.InnerHandler);
+    }
+
+    [Fact]
     public async Task HandlerPassesThroughResponseFormatBodiesWithoutTypeArrays()
     {
         const string body = """
