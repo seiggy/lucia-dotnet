@@ -193,4 +193,114 @@ public sealed class ToolSchemaCompatHandlerTests
 
         Assert.Equal(body, captured);
     }
+
+    private const string RouterResponseFormatBody = """
+        {
+          "model": "test-model",
+          "messages": [ { "role": "user", "content": "Lock the front door" } ],
+          "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+              "name": "route",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agentId": { "type": "string" },
+                  "additionalAgents": { "type": ["array", "null"], "items": { "type": "string" } },
+                  "originalUserText": { "type": ["string", "null"] }
+                },
+                "required": [ "agentId" ]
+              }
+            }
+          }
+        }
+        """;
+
+    private static JsonObject ResponseFormatProperty(string body, string propertyName)
+    {
+        var doc = (JsonObject)JsonNode.Parse(body)!;
+        var jsonSchema = (JsonObject)((JsonObject)doc["response_format"]!)["json_schema"]!;
+        var schema = (JsonObject)jsonSchema["schema"]!;
+        var properties = (JsonObject)schema["properties"]!;
+        return (JsonObject)properties[propertyName]!;
+    }
+
+    [Fact]
+    public async Task HandlerRewritesTypeArraysInResponseFormatWithoutTools()
+    {
+        string? captured = null;
+        var inner = new FakeHttpMessageHandler(request =>
+        {
+            captured = request.Content is not null
+                ? request.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                : null;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        });
+
+        var client = new HttpClient(new ToolSchemaCompatHandler { InnerHandler = inner });
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost/v1/chat/completions")
+        {
+            Content = new StringContent(RouterResponseFormatBody, Encoding.UTF8, "application/json")
+        };
+
+        var response = await client.SendAsync(request);
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.NotNull(captured);
+        Assert.DoesNotContain("\"tools\"", captured!);
+
+        var additionalAgents = ResponseFormatProperty(captured!, "additionalAgents");
+        Assert.Null(additionalAgents["type"]);
+        var anyOf = (JsonArray)additionalAgents["anyOf"]!;
+        Assert.Equal(2, anyOf.Count);
+        Assert.Equal("array", (string?)((JsonObject)anyOf[0]!)["type"]);
+        Assert.NotNull(((JsonObject)anyOf[0]!)["items"]);
+
+        var originalUserText = ResponseFormatProperty(captured!, "originalUserText");
+        Assert.Null(originalUserText["type"]);
+        Assert.Equal("string", (string?)((JsonObject)((JsonArray)originalUserText["anyOf"]!)[0]!)["type"]);
+    }
+
+    [Fact]
+    public async Task HandlerPassesThroughResponseFormatBodiesWithoutTypeArrays()
+    {
+        const string body = """
+            {
+              "model": "test-model",
+              "messages": [ { "role": "user", "content": "hello" } ],
+              "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                  "name": "route",
+                  "schema": {
+                    "type": "object",
+                    "properties": { "agentId": { "type": "string" } },
+                    "required": [ "agentId" ]
+                  }
+                }
+              }
+            }
+            """;
+        string? captured = null;
+        var inner = new FakeHttpMessageHandler(request =>
+        {
+            captured = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+        });
+
+        var client = new HttpClient(new ToolSchemaCompatHandler { InnerHandler = inner });
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "http://localhost/v1/chat/completions")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+
+        await client.SendAsync(request);
+
+        Assert.Equal(body, captured);
+    }
 }

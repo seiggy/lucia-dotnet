@@ -5,12 +5,13 @@ using System.Text.Json.Nodes;
 
 namespace lucia.Agents.Providers;
 
-/// <summary>
-/// Rewrites outgoing JSON request bodies so nullable JSON Schema type arrays (for example
-/// "type": ["string", "null"]) are expressed as anyOf. Gemini-compatible OpenAI endpoints
-/// reject type arrays, and some proxies (litellm) silently drop enum/min/max constraints on
-/// them. See https://github.com/BerriAI/litellm/issues/43325.
-/// </summary>
+    /// <summary>
+    /// Rewrites outgoing JSON request bodies so nullable JSON Schema type arrays (for example
+    /// "type": ["string", "null"]) are expressed as anyOf. Gemini-compatible OpenAI endpoints
+    /// reject type arrays in tool parameters and response schemas (their behavior depends on the
+    /// strict flag), and some proxies (litellm) silently drop enum/min/max constraints on them.
+    /// See https://github.com/BerriAI/litellm/issues/43325.
+    /// </summary>
 public sealed class ToolSchemaCompatHandler : DelegatingHandler
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -25,7 +26,7 @@ public sealed class ToolSchemaCompatHandler : DelegatingHandler
             && IsJson(request.Content.Headers.ContentType?.MediaType))
         {
             var body = await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            if (body.Contains("\"tools\""))
+            if (body.Contains("\"tools\"") || body.Contains("\"response_format\""))
             {
                 var rewritten = NormalizeToolSchemas(body);
                 if (rewritten is not null)
