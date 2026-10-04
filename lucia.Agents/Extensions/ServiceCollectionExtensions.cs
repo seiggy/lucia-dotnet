@@ -229,6 +229,7 @@ public static class ServiceCollectionExtensions
         {
             builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
         }
+        builder.Services.AddSingleton<ThoughtSignatureStore>();
         builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
         builder.Services.AddSingleton<CopilotConnectService>();
         builder.Services.AddSingleton<CopilotClientLifecycleService>();

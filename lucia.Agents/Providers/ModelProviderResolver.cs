@@ -121,7 +121,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         }
     }
 
-    private static IChatClient CreateOpenAIClient(ModelProvider provider)
+    private IChatClient CreateOpenAIClient(ModelProvider provider)
     {
         // Works for OpenAI and generic OpenAI-compatible endpoints.
         var apiKey = provider.Auth.ApiKey ?? "unused";
@@ -137,7 +137,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             .Build();
     }
 
-    private static IChatClient CreateOpenRouterClient(ModelProvider provider)
+    private IChatClient CreateOpenRouterClient(ModelProvider provider)
     {
         var apiKey = provider.Auth.ApiKey ?? "unused";
         var credential = new ApiKeyCredential(apiKey);
@@ -163,7 +163,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         return client.GetChatClient(provider.ModelName).AsIChatClient();
     }
 
-    private static OpenAIClientOptions CreateOpenAiCompatibleOptions(string? endpoint, string? defaultEndpoint = null)
+    private OpenAIClientOptions CreateOpenAiCompatibleOptions(string? endpoint, string? defaultEndpoint = null)
     {
         var options = new OpenAIClientOptions();
         var resolvedEndpoint = !string.IsNullOrWhiteSpace(endpoint) ? endpoint : defaultEndpoint;
@@ -172,13 +172,21 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             options.Endpoint = new Uri(resolvedEndpoint);
         }
 
-        options.Transport = CreateToolSchemaCompatTransport();
+        options.Transport = CreateOpenAiCompatibleTransport();
 
         return options;
     }
 
-    private static PipelineTransport CreateToolSchemaCompatTransport() =>
-        new HttpClientPipelineTransport(new HttpClient(ToolSchemaCompatHandler.CreateForNetwork()));
+    private PipelineTransport CreateOpenAiCompatibleTransport()
+    {
+        var signatureStore = _serviceProvider.GetRequiredService<ThoughtSignatureStore>();
+        var handler = new ThoughtSignatureEchoHandler(signatureStore)
+        {
+            InnerHandler = ToolSchemaCompatHandler.CreateForNetwork()
+        };
+
+        return new HttpClientPipelineTransport(new HttpClient(handler));
+    }
 
     private static IChatClient CreateAzureOpenAIClient(ModelProvider provider)
     {
@@ -272,7 +280,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             .Build();
     }
 
-    private static IChatClient CreateGeminiClient(ModelProvider provider)
+    private IChatClient CreateGeminiClient(ModelProvider provider)
     {
         // Google Gemini uses OpenAI-compatible endpoint via generativelanguage.googleapis.com
         var apiKey = provider.Auth.ApiKey
@@ -286,7 +294,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var options = new OpenAIClientOptions
         {
             Endpoint = new Uri(endpoint),
-            Transport = CreateToolSchemaCompatTransport()
+            Transport = CreateOpenAiCompatibleTransport()
         };
         var client = new OpenAIClient(credential, options);
         return client.GetChatClient(provider.ModelName).AsIChatClient()
@@ -335,7 +343,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
     #region Embedding generators
 
-    private static IEmbeddingGenerator<string, Embedding<float>> CreateOpenAIEmbeddingGenerator(ModelProvider provider)
+    private IEmbeddingGenerator<string, Embedding<float>> CreateOpenAIEmbeddingGenerator(ModelProvider provider)
     {
         var apiKey = provider.Auth.ApiKey ?? "unused";
         var credential = new ApiKeyCredential(apiKey);
@@ -349,7 +357,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             .Build();
     }
 
-    private static IEmbeddingGenerator<string, Embedding<float>> CreateOpenRouterEmbeddingGenerator(ModelProvider provider)
+    private IEmbeddingGenerator<string, Embedding<float>> CreateOpenRouterEmbeddingGenerator(ModelProvider provider)
     {
         var apiKey = provider.Auth.ApiKey ?? "unused";
         var credential = new ApiKeyCredential(apiKey);

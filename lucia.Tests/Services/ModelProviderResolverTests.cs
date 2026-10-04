@@ -22,6 +22,8 @@ public sealed class ModelProviderResolverTests
     {
         var services = new ServiceCollection();
         services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ThoughtSignatureStore>();
         var serviceProvider = services.BuildServiceProvider();
 
         _resolver = new ModelProviderResolver(
