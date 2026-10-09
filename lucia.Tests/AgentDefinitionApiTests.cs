@@ -225,6 +225,9 @@ public sealed class AgentDefinitionApiTests
     {
         var repository = A.Fake<IAgentDefinitionRepository>();
         AgentDefinition? persisted = null;
+        // Loose fakes return a proxy for reference returns — assert no existing agent.
+        A.CallTo(() => repository.GetAgentDefinitionAsync("research-agent", A<CancellationToken>._))
+            .Returns(Task.FromResult<AgentDefinition?>(null));
         A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
             .Invokes(call => persisted = call.GetArgument<AgentDefinition>(0))
             .Returns(Task.CompletedTask);
@@ -274,6 +277,31 @@ public sealed class AgentDefinitionApiTests
             repository);
 
         IsBadRequest(result, "must equal its id");
+        A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task CreateDefinitionAsync_ReturnsConflict_WhenIdAlreadyExists()
+    {
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        // Creating with an id that is already in use must not overwrite the existing definition.
+        A.CallTo(() => repository.GetAgentDefinitionAsync("research-agent", A<CancellationToken>._))
+            .Returns(CreateDefinition(
+                id: "research-agent", name: "research-agent", displayName: "Research Agent",
+                description: "Existing agent", instructions: "Be helpful", enabled: true,
+                modelConnectionName: null, embeddingProviderName: null, isBuiltIn: false,
+                isRemote: false, isOrchestrator: false, createdAt: DateTime.UtcNow.AddDays(-1), updatedAt: DateTime.UtcNow.AddDays(-1), tools: []));
+
+        var result = await InvokeCreateHandlerAsync(
+            CreateDefinition(
+                id: "research-agent", name: "research-agent", displayName: "Research Agent Two",
+                description: "A custom agent", instructions: "Be helpful", enabled: true,
+                modelConnectionName: null, embeddingProviderName: null, isBuiltIn: false,
+                isRemote: false, isOrchestrator: false, createdAt: DateTime.UtcNow, updatedAt: DateTime.UtcNow, tools: []),
+            repository);
+
+        IsConflict(result, "already exists");
         A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
@@ -397,6 +425,16 @@ public sealed class AgentDefinitionApiTests
         Assert.True(
             result.GetType().Name.StartsWith("BadRequest", StringComparison.Ordinal),
             $"Expected BadRequest but got {result.GetType().Name}: {GetResultPayload(result)}");
+        var payload = GetResultPayload(result);
+        Assert.Contains(expectedMessagePart, payload);
+    }
+
+    private static void IsConflict(object? result, string expectedMessagePart)
+    {
+        Assert.NotNull(result);
+        Assert.True(
+            result.GetType().Name.StartsWith("Conflict", StringComparison.Ordinal),
+            $"Expected Conflict but got {result.GetType().Name}: {GetResultPayload(result)}");
         var payload = GetResultPayload(result);
         Assert.Contains(expectedMessagePart, payload);
     }
