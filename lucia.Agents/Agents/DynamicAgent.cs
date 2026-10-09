@@ -172,8 +172,10 @@ public sealed class DynamicAgent : ILuciaAgent
         {
             AIContextProviders = _tracingFactory.AIContextProviders,
             ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
-            Id = definition.Name,
-            Name = definition.DisplayName,
+            // Id is the routing identity: WorkflowFactory keys local invokers by
+            // AIAgent.Id and the router validates output against AgentCard.Name.
+            Id = definition.Id,
+            Name = definition.DisplayName.Length == 0 ? definition.Id : definition.DisplayName,
             Description = definition.Description ?? "",
             ChatOptions = chatOptions
         };
@@ -192,17 +194,18 @@ public sealed class DynamicAgent : ILuciaAgent
         {
             skills.Add(new AgentSkill
             {
-                Id = definition.Name,
-                Name = definition.DisplayName.Length == 0 ? definition.Name : definition.DisplayName,
+                Id = definition.Id,
+                Name = definition.DisplayName.Length == 0 ? definition.Id : definition.DisplayName,
                 Description = definition.Description
             });
         }
 
         return new AgentCard
         {
-            SupportedInterfaces = [new AgentInterface { Url = $"/a2a/{definition.Name}" }],
-            Name = definition.Name,
-            Description = definition.Description.Length == 0 ? $"User-defined agent: {definition.DisplayName ?? definition.Name}" : definition.Description,
+            // The card name is the routing identity (router catalog + validation + A2A URL).
+            SupportedInterfaces = [new AgentInterface { Url = $"/a2a/{definition.Id}" }],
+            Name = definition.Id,
+            Description = definition.Description.Length == 0 ? $"User-defined agent: {definition.DisplayName ?? definition.Id}" : definition.Description,
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,

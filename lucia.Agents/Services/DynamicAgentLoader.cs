@@ -125,13 +125,13 @@ public sealed class DynamicAgentLoader : BackgroundService
 
                 registered++;
                 _logger.LogInformation(
-                    "Registered dynamic agent: {AgentName} ({ToolCount} tools)",
-                    definition.Name, definition.Tools.Count);
+                    "Registered dynamic agent: {AgentId} ({ToolCount} tools)",
+                    definition.Id, definition.Tools.Count);
             }
             catch (Exception ex)
             {
                 failed++;
-                _logger.LogError(ex, "Failed to register dynamic agent: {AgentName}", definition.Name);
+                _logger.LogError(ex, "Failed to register dynamic agent: {AgentId}", definition.Id);
             }
         }
 
