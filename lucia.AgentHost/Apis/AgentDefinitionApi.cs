@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -19,6 +20,10 @@ public static class AgentDefinitionApi
     private const string InstructionsField = "instructions";
     private const string ModelConnectionNameField = "modelconnectionname";
     private const string EmbeddingProviderNameField = "embeddingprovidername";
+
+    // Kebab-case routing identity: lowercase letters/digits separated by single hyphens.
+    private static readonly Regex AgentIdPattern =
+        new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
 
     public static IEndpointRouteBuilder MapAgentDefinitionApi(this IEndpointRouteBuilder endpoints)
     {
@@ -76,10 +81,32 @@ public static class AgentDefinitionApi
             : TypedResults.NotFound();
     }
 
-    private static async Task<Results<Created<AgentDefinition>, Conflict<string>>> CreateDefinitionAsync(
+    private static async Task<Results<Created<AgentDefinition>, Conflict<string>, BadRequest<string>>> CreateDefinitionAsync(
         [FromBody] AgentDefinition definition,
         [FromServices] IAgentDefinitionRepository repository)
     {
+        // The Id is the single routing identity (card name, A2A URL, provider key).
+        // Enforce a stable kebab-case slug up front and keep Name pinned to it.
+        if (string.IsNullOrWhiteSpace(definition.Id))
+        {
+            return TypedResults.BadRequest("Agent ID is required.");
+        }
+
+        if (!AgentIdPattern.IsMatch(definition.Id))
+        {
+            return TypedResults.BadRequest(
+                $"Agent ID '{definition.Id}' must be kebab-case (lowercase letters, digits, and hyphens), e.g. 'research-agent'.");
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.Name))
+        {
+            definition.Name = definition.Id;
+        }
+        else if (!string.Equals(definition.Name, definition.Id, StringComparison.Ordinal))
+        {
+            return TypedResults.BadRequest($"Agent name must equal its id '{definition.Id}'.");
+        }
+
         // Check for name conflicts with built-in agents
         var builtInNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -88,9 +115,9 @@ public static class AgentDefinitionApi
             "lists-agent", "scene-agent", "security-agent"
         };
 
-        if (builtInNames.Contains(definition.Name))
+        if (builtInNames.Contains(definition.Id))
         {
-            return TypedResults.Conflict($"Agent name '{definition.Name}' conflicts with a built-in agent");
+            return TypedResults.Conflict($"Agent id '{definition.Id}' conflicts with a built-in agent");
         }
 
         definition.CreatedAt = DateTime.UtcNow;
@@ -99,7 +126,7 @@ public static class AgentDefinitionApi
         return TypedResults.Created($"/api/agent-definitions/{definition.Id}", definition);
     }
 
-    private static async Task<Results<Ok<AgentDefinition>, NotFound>> ReplaceDefinitionAsync(
+    private static async Task<Results<Ok<AgentDefinition>, NotFound, BadRequest<string>>> ReplaceDefinitionAsync(
         string id,
         [FromBody] AgentDefinition definition,
         [FromServices] IAgentDefinitionRepository repository)
@@ -110,10 +137,18 @@ public static class AgentDefinitionApi
             return TypedResults.NotFound();
         }
 
+        // The route Id is the immutable routing identity; a Name that diverges from it
+        // would silently move the agent's routing key away from its API address.
+        if (!string.IsNullOrWhiteSpace(definition.Name)
+            && !string.Equals(definition.Name, id, StringComparison.Ordinal))
+        {
+            return TypedResults.BadRequest($"Agent name must equal its id '{id}'.");
+        }
+
         var replacement = new AgentDefinition
         {
             Id = id,
-            Name = definition.Name,
+            Name = id,
             DisplayName = definition.DisplayName,
             Description = definition.Description,
             Instructions = definition.Instructions,
@@ -132,7 +167,7 @@ public static class AgentDefinitionApi
         return TypedResults.Ok(replacement);
     }
 
-    private static async Task<Results<Ok<AgentDefinition>, NotFound>> PatchDefinitionAsync(
+    private static async Task<Results<Ok<AgentDefinition>, NotFound, BadRequest<string>>> PatchDefinitionAsync(
         string id,
         [FromBody] PatchAgentDefinitionRequest request,
         [FromServices] IAgentDefinitionRepository repository)
@@ -143,10 +178,13 @@ public static class AgentDefinitionApi
             return TypedResults.NotFound();
         }
 
-        if (request.Name is not null)
+        // Name can no longer diverge from the route Id — the Id is the routing identity.
+        if (request.Name is not null && !string.Equals(request.Name, id, StringComparison.Ordinal))
         {
-            existing.Name = request.Name;
+            return TypedResults.BadRequest($"Agent name must equal its id '{id}'.");
         }
+
+        existing.Name = id;
 
         if (request.DisplayName is not null)
         {
@@ -225,9 +263,10 @@ public static class AgentDefinitionApi
 
         await repository.DeleteAgentDefinitionAsync(id).ConfigureAwait(false);
 
-        // Unregister from in-memory provider and agent registry
-        dynamicAgentProvider.Unregister(existing.Name);
-        await agentRegistry.UnregisterAgentAsync($"/a2a/{existing.Name}").ConfigureAwait(false);
+        // Unregister from in-memory provider and agent registry. The dynamic agent
+        // provider and A2A URL are both keyed by the definition Id, not the Name.
+        dynamicAgentProvider.Unregister(existing.Id);
+        await agentRegistry.UnregisterAgentAsync($"/a2a/{existing.Id}").ConfigureAwait(false);
 
         return TypedResults.NoContent();
     }

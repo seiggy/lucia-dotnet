@@ -23,6 +23,8 @@ import type { McpToolServerDefinition, McpServerStatus } from '../types'
 
 type FormMode = 'list' | 'create' | 'edit'
 
+const AGENT_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+
 function getMcpToolStatusMessage({
   server,
   status,
@@ -260,7 +262,6 @@ function AgentForm({
 }) {
   const [form, setForm] = useState({
     id: definition?.id ?? '',
-    name: definition?.name ?? '',
     displayName: definition?.displayName ?? '',
     description: definition?.description ?? '',
     instructions: definition?.instructions ?? '',
@@ -277,6 +278,7 @@ function AgentForm({
   const [loadingServerIds, setLoadingServerIds] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [idError, setIdError] = useState<string | null>(null)
   const [skillConfigSections, setSkillConfigSections] = useState<SkillConfigSectionData[]>([])
   const skillConfigRef = useRef<SkillConfigEditorHandle>(null)
 
@@ -345,8 +347,8 @@ function AgentForm({
     load()
 
     // Load skill config sections for this agent (if any)
-    if (definition?.name) {
-      fetchSkillConfig(definition.name)
+    if (definition?.id) {
+      fetchSkillConfig(definition.id)
         .then(setSkillConfigSections)
         .catch(() => setSkillConfigSections([]))
     }
@@ -354,7 +356,7 @@ function AgentForm({
     return () => {
       isCancelled = true
     }
-  }, [definition?.name])
+  }, [definition?.id])
 
   const toggleTool = (serverId: string, toolName: string) => {
     setSelectedTools(prev => {
@@ -371,6 +373,11 @@ function AgentForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const id = form.id.trim()
+    if (!AGENT_ID_PATTERN.test(id)) {
+      setIdError('Agent ID must use lowercase letters, numbers, and hyphens — e.g. research-agent.')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -378,8 +385,8 @@ function AgentForm({
       await skillConfigRef.current?.saveAll()
 
       await onSave({
-        id: form.id || form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-        name: form.name || form.id,
+        id,
+        name: id,
         displayName: form.displayName || undefined,
         description: form.description || undefined,
         instructions: form.instructions || undefined,
@@ -417,29 +424,22 @@ function AgentForm({
           <h2 className="text-lg font-semibold text-light">Agent Details</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="text-sm text-dust">Agent ID</span>
+              <span className="text-sm text-dust">Agent ID *</span>
               <input
                 value={form.id}
-                onChange={e => setForm(f => ({ ...f, id: e.target.value }))}
-                placeholder="Auto-generated from name"
-                disabled={!!definition || isBuiltIn}
-                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm text-dust">Name *</span>
-              <input
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                required
+                onChange={e => { setForm(f => ({ ...f, id: e.target.value })); setIdError(null) }}
                 placeholder="e.g. research-agent"
-                disabled={isBuiltIn}
-                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
+                required
+                disabled={!!definition || isBuiltIn}
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 font-mono text-sm disabled:opacity-50"
               />
+              <p className="mt-1 text-xs text-dust">
+                Routing key for this agent. Lowercase letters, numbers, and hyphens; can't change after creation.
+              </p>
+              {idError && (
+                <p className="mt-1 text-xs text-rose">{idError}</p>
+              )}
             </label>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="text-sm text-dust">Display Name</span>
               <input
@@ -450,6 +450,9 @@ function AgentForm({
                 className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
               />
             </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="text-sm text-dust">Model Provider</span>
               <CustomSelect
@@ -599,12 +602,12 @@ function AgentForm({
         )}
 
         {/* Skill Configuration (built-in agents with ISkillConfigProvider) */}
-        {skillConfigSections.length > 0 && definition?.name && (
+        {skillConfigSections.length > 0 && definition?.id && (
           <SkillConfigEditor
             ref={skillConfigRef}
-            agentId={definition.name}
+            agentId={definition.id}
             sections={skillConfigSections}
-            onSaved={() => fetchSkillConfig(definition.name).then(setSkillConfigSections).catch(() => {})}
+            onSaved={() => fetchSkillConfig(definition.id).then(setSkillConfigSections).catch(() => {})}
           />
         )}
 

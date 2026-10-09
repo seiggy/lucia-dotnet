@@ -392,7 +392,47 @@ public sealed class RouterExecutor : Executor
 
     private static bool IsKnownAgent(string agentId, IReadOnlyList<AgentCard> agents)
     {
-        return agents.Any(agent => string.Equals(agent.Name, agentId, StringComparison.OrdinalIgnoreCase));
+        if (agents.Any(agent => string.Equals(agent.Name, agentId, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // Defensive: card names may be display text while the router emits a kebab-case
+        // slug (or vice versa). Normalize both sides before giving up.
+        var requestedSlug = ToAgentSlug(agentId);
+        if (requestedSlug is null)
+        {
+            return false;
+        }
+
+        return agents.Any(agent => string.Equals(ToAgentSlug(agent.Name), requestedSlug, StringComparison.Ordinal));
+    }
+
+    private static string? ToAgentSlug(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var sb = new System.Text.StringBuilder(value.Length);
+        var pendingHyphen = false;
+        foreach (var ch in value.ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                sb.Append(ch);
+                pendingHyphen = false;
+            }
+            else if (!pendingHyphen)
+            {
+                sb.Append('-');
+                pendingHyphen = true;
+            }
+        }
+
+        var slug = sb.ToString().Trim('-');
+        return slug.Length == 0 ? null : slug;
     }
 
     private void NormalizeAdditionalAgents(AgentChoiceResult result, IReadOnlyList<AgentCard> agents)
