@@ -120,6 +120,13 @@ public static class AgentDefinitionApi
             return TypedResults.Conflict($"Agent id '{definition.Id}' conflicts with a built-in agent");
         }
 
+        // Create must never overwrite an existing definition — the repository upserts by Id,
+        // so an in-use id would silently replace the live agent's configuration.
+        if (await repository.GetAgentDefinitionAsync(definition.Id).ConfigureAwait(false) is not null)
+        {
+            return TypedResults.Conflict($"An agent with id '{definition.Id}' already exists.");
+        }
+
         definition.CreatedAt = DateTime.UtcNow;
         definition.UpdatedAt = DateTime.UtcNow;
         await repository.UpsertAgentDefinitionAsync(definition).ConfigureAwait(false);

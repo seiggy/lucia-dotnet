@@ -24,6 +24,14 @@ type FormMode = 'list' | 'create' | 'edit'
 
 const AGENT_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
+function toAgentSlug(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 function getMcpToolStatusMessage({
   server,
   status,
@@ -263,6 +271,8 @@ function AgentForm({
     enabled: definition?.enabled ?? true,
   })
   const isBuiltIn = definition?.isBuiltIn ?? false
+  const isCreate = !definition
+  const derivedId = toAgentSlug(form.displayName)
   const [selectedTools, setSelectedTools] = useState<AgentToolReference[]>(definition?.tools ?? [])
   const [mcpServers, setMcpServers] = useState<McpToolServerDefinition[]>([])
   const [serverStatuses, setServerStatuses] = useState<Record<string, McpServerStatus>>({})
@@ -366,9 +376,13 @@ function AgentForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const id = form.id.trim()
+    const id = isCreate ? derivedId : form.id.trim()
     if (!AGENT_ID_PATTERN.test(id)) {
-      setIdError('Agent ID must use lowercase letters, numbers, and hyphens — e.g. research-agent.')
+      setIdError(
+        isCreate
+          ? 'Give the agent a name with at least one letter or number so its ID can be generated.'
+          : 'Agent ID must use lowercase letters, numbers, and hyphens — e.g. research-agent.'
+      )
       return
     }
     setSaving(true)
@@ -416,32 +430,51 @@ function AgentForm({
         <div className="rounded border border-stone bg-charcoal p-6 space-y-4">
           <h2 className="text-lg font-semibold text-light">Agent Details</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {isCreate ? (
+              <div>
+                <span className="text-sm text-dust">Agent ID</span>
+                <div className="mt-1 flex w-full items-center rounded border border-stone bg-basalt px-3 py-2 font-mono text-sm text-dust">
+                  {derivedId || '—'}
+                </div>
+                <p className="mt-1 text-xs text-dust">Generated from the name; can't change after creation.</p>
+              </div>
+            ) : (
+              <label className="block">
+                <span className="text-sm text-dust">Agent ID *</span>
+                <input
+                  value={form.id}
+                  onChange={e => { setForm(f => ({ ...f, id: e.target.value })); setIdError(null) }}
+                  placeholder="e.g. research-agent"
+                  required
+                  disabled={!!definition || isBuiltIn}
+                  className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 font-mono text-sm disabled:opacity-50"
+                />
+                <p className="mt-1 text-xs text-dust">
+                  Routing key for this agent. Lowercase letters, numbers, and hyphens; can't change after creation.
+                </p>
+                {idError && (
+                  <p className="mt-1 text-xs text-rose">{idError}</p>
+                )}
+              </label>
+            )}
             <label className="block">
-              <span className="text-sm text-dust">Agent ID *</span>
-              <input
-                value={form.id}
-                onChange={e => { setForm(f => ({ ...f, id: e.target.value })); setIdError(null) }}
-                placeholder="e.g. research-agent"
-                required
-                disabled={!!definition || isBuiltIn}
-                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 font-mono text-sm disabled:opacity-50"
-              />
-              <p className="mt-1 text-xs text-dust">
-                Routing key for this agent. Lowercase letters, numbers, and hyphens; can't change after creation.
-              </p>
-              {idError && (
-                <p className="mt-1 text-xs text-rose">{idError}</p>
-              )}
-            </label>
-            <label className="block">
-              <span className="text-sm text-dust">Display Name</span>
+              <span className="text-sm text-dust">{isCreate ? 'Display Name *' : 'Display Name'}</span>
               <input
                 value={form.displayName}
-                onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
+                onChange={e => { setForm(f => ({ ...f, displayName: e.target.value })); if (isCreate) setIdError(null) }}
                 placeholder="Research Agent"
                 disabled={isBuiltIn}
+                required={isCreate}
                 className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
               />
+              {isCreate && (
+                <p className="mt-1 text-xs text-dust">
+                  The agent ID is generated from this — e.g. 'Garage Helper' → garage-helper.
+                </p>
+              )}
+              {isCreate && idError && (
+                <p className="mt-1 text-xs text-rose">{idError}</p>
+              )}
             </label>
           </div>
 
