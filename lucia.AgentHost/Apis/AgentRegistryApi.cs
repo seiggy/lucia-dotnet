@@ -1,3 +1,4 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Extensions;
 using A2A;
 using lucia.Agents.Registry;
@@ -55,6 +56,7 @@ public static class AgentRegistryApi
         [FromServices] IHttpClientFactory httpClientFactory,
         [FromServices] ILoggerFactory loggerFactory,
         [FromForm] string agentId,
+        [FromServices] IPromptCacheService promptCache,
         CancellationToken cancellationToken = default)
     {
         var logger = loggerFactory.CreateLogger("AgentRegistryApi");
@@ -122,6 +124,8 @@ public static class AgentRegistryApi
         logger.LogInformation("Agent {AgentName} registered successfully with URL {AgentUrl}",
             agentCard.Name, agentCard.GetUrl());
 
+        await EvictPromptCachesAsync(promptCache);
+
         return TypedResults.Created();
     }
 
@@ -133,6 +137,7 @@ public static class AgentRegistryApi
         [FromServices] IAgentRegistry agentRegistry,
         [FromServices] IHttpClientFactory httpClientFactory,
         [FromRoute] string agentId,
+        [FromServices] IPromptCacheService promptCache,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(agentId))
@@ -164,16 +169,18 @@ public static class AgentRegistryApi
         var agentCard = await resolver.GetAgentCardAsync(cancellationToken).ConfigureAwait(false);
 
         await agentRegistry.RegisterAgentAsync(agentCard, cancellationToken).ConfigureAwait(false);
+        await EvictPromptCachesAsync(promptCache);
         return TypedResults.Ok();
     }
 
-    public static async Task<Results<
+    private static async Task<Results<
         Ok,
         BadRequest<string>,
         ProblemHttpResult
     >> UnregisterAgentAsync(
         [FromServices] IAgentRegistry agentRegistry,
         [FromRoute] string agentId,
+        [FromServices] IPromptCacheService promptCache,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(agentId))
@@ -182,6 +189,27 @@ public static class AgentRegistryApi
         }
 
         await agentRegistry.UnregisterAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
+        await EvictPromptCachesAsync(promptCache);
         return TypedResults.Ok();
+    }
+
+    /// <summary>
+    /// Drops cached routing decisions and cached chat responses after the agent catalog
+    /// changes. Routing cache keys contain no agent fingerprint, so stale entries would
+    /// otherwise survive up to the 48h TTL.
+    /// </summary>
+    private static async Task EvictPromptCachesAsync(IPromptCacheService promptCache)
+    {
+        try
+        {
+            await promptCache.EvictAllAsync(CancellationToken.None).ConfigureAwait(false);
+            await promptCache.EvictAllChatEntriesAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Best-effort: the catalog change already succeeded, and stale entries
+            // self-expire via the 48h cache TTL. Swallowed to keep the endpoint
+            // available even if the cache backend is down.
+        }
     }
 }

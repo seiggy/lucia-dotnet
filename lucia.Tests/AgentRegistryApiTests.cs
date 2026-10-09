@@ -1,6 +1,7 @@
 using System.Reflection;
 using FakeItEasy;
 using lucia.AgentHost.Apis;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Registry;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -39,6 +40,18 @@ public sealed class AgentRegistryApiTests
         Assert.Equal(StatusCodes.Status400BadRequest, ExtractStatusCode(result));
     }
 
+    [Fact]
+    public async Task UnregisterAgentAsync_EvictsPromptCaches()
+    {
+        var registry = A.Fake<IAgentRegistry>();
+        var promptCache = A.Fake<IPromptCacheService>();
+
+        await InvokeUnregisterAsync("https://agents.example.com/custom", registry, promptCache);
+
+        A.CallTo(() => promptCache.EvictAllAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => promptCache.EvictAllChatEntriesAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
     private static async Task<IResult> InvokeRegisterAsync(
         string agentId,
         IAgentRegistry registry,
@@ -49,7 +62,7 @@ public sealed class AgentRegistryApiTests
             "RegisterAgentAsync",
             BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
-        var task = (Task)method.Invoke(null, [registry, httpClientFactory, loggerFactory, agentId, CancellationToken.None])!;
+        var task = (Task)method.Invoke(null, [registry, httpClientFactory, loggerFactory, agentId, A.Fake<IPromptCacheService>(), CancellationToken.None])!;
         await task.ConfigureAwait(false);
         var resultProperty = task.GetType().GetProperty("Result");
         Assert.NotNull(resultProperty);
@@ -65,7 +78,23 @@ public sealed class AgentRegistryApiTests
             "UpdateAgentAsync",
             BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
-        var task = (Task)method.Invoke(null, [registry, httpClientFactory, agentId, CancellationToken.None])!;
+        var task = (Task)method.Invoke(null, [registry, httpClientFactory, agentId, A.Fake<IPromptCacheService>(), CancellationToken.None])!;
+        await task.ConfigureAwait(false);
+        var resultProperty = task.GetType().GetProperty("Result");
+        Assert.NotNull(resultProperty);
+        return (IResult)resultProperty.GetValue(task)!;
+    }
+
+    private static async Task<IResult> InvokeUnregisterAsync(
+        string agentId,
+        IAgentRegistry registry,
+        IPromptCacheService promptCache)
+    {
+        var method = typeof(AgentRegistryApi).GetMethod(
+            "UnregisterAgentAsync",
+            BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+        var task = (Task)method.Invoke(null, [registry, agentId, promptCache, CancellationToken.None])!;
         await task.ConfigureAwait(false);
         var resultProperty = task.GetType().GetProperty("Result");
         Assert.NotNull(resultProperty);

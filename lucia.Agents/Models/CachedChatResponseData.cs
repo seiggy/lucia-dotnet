@@ -28,6 +28,10 @@ public sealed class CachedChatResponseData
     /// <summary>Embedding vector for semantic similarity matching.</summary>
     public float[]? Embedding { get; set; }
 
+    /// <summary>SHA256 hash of the agent's system instructions. Scopes semantic similarity
+    /// matching to the same agent; null on legacy entries (never served semantically).</summary>
+    public string? InstructionsHash { get; set; }
+
     /// <summary>Number of times this cache entry has been hit.</summary>
     public long HitCount { get; set; }
 
