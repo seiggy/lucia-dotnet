@@ -171,6 +171,48 @@ public abstract class SpeakerProfileStoreContract
             CancellationToken.None));
     }
 
+    private static readonly DateTimeOffset Cutoff = new(2025, 3, 1, 0, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task DeleteExpiredProvisionalAsync_ExpiredProvisionalProfile_IsDeleted()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.CreateAsync(CreateProfile("speaker-1", lastSeenAt: Cutoff.AddDays(-1)), CancellationToken.None);
+
+        var deleted = await Conditional(scope).DeleteExpiredProvisionalAsync("speaker-1", Cutoff, CancellationToken.None);
+
+        Assert.True(deleted);
+        Assert.Null(await scope.Store.GetAsync("speaker-1", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    [InlineData(false, -1)]
+    public async Task DeleteExpiredProvisionalAsync_NotExpiredOrNotProvisional_KeepsTheProfile(bool isProvisional, int daysAfterCutoff)
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.CreateAsync(
+            CreateProfile("speaker-1", isProvisional, Cutoff.AddDays(daysAfterCutoff)),
+            CancellationToken.None);
+
+        var deleted = await Conditional(scope).DeleteExpiredProvisionalAsync("speaker-1", Cutoff, CancellationToken.None);
+
+        Assert.False(deleted);
+        Assert.NotNull(await scope.Store.GetAsync("speaker-1", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteExpiredProvisionalAsync_MissingProfile_ReturnsFalse()
+    {
+        await using var scope = await CreateAsync();
+
+        Assert.False(await Conditional(scope).DeleteExpiredProvisionalAsync("missing", Cutoff, CancellationToken.None));
+    }
+
+    private static IConditionalSpeakerProfileStore Conditional(StoreScope<ISpeakerProfileStore> scope)
+        => Assert.IsAssignableFrom<IConditionalSpeakerProfileStore>(scope.Store);
+
     private static SpeakerProfile CreateProfile(
         string id,
         bool isProvisional = true,
