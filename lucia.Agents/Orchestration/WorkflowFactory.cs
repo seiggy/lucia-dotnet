@@ -107,7 +107,7 @@ public sealed class WorkflowFactory
                 resolved.Add(aiAgent);
                 _logger.LogDebug("Resolved local AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to resolve AIAgent from ILuciaAgent {Type}", luciaAgent.GetType().Name);
             }
@@ -269,7 +269,7 @@ public sealed class WorkflowFactory
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to resolve personality model '{ModelConnectionName}', personality rewriting disabled for this request",
                     personalityOpts.ModelConnectionName);

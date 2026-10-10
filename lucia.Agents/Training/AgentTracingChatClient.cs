@@ -252,7 +252,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
             await _repository.InsertTraceAsync(trace).ConfigureAwait(false);
             _logger.LogDebug("Persisted agent trace for {AgentId} (session {SessionId})", _agentId, trace.SessionId);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Failed to persist agent trace for {AgentId}", _agentId);
         }

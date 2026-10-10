@@ -57,7 +57,7 @@ public sealed class ListSkill : IAgentSkill
             await _ha.CallServiceAsync("shopping_list", "add_item", request: new ServiceCallRequest { { "name", itemName.Trim() } }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return $"Added '{itemName.Trim()}' to the shopping list.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to add item to shopping list");
             return $"Failed to add to shopping list: {ex.Message}";
@@ -81,7 +81,7 @@ public sealed class ListSkill : IAgentSkill
             await _ha.CallServiceAsync("todo", "add_item", request: new ServiceCallRequest { { "entity_id", eid }, { "item", itemName.Trim() } }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return $"Added '{itemName.Trim()}' to todo list {eid}.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to add item to todo list");
             return $"Failed to add to todo list: {ex.Message}";
@@ -102,7 +102,7 @@ public sealed class ListSkill : IAgentSkill
                 sb.AppendLine($"- {(i.Complete ? "[done] " : "")}{i.Name}");
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to list shopping items");
             return $"Failed to list shopping items: {ex.Message}";
@@ -120,7 +120,7 @@ public sealed class ListSkill : IAgentSkill
                 return "No todo lists found in Home Assistant. Add the Local todo integration to create lists.";
             return "Available todo lists: " + string.Join(", ", ids);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to list todo entities");
             return $"Failed to list todo lists: {ex.Message}";
@@ -146,7 +146,7 @@ public sealed class ListSkill : IAgentSkill
                 sb.AppendLine($"- {(i.Status == "completed" ? "[done] " : "")}{i.Summary}");
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to list todo items");
             return $"Failed to list todo items: {ex.Message}";

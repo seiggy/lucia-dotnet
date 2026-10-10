@@ -148,7 +148,7 @@ public sealed class DynamicAgent : ILuciaAgent
                 .UseOpenTelemetry()
                 .Build();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to create client for provider '{ProviderId}', falling back to default", provider.Id);
             return await _clientResolver.ResolveAsync(null, ct).ConfigureAwait(false);

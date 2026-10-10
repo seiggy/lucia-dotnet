@@ -90,7 +90,7 @@ public sealed class CopilotClientLifecycleService : IHostedService, IAsyncDispos
             _client = client;
             _logger.LogInformation("GitHub Copilot CLI started successfully");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to start GitHub Copilot CLI — Copilot agents will be unavailable");
         }
@@ -108,7 +108,7 @@ public sealed class CopilotClientLifecycleService : IHostedService, IAsyncDispos
             await client.DisposeAsync().ConfigureAwait(false);
             _logger.LogInformation("GitHub Copilot CLI stopped");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Error stopping GitHub Copilot CLI");
         }

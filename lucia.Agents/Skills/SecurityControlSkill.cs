@@ -202,7 +202,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Armed", alarms);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             AlarmFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
@@ -253,7 +253,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Disarmed", alarms);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             AlarmFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
@@ -309,7 +309,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Locked", locks);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LockFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
@@ -365,7 +365,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Unlocked", locks);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             LockFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
@@ -427,7 +427,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
             activity?.SetStatus(ActivityStatusCode.Ok);
             return builder.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             StatusFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);

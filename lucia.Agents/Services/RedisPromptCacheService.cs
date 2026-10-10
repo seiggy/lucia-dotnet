@@ -228,7 +228,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             activity?.SetTag("cache.hit", false);
             return null;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error during prompt cache lookup");
             return null;
@@ -281,7 +281,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 "Cached routing decision for prompt key {CacheKey}: agent={AgentId}, confidence={Confidence:F2}, hasEmbedding={HasEmbedding}",
                 cacheKey, decision.AgentId, decision.Confidence, embedding is not null);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error caching routing decision");
         }
@@ -430,7 +430,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             activity?.SetTag("cache.hit", false);
             return null;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error during chat cache lookup");
             return null;
@@ -481,7 +481,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 data.ResponseText is not null,
                 data.FunctionCalls?.Count ?? 0);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error caching chat response");
         }
@@ -514,7 +514,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error retrieving all cached entries");
         }
@@ -535,7 +535,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             await db.SetRemoveAsync(IndexKey, redisKey).ConfigureAwait(false);
             return deleted;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error evicting cache entry {CacheKey}", cacheKey);
             return false;
@@ -562,7 +562,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
             return count;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error evicting all cache entries");
             return 0;
@@ -585,7 +585,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 TotalMisses = totalMisses
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error retrieving cache stats");
             return new PromptCacheStats();
@@ -619,7 +619,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error retrieving all chat cache entries");
         }
@@ -640,7 +640,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             await db.SetRemoveAsync(ChatIndexKey, redisKey).ConfigureAwait(false);
             return deleted;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error evicting chat cache entry {CacheKey}", cacheKey);
             return false;
@@ -667,7 +667,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
             return count;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error evicting all chat cache entries");
             return 0;
@@ -690,7 +690,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 TotalMisses = totalMisses
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error retrieving chat cache stats");
             return new PromptCacheStats();
@@ -747,7 +747,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             var result = await _embeddingGenerator.GenerateAsync(text, cancellationToken: cancellationToken).ConfigureAwait(false);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error generating embedding for prompt cache");
             return null;

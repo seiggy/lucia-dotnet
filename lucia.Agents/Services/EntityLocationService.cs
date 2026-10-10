@@ -647,7 +647,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
                         "Filtered to exposed entities only: {Before} → {After}",
                         before, entityEntries.Length);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger.LogWarning(ex,
                         "Failed to fetch exposed entity list — loading all entities instead");
@@ -711,7 +711,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             }
             return map;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Failed to load area→entity map via Jinja template, falling back to registry area_id only");
             return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -941,7 +941,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         {
             _logger.LogDebug("Embedding generation job cancelled");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "Background embedding generation failed");
         }
@@ -977,7 +977,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
                     EmbeddingRetryDelay.TotalMilliseconds);
                 await Task.Delay(EmbeddingRetryDelay, ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(
                     ex,
@@ -1103,7 +1103,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
                 _logger.LogInformation("Entity location cache is empty, attempting to load from Home Assistant...");
                 await InitializeAsync(ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Auto-reload of empty entity location cache failed — will retry in {Interval}s",
                     EmptyCacheRetryInterval.TotalSeconds);
@@ -1290,7 +1290,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             await PersistEmbeddingUpdatesAsync(ct).ConfigureAwait(false);
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(
                 ex,

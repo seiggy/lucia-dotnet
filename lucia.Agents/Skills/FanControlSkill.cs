@@ -310,7 +310,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             activity?.SetStatus(ActivityStatusCode.Ok);
             return FormatFanState(state, device);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error getting state for fan {EntityId}", entityId);
             FanControlFailures.Add(1);
@@ -344,7 +344,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Turned {state} fan '{entityId}'.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error setting fan {EntityId} to {State}", entityId, state);
             FanControlFailures.Add(1);
@@ -381,7 +381,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set fan '{entityId}' speed to {percentage}%.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error setting fan {EntityId} speed", entityId);
             FanControlFailures.Add(1);
@@ -418,7 +418,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set fan '{entityId}' direction to '{direction}'.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error setting fan {EntityId} direction", entityId);
             FanControlFailures.Add(1);
@@ -455,7 +455,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set fan '{entityId}' oscillation to {(oscillating ? "on" : "off")}.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error setting fan {EntityId} oscillation", entityId);
             FanControlFailures.Add(1);
@@ -518,7 +518,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set fan '{entityId}' preset mode to '{presetMode}'.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error setting fan {EntityId} preset mode", entityId);
             FanControlFailures.Add(1);
@@ -678,7 +678,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
 
             _logger.LogInformation("Refreshed fan cache: {Count} fans", newFans.Count);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error refreshing fan cache");
         }

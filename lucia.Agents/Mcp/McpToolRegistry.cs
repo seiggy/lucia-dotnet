@@ -45,7 +45,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             {
                 await ConnectServerAsync(server.Id, ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to connect MCP server {ServerId} during initialization — will retry", server.Id);
                 failedServers.Add(server);
@@ -64,7 +64,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
                 {
                     await ConnectServerAsync(server.Id, ct).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     _logger.LogWarning(ex, "Failed to connect MCP server {ServerId} on retry", server.Id);
                 }
@@ -156,7 +156,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             {
                 await entry.Client.DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Error disposing MCP client for {ServerId}", serverId);
             }
@@ -250,7 +250,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
                 _logger.LogInformation("Shutting down MCP server {ServerId}...", kvp.Key);
                 await kvp.Value.Client.DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Error disposing MCP client for {ServerId}", kvp.Key);
             }

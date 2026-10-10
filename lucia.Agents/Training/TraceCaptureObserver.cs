@@ -207,7 +207,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         {
             await PersistTraceAsync(trace).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Trace persistence failed for {TraceId}", trace.Id);
         }
@@ -228,7 +228,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             var elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
             TraceCaptureTelemetry.CaptureLatency.Record(elapsedMs);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             TraceCaptureTelemetry.StorageErrors.Add(1);
             _logger.LogError(ex, "Failed to persist conversation trace {TraceId}", trace.Id);

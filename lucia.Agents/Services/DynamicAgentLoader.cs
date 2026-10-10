@@ -62,7 +62,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         {
             await _toolRegistry.InitializeAsync(stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to initialize MCP tool registry. Dynamic agents may have limited tools.");
         }
@@ -73,7 +73,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         {
             await LoadAndRegisterAgentsAsync(stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to load dynamic agent definitions");
         }
@@ -128,7 +128,7 @@ public sealed class DynamicAgentLoader : BackgroundService
                     "Registered dynamic agent: {AgentName} ({ToolCount} tools)",
                     definition.Name, definition.Tools.Count);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 failed++;
                 _logger.LogError(ex, "Failed to register dynamic agent: {AgentName}", definition.Name);
