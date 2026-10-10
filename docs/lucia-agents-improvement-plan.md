@@ -53,7 +53,7 @@ Mongo is wider than `lucia.Agents`. Full removal touches:
 | Location | Work |
 |---|---|
 | `lucia.Agents` | Delete the 11 Mongo files, strip `[Bson*]` attributes and `using MongoDB` from DTOs, drop `MongoDB.Driver` |
-| `lucia.AgentHost` | `Program.cs` (33 refs), `AgentDefinitionApi`, `ConfigurationApi`, `OnboardingMiddleware`, `TaskManagementApi`, `ResponseTemplateApi`, `SetupApi`; delete `MongoResponseTemplateRepository` and give response templates Postgres/Sqlite stores; drop `Aspire.MongoDB.Driver.v3` |
+| `lucia.AgentHost` | `Program.cs` (33 refs), `AgentDefinitionApi`, `ConfigurationApi`, `OnboardingMiddleware`, `TaskManagementApi`, `ResponseTemplateApi`, `SetupApi`; delete `MongoResponseTemplateRepository`, drop the `[Bson*]` attributes and `MongoDB.*` usings from `ResponseTemplate`, remove the `useMongo` branch in `Program.cs`; drop `Aspire.MongoDB.Driver.v3` |
 | `lucia.Wyoming` | Drop `MongoDB.Driver` package reference (no `.cs` use found; verify) |
 | `lucia.Data` | Remove `Mongo` from `StoreProviderType`/`DataProviderOptions`; clean the comments in `Sqlite*` and `PostgresDbNames` |
 | `lucia.AppHost` | Remove the Mongo resource and `Aspire.Hosting.MongoDB` |
@@ -65,11 +65,12 @@ Risk: none to carry. No known installs used the legacy Mongo provider, and the d
 
 Redis stays (task store, caches), but the four Redis services move out of `lucia.Agents` into `lucia.Data` behind the existing interfaces. `EntityLocationService` calls Redis directly (1 reference); route it through a new `ILocationSnapshotCache`.
 
+Postgres and Sqlite response-template stores already exist (`PostgresResponseTemplateRepository`, `SqliteResponseTemplateRepository`, both wired in `AgentHost/Program.cs`), so nothing blocks the removal. They have no direct tests yet. Add a Sqlite round-trip test (create, get by id, get by skill and action, update, delete, reset to defaults) before deleting the Mongo version.
+
 Action order:
-1. Add the missing Postgres/Sqlite response-template store (only blocker for removal).
-2. Delete Mongo code in one PR per project, bottom-up (Agents, Data, AgentHost, AppHost, tests, docs).
-3. Move the Redis services.
-4. Add an architecture test: `lucia.Agents` may not reference `MongoDB.*` or `StackExchange.Redis`.
+1. Delete Mongo code in one PR per project, bottom-up (Agents, Data, AgentHost, AppHost, tests, docs).
+2. Move the Redis services.
+3. Add an architecture test: `lucia.Agents` may not reference `MongoDB.*` or `StackExchange.Redis`.
 
 Done when no `csproj` or `Directory.Packages.props` mentions MongoDB and `lucia.Agents.csproj` has no driver packages.
 
@@ -156,7 +157,7 @@ One method, 22 inline `GetRequiredService` factory lambdas and 60+ registrations
 
 | Phase | Work | Size | Gate |
 |---|---|---|---|
-| 0 | Split 3 multi-class files. Fix catch/cancellation gaps. Add `CA1031`. Produce catch triage sheet. Add Postgres/Sqlite response-template store. | 2-3 days | Build green, baseline recorded |
+| 0 | Split 3 multi-class files. Fix catch/cancellation gaps. Add `CA1031`. Produce catch triage sheet. | 2-3 days | Build green, baseline recorded |
 | 1 | P0: delete Mongo across the repo; move Redis stores to `lucia.Data`; architecture test for drivers | 1 week | No MongoDB mention in any csproj; `lucia.Agents.csproj` has no driver packages |
 | 2 | P1: split `EntityLocationService` into 5 classes; dedupe `InMemoryEntityLocationService` (kept for mono-container mode) | 1-2 weeks | Public interface unchanged, tests green |
 | 3 | P1: skill base (`SkillEntityIndex<T>`, `ToolRunner`); migrate Climate, Fan, Sensor, Security, Light, Scene one per PR | 2 weeks | Each skill under 500 lines, ctor under 6 params |
