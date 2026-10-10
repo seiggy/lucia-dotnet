@@ -352,6 +352,40 @@ public abstract class EntityLocationServiceContract
         Assert.Equal(7, (await scope.Store.GetEntitiesAsync()).Count);
     }
 
+    [Fact]
+    public async Task SetUseExposedOnlyAsync_DuringAReload_StillFiltersTheEntities()
+    {
+        var home = new SampleHomeAssistant();
+        await using var scope = await CreateAsync(home);
+        await LoadAsync(scope.Store);
+
+        var blocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        A.CallTo(() => home.Client.GetFloorRegistryAsync(A<CancellationToken>._))
+            .ReturnsLazily(async () =>
+            {
+                if (Interlocked.Increment(ref calls) == 1)
+                {
+                    blocked.SetResult();
+                    await gate.Task;
+                }
+
+                return home.Floors.ToArray();
+            });
+
+        var reload = scope.Store.InvalidateAndReloadAsync();
+        await blocked.Task;
+        var toggle = scope.Store.SetUseExposedOnlyAsync(true);
+        gate.SetResult();
+        await Task.WhenAll(reload, toggle);
+        await WaitForEmbeddingsAsync(scope.Store);
+
+        Assert.Equal(
+            ["light.kitchen_ceiling", "light.living_room_lamp"],
+            Ids(await scope.Store.GetEntitiesAsync()));
+    }
+
     // ── Reload and edits ────────────────────────────────────────────
 
     [Fact]

@@ -24,6 +24,7 @@ public sealed class CachedApiKeyService : IApiKeyService
     private readonly IKeyValueCache _cache;
     private readonly ILogger<CachedApiKeyService> _logger;
     private readonly TimeSpan _cacheDuration;
+    private long _bypassUntilTickCount;
 
     public CachedApiKeyService(
         IApiKeyService inner,
@@ -42,6 +43,12 @@ public sealed class CachedApiKeyService : IApiKeyService
         if (string.IsNullOrWhiteSpace(plaintextKey))
         {
             return null;
+        }
+
+        // After a failed invalidation the cache may still hold keys that were just revoked.
+        if (Environment.TickCount64 < Volatile.Read(ref _bypassUntilTickCount))
+        {
+            return await _inner.ValidateKeyAsync(plaintextKey, cancellationToken).ConfigureAwait(false);
         }
 
         string? entryKey = null;
@@ -83,46 +90,27 @@ public sealed class CachedApiKeyService : IApiKeyService
         string name,
         CancellationToken cancellationToken = default)
     {
-        var result = await _inner
-            .CreateKeyAsync(name, cancellationToken)
-            .ConfigureAwait(false);
-        await InvalidateAllAsync().ConfigureAwait(false);
-        return result;
+        // Creating a key needs no invalidation. Only invalid keys could go stale, and they are not cached.
+        return await _inner.CreateKeyAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
         string name,
         CancellationToken cancellationToken = default)
     {
-        var result = await _inner
-            .CreateAdministratorKeyAsync(name, cancellationToken)
-            .ConfigureAwait(false);
-        await InvalidateAllAsync().ConfigureAwait(false);
-        return result;
+        return await _inner.CreateAdministratorKeyAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
         string name,
         CancellationToken cancellationToken = default)
     {
-        var result = await _inner
-            .CreateAdministratorKeyIfNoneAsync(name, cancellationToken)
-            .ConfigureAwait(false);
-        if (result is not null)
-        {
-            await InvalidateAllAsync().ConfigureAwait(false);
-        }
-        return result;
+        return await _inner.CreateAdministratorKeyIfNoneAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ApiKeyCreateResponse?> CreateKeyFromPlaintextAsync(string name, string plaintextKey, CancellationToken cancellationToken = default)
     {
-        var result = await _inner.CreateKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);
-        if (result is not null)
-        {
-            await InvalidateAllAsync().ConfigureAwait(false);
-        }
-        return result;
+        return await _inner.CreateKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
@@ -199,8 +187,14 @@ public sealed class CachedApiKeyService : IApiKeyService
         }
         catch (Exception ex) when (!ex.IsCancellation())
         {
-            // The store stays authoritative; entries age out after the cache duration.
-            _logger.LogWarning(ex, "Failed to invalidate the API key validation cache");
+            // Cached entries may still accept a revoked key. Validate against the store until they have
+            // aged out. Other instances sharing the cache cannot learn this, so they keep serving the
+            // old entries for up to the cache duration.
+            Volatile.Write(ref _bypassUntilTickCount, Environment.TickCount64 + (long)_cacheDuration.TotalMilliseconds);
+            _logger.LogWarning(
+                ex,
+                "Failed to invalidate the API key validation cache. Validating against the store for {Duration}",
+                _cacheDuration);
         }
     }
 

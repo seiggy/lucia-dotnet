@@ -76,6 +76,10 @@ any storage driver.
   `Exception.IsCancellation()`, which still treats an `HttpClient` timeout as a failure to handle.
 - `CachedApiKeyService` no longer caches invalid keys, so unauthenticated requests cannot fill the
   shared cache.
+  If the cache rejects the invalidation after a revoke, that instance validates against the store
+  for the next five minutes instead of trusting cached keys.
+- Turning on exposed-only entity loading during a reload now reloads again, so the entity list can
+  no longer keep unexposed entities.
 - Every `.cs` file now holds one class.
 - In-memory `ExactMatchArea` now matches display names only, like the Redis
   version.

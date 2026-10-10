@@ -42,6 +42,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
     // Thread-safe: all data is held in an immutable snapshot object swapped atomically
     private volatile LocationSnapshot _snapshot = LocationSnapshot.Empty;
     private volatile EntityVisibilityConfig _visibilityConfig = new();
+    private volatile bool _loadedExposedOnly;
     private long _lastLoadedAtTicks;
     private long _knownVersion;
     private long _lastVersionCheckTicks;
@@ -252,6 +253,17 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
     private async Task LoadFromHomeAssistantAsync(CancellationToken ct)
     {
+        // A load that began before the exposed-only setting changed builds the wrong snapshot, and a caller
+        // that waited for it must not return with that snapshot. Load again until the two agree.
+        do
+        {
+            await LoadOnceAsync(ct).ConfigureAwait(false);
+        }
+        while (_loadedExposedOnly != _visibilityConfig.UseExposedEntitiesOnly);
+    }
+
+    private async Task LoadOnceAsync(CancellationToken ct)
+    {
         if (!await _loadLock.WaitAsync(TimeSpan.Zero, ct).ConfigureAwait(false))
         {
             // Another load is already in progress — wait for it
@@ -267,13 +279,15 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
             _logger.LogInformation("Loading entity location data from Home Assistant config registries...");
 
-            var snapshot = await _loader.LoadAsync(_visibilityConfig.UseExposedEntitiesOnly, ct).ConfigureAwait(false);
+            var exposedOnly = _visibilityConfig.UseExposedEntitiesOnly;
+            var snapshot = await _loader.LoadAsync(exposedOnly, ct).ConfigureAwait(false);
             var floors = snapshot.Floors;
             var areas = snapshot.Areas;
             var entities = snapshot.Entities;
 
             // Atomic swap of all collections
             _snapshot = snapshot;
+            _loadedExposedOnly = exposedOnly;
             Volatile.Write(ref _lastLoadedAtTicks, DateTimeOffset.UtcNow.UtcTicks);
 
             // Apply per-entity agent visibility from config

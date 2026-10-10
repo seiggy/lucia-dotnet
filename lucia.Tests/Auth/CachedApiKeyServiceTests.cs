@@ -21,6 +21,57 @@ public sealed class CachedApiKeyServiceTests
     private CachedApiKeyService CreateService()
         => new(_inner, new InMemoryKeyValueCache(new MemoryCache(new MemoryCacheOptions())), _logger, cacheDuration: ShortCache);
 
+    private sealed class GenerationWriteFailsCache(IKeyValueCache inner) : IKeyValueCache
+    {
+        public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
+            => inner.GetAsync(key, cancellationToken);
+
+        public Task SetAsync(string key, string value, TimeSpan timeToLive, CancellationToken cancellationToken = default)
+            => key.EndsWith("generation", StringComparison.Ordinal)
+                ? throw new InvalidOperationException("cache is read-only")
+                : inner.SetAsync(key, value, timeToLive, cancellationToken);
+
+        public Task RemoveAsync(string key, CancellationToken cancellationToken = default)
+            => inner.RemoveAsync(key, cancellationToken);
+    }
+
+    [Fact]
+    public async Task RevokeKeyAsync_WhenInvalidationFails_StopsServingCachedKeys()
+    {
+        const string plaintext = "lk_test_key_abcdef1234567890abcdef";
+        A.CallTo(() => _inner.ValidateKeyAsync(plaintext, A<CancellationToken>._))
+            .Returns(Task.FromResult<ApiKeyEntry?>(MakeEntry("key-1")));
+        A.CallTo(() => _inner.RevokeKeyAsync("key-1", A<CancellationToken>._)).Returns(true);
+        var svc = new CachedApiKeyService(
+            _inner,
+            new GenerationWriteFailsCache(new InMemoryKeyValueCache(new MemoryCache(new MemoryCacheOptions()))),
+            _logger,
+            cacheDuration: ShortCache);
+        Assert.NotNull(await svc.ValidateKeyAsync(plaintext));
+
+        await svc.RevokeKeyAsync("key-1");
+        A.CallTo(() => _inner.ValidateKeyAsync(plaintext, A<CancellationToken>._))
+            .Returns(Task.FromResult<ApiKeyEntry?>(null));
+
+        Assert.Null(await svc.ValidateKeyAsync(plaintext));
+    }
+
+    [Fact]
+    public async Task CreateKeyAsync_DoesNotInvalidateTheCache()
+    {
+        const string plaintext = "lk_test_key_abcdef1234567890abcdef";
+        A.CallTo(() => _inner.ValidateKeyAsync(plaintext, A<CancellationToken>._))
+            .Returns(Task.FromResult<ApiKeyEntry?>(MakeEntry("key-1")));
+        var svc = CreateService();
+        await svc.ValidateKeyAsync(plaintext);
+
+        await svc.CreateKeyAsync("another");
+        await svc.ValidateKeyAsync(plaintext);
+
+        A.CallTo(() => _inner.ValidateKeyAsync(plaintext, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
     // ── Caching behaviour ────────────────────────────────────────────────
 
     [Fact]
