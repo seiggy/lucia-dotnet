@@ -110,6 +110,18 @@ public abstract class PresenceSensorRepositoryContract
     }
 
     [Fact]
+    public async Task ReplaceAutoDetectedMappingsAsync_EmptyList_ClearsAutoDetectedButKeepsUserOverrides()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.UpsertMappingAsync(Mapping("binary_sensor.user", "kitchen", isUserOverride: true));
+        await scope.Store.UpsertMappingAsync(Mapping("binary_sensor.auto", "garage"));
+
+        await scope.Store.ReplaceAutoDetectedMappingsAsync([]);
+
+        var mapping = Assert.Single(await scope.Store.GetAllMappingsAsync());
+        Assert.Equal("binary_sensor.user", mapping.EntityId);
+    }
+    [Fact]
     public async Task GetEnabledAsync_NeverSet_DefaultsToEnabled()
     {
         await using var scope = await CreateAsync();

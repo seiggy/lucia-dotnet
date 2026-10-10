@@ -233,4 +233,25 @@ public abstract class ApiKeyServiceContract
         Assert.Null(await scope.Store.ValidateKeyAsync("lk_override-one-0123456789"));
         Assert.NotNull(await scope.Store.ValidateKeyAsync("lk_override-two-0123456789"));
     }
-}
+
+    [Fact]
+    public async Task RegenerateKeyAsync_UnknownKey_Throws()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.CreateKeyAsync("only");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.Store.RegenerateKeyAsync("does-not-exist"));
+    }
+
+    [Fact]
+    public async Task RegenerateKeyAsync_AlreadyRevokedKey_DoesNotIssueReplacement()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.CreateKeyAsync("keeper");
+        var revoked = await scope.Store.CreateKeyAsync("revoked");
+        await scope.Store.RevokeKeyAsync(revoked.Id);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.Store.RegenerateKeyAsync(revoked.Id));
+
+        Assert.Equal(1, await scope.Store.GetActiveKeyCountAsync());
+    }}

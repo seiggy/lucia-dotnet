@@ -126,6 +126,51 @@ public abstract class SpeakerProfileStoreContract
         Assert.Equal("speaker-1", single.Id);
     }
 
+    [Fact]
+    public async Task UpdateAtomicAsync_ExistingProfile_AppliesTransformAndPersists()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.CreateAsync(CreateProfile("speaker-1"), CancellationToken.None);
+
+        var updated = await scope.Store.UpdateAtomicAsync(
+            "speaker-1",
+            static profile => profile with { Name = "Renamed" },
+            CancellationToken.None);
+
+        Assert.NotNull(updated);
+        Assert.Equal("Renamed", updated.Name);
+        var stored = await scope.Store.GetAsync("speaker-1", CancellationToken.None);
+        Assert.Equal("Renamed", stored?.Name);
+    }
+
+    [Fact]
+    public async Task UpdateAtomicAsync_ConcurrentIncrements_LoseNoUpdates()
+    {
+        await using var scope = await CreateAsync();
+        var profile = CreateProfile("speaker-1") with { InteractionCount = 0 };
+        await scope.Store.CreateAsync(profile, CancellationToken.None);
+
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => scope.Store.UpdateAtomicAsync(
+            "speaker-1",
+            static current => current with { InteractionCount = current.InteractionCount + 1 },
+            CancellationToken.None)));
+
+        var stored = await scope.Store.GetAsync("speaker-1", CancellationToken.None);
+        Assert.Equal(8, stored?.InteractionCount);
+    }
+
+    [Fact]
+    public async Task UpdateAtomicAsync_ProfileBeingMerged_Throws()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.CreateAsync(CreateProfile("speaker-1", mergeTarget: "target-1"), CancellationToken.None);
+
+        await Assert.ThrowsAsync<ProfileMergeConflictException>(() => scope.Store.UpdateAtomicAsync(
+            "speaker-1",
+            static profile => profile with { Name = "Blocked" },
+            CancellationToken.None));
+    }
+
     private static SpeakerProfile CreateProfile(
         string id,
         bool isProvisional = true,
