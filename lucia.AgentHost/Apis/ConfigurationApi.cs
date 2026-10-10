@@ -29,10 +29,10 @@ public static class ConfigurationApi
             .WithDescription("Returns key-value pairs for the specified section. Sensitive values are masked unless showSecrets=true.");
         group.MapPut("/sections/{section}", UpdateSectionAsync)
             .WithSummary("Update configuration entries for a section")
-            .WithDescription("Writes values to the MongoDB config collection. Changes hot-reload via the polling loop.");
+            .WithDescription("Writes values to the configuration store. Changes hot-reload via the polling loop.");
         group.MapPost("/reset", ResetConfigAsync)
             .WithSummary("Reset configuration to defaults")
-            .WithDescription("Re-seeds configuration from appsettings.json, overwriting any MongoDB-stored values.");
+            .WithDescription("Re-seeds configuration from appsettings.json, overwriting any stored values.");
         group.MapGet("/schema", GetSchemaAsync)
             .WithSummary("Get configuration schema")
             .WithDescription("Returns JSON schema for all configurable sections including property types and default values.");
@@ -58,7 +58,7 @@ public static class ConfigurationApi
 
     /// <summary>
     /// Lists all configuration sections with key counts.
-    /// Merges MongoDB-stored sections with live IConfiguration sections from the schema.
+    /// Merges stored sections with live IConfiguration sections from the schema.
     /// </summary>
     private static async Task<Ok<List<ConfigSectionSummary>>> ListSectionsAsync(
         [FromServices] IConfigStoreWriter configStore,
@@ -77,7 +77,7 @@ public static class ConfigurationApi
             })
             .ToDictionary(s => s.Section);
 
-        // Add sections from live config that aren't in MongoDB (e.g. ConnectionStrings)
+        // Add sections from live config that aren't in the store (e.g. ConnectionStrings)
         foreach (var schema in GetAllSchemas())
         {
             if (sections.ContainsKey(schema.Section))
@@ -131,7 +131,7 @@ public static class ConfigurationApi
         }
         else
         {
-            // Fall back to live IConfiguration for sections not stored in MongoDB
+            // Fall back to live IConfiguration for sections not stored in the configuration store
             var configSection = configuration.GetSection(section);
             var children = configSection.GetChildren().ToList();
 
@@ -229,7 +229,7 @@ public static class ConfigurationApi
     }
 
     /// <summary>
-    /// Resets MongoDB config by deleting all entries. ConfigSeeder will re-seed on next restart.
+    /// Resets stored config by deleting all entries. ConfigSeeder will re-seed on next restart.
     /// </summary>
     private static async Task<Ok<string>> ResetConfigAsync(
         [FromServices] IConfigStoreWriter configStore)
@@ -415,7 +415,7 @@ public static class ConfigurationApi
                 new("Enabled", "boolean", "Whether trace capture is enabled", "true"),
                 new("RetentionDays", "number", "Number of days to retain unlabeled traces before cleanup", "30"),
                 new("RedactionPatterns", "array", "Regex patterns for redacting sensitive data from trace content", ""),
-                new("DatabaseName", "string", "MongoDB database for traces", "luciatraces"),
+                new("DatabaseName", "string", "Database for traces", "luciatraces"),
                 new("TracesCollectionName", "string", "Collection name for traces", "traces"),
                 new("ExportsCollectionName", "string", "Collection name for exports", "exports")
             ]

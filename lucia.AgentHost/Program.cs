@@ -51,14 +51,21 @@ builder.Services.AddAntiforgery();
 builder.Services.AddFeatureManagement();
 
 // Determine data provider backends
+if ((builder.Configuration[$"{DataProviderOptions.SectionName}:Store"] ?? "")
+    .Equals("MongoDB", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException(
+        "DataProvider:Store 'MongoDB' is no longer supported. Set it to 'PostgreSQL' or 'SQLite' and re-run setup.");
+}
+
 var dataProviderOptions = new DataProviderOptions();
 builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(dataProviderOptions);
 var useRedis = dataProviderOptions.Cache == CacheProviderType.Redis;
 var storeProvider = builder.Configuration[$"{DataProviderOptions.SectionName}:Store"]
     ?? dataProviderOptions.Store.ToString();
-var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
+
 var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
-var useSqlite = !useMongo && !usePostgres;
+var useSqlite = !usePostgres;
 
 if (useRedis)
 {
@@ -66,22 +73,7 @@ if (useRedis)
     builder.Services.AddSingleton<IPromptCacheService, RedisPromptCacheService>();
 }
 
-if (useMongo)
-{
-    // MongoDB for trace capture
-    builder.AddMongoDBClient(connectionName: "luciatraces");
-
-    // MongoDB for configuration (shared across services)
-    builder.AddMongoDBClient(connectionName: "luciaconfig");
-    builder.Services.AddSingleton<IMemoryStore, MongoMemoryStore>();
-
-    // MongoDB for task archive
-    builder.AddMongoDBClient(connectionName: "luciatasks");
-
-    // Add MongoDB configuration as highest-priority source (overrides appsettings)
-    builder.Configuration.AddMongoConfiguration("luciaconfig");
-}
-else if (usePostgres)
+if (usePostgres)
 {
     // PostgreSQL configuration provider uses the luciaconfig database.
     // Connection string comes from Aspire-injected ConnectionStrings section.
@@ -95,7 +87,7 @@ else if (usePostgres)
 }
 else if (useSqlite)
 {
-    // SQLite configuration provider (replaces MongoDB config source)
+    // SQLite configuration provider (highest-priority source, overrides appsettings)
     var sqliteFactory = new SqliteConnectionFactory(
         SqliteDbNames.GetConfigPath(dataProviderOptions.SqlitePath));
     builder.Services.AddSingleton(sqliteFactory);
@@ -110,12 +102,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 // Add services to the container.
 // Chat and embedding clients are resolved at runtime from the Model Provider system
-// (MongoDB-backed) via IChatClientResolver and IEmbeddingProviderResolver.
+// via IChatClientResolver and IEmbeddingProviderResolver.
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
 
-// Register lightweight data providers when not using Redis/MongoDB
+// Register lightweight data providers when not using Redis
 if (!useRedis)
 {
     builder.AddInMemoryCacheProviders();
@@ -169,12 +161,7 @@ else
     // services (ScheduledTaskService, BackgroundServices) which run in the agent process.
     builder.Services.AddSingleton<ScheduledTaskStore>();
     builder.Services.AddSingleton<CronScheduleService>();
-    if (useMongo)
-    {
-        builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
-        builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
-    }
-    else if (useSqlite)
+    if (useSqlite)
     {
         builder.Services.AddSingleton<IScheduledTaskRepository, SqliteScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, SqliteAlarmClockRepository>();
@@ -193,10 +180,6 @@ builder.Services.AddSingleton<IPluginRepositorySource, LocalPluginRepositorySour
 builder.Services.AddSingleton<IPluginRepositorySource, GitPluginRepositorySource>();
 
 // Plugin management (repository CRUD, install, enable/disable)
-if (useMongo)
-{
-    builder.Services.AddSingleton<IPluginManagementRepository, MongoPluginManagementRepository>();
-}
 builder.Services.AddSingleton(sp =>
 {
     return new PluginManagementService(
@@ -226,11 +209,7 @@ builder.AddWyomingServer();
 // Trace capture services
 builder.Services.Configure<TraceCaptureOptions>(
     builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
-if (useMongo)
-{
-    builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
-}
-else if (useSqlite)
+if (useSqlite)
 {
     builder.Services.AddSingleton<ITraceRepository, lucia.Data.Sqlite.SqliteTraceRepository>();
 }
@@ -247,11 +226,7 @@ builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
 builder.Services.AddHostedService<TraceRetentionService>();
 
 // Conversation fast-path command processing
-if (useMongo)
-{
-    builder.Services.AddSingleton<IResponseTemplateRepository, MongoResponseTemplateRepository>();
-}
-else if (usePostgres)
+if (usePostgres)
 {
     builder.Services.AddSingleton<IResponseTemplateRepository, PostgresResponseTemplateRepository>();
 }
@@ -265,11 +240,7 @@ builder.Services.AddSingleton<ICascadingEntityResolver, CascadingEntityResolver>
 builder.Services.AddSingleton<ContextReconstructor>();
 builder.Services.AddSingleton<ConversationTelemetry>();
 builder.Services.AddSingleton<CommandTraceChannel>();
-if (useMongo)
-{
-    builder.Services.AddSingleton<ICommandTraceRepository, MongoCommandTraceRepository>();
-}
-else if (useSqlite)
+if (useSqlite)
 {
     builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
 }
@@ -292,28 +263,15 @@ if (builder.Services.Any(service => service.ServiceType == typeof(TracerProvider
 // Task archive services
 builder.Services.Configure<TaskArchiveOptions>(
     builder.Configuration.GetSection(TaskArchiveOptions.SectionName));
-if (useMongo)
-{
-    builder.Services.AddSingleton<ITaskArchiveStore, MongoTaskArchiveStore>();
-}
-// Note: SQLite ITaskArchiveStore is registered by AddSqliteStoreProviders()
+// Note: ITaskArchiveStore is registered by AddSqliteStoreProviders()/AddPostgresStoreProviders()
 builder.Services.AddHostedService<TaskArchivalService>();
 
-// Configuration seeder — copies appsettings to MongoDB on first run
+// Configuration seeder — copies appsettings into the configuration store on first run
 builder.Services.AddHostedService<ConfigSeeder>();
 
 // API key authentication
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
-if (useMongo)
-{
-    builder.Services.AddSingleton<MongoApiKeyService>();
-    builder.Services.AddSingleton<IApiKeyService>(sp =>
-        new CachedApiKeyService(
-            sp.GetRequiredService<MongoApiKeyService>(),
-            sp.GetRequiredService<ILogger<CachedApiKeyService>>()));
-    builder.Services.AddSingleton<IConfigStoreWriter, ConfigStoreWriter>();
-}
-// Note: SQLite IApiKeyService and IConfigStoreWriter registered by AddSqliteStoreProviders()
+// Note: IApiKeyService and IConfigStoreWriter are registered by AddSqliteStoreProviders()/AddPostgresStoreProviders()
 builder.Services.AddSingleton<HmacSessionService>();
 builder.Services.AddSingleton<ISessionService>(sp => sp.GetRequiredService<HmacSessionService>());
 builder.Services.AddSingleton<IAsyncInitializable>(sp => sp.GetRequiredService<HmacSessionService>());
@@ -556,7 +514,7 @@ if (isInstalledAppliance)
 }
 app.MapDefaultEndpoints();
 
-// Bootstrap plugin repository into MongoDB
+// Bootstrap plugin repository into the store
 var pluginMgmt = app.Services.GetRequiredService<PluginManagementService>();
 if (app.Environment.IsDevelopment())
 {

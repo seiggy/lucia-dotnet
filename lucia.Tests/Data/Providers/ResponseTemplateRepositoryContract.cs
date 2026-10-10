@@ -120,7 +120,7 @@ public abstract class ResponseTemplateRepositoryContract
     }
 
     [Fact]
-    public async Task CreateAsync_DuplicateSkillAndAction_Throws()
+    public async Task CreateAsync_DuplicateSkillAndAction_ThrowsDuplicateException()
     {
         await using var scope = await CreateAsync();
 
@@ -132,7 +132,7 @@ public abstract class ResponseTemplateRepositoryContract
             IsDefault = false,
         });
 
-        await Assert.ThrowsAnyAsync<Exception>(() => scope.Store.CreateAsync(new ResponseTemplate
+        await Assert.ThrowsAsync<DuplicateResponseTemplateException>(() => scope.Store.CreateAsync(new ResponseTemplate
         {
             SkillId = "LightControlSkill",
             Action = "toggle",

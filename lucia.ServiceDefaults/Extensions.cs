@@ -197,7 +197,6 @@ public static class Extensions
                     .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
                     .AddSource("lucia.Wyoming.Session")
                     .AddSource("lucia.Wyoming.BackgroundTasks")
-                    .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
                     .AddRedisInstrumentation()
                     .AddAspNetCoreInstrumentation(tracing =>
                         tracing.Filter = context =>

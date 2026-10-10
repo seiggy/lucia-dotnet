@@ -1,7 +1,6 @@
 using lucia.AgentHost.Conversation.Templates;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 
 namespace lucia.AgentHost.Apis;
 
@@ -77,7 +76,7 @@ public static class ResponseTemplateApi
             renderer.InvalidateCache();
             return TypedResults.Created($"/api/response-templates/{created.Id}", created);
         }
-        catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        catch (DuplicateResponseTemplateException)
         {
             return TypedResults.Conflict($"A template for {request.SkillId}/{request.Action} already exists");
         }
