@@ -415,7 +415,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// </summary>
     /// <summary>
     /// Creates an initialized <see cref="LightControlSkill"/> backed by a real
-    /// <see cref="lucia.Data.InMemory.InMemoryEntityLocationService"/> that embeds the snapshot
+    /// <see cref="EntityLocationService"/> that embeds the snapshot
     /// entities with the requested embedding model. Use this to exercise the
     /// production tool flow (<c>GetLightsStateAsync</c> to <c>SearchHierarchyAsync</c>)
     /// without the agent and LLM loop.
@@ -435,11 +435,11 @@ public sealed class EvalTestFixture : IAsyncLifetime
     {
         SkipIfEmbeddingModelNotConfigured(embeddingModelName);
 
-        var locationService = new lucia.Data.InMemory.InMemoryEntityLocationService(
+        var locationService = InProcessEntityLocation.Create(
             _haClient,
             _embeddingResolver.WithPreferredModel(embeddingModelName),
             _entityMatcher,
-            _loggerFactory.CreateLogger<lucia.Data.InMemory.InMemoryEntityLocationService>());
+            _loggerFactory);
         await locationService.InitializeAsync();
         await WaitForEmbeddingsAsync(locationService);
 
@@ -467,7 +467,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         }
     }
 
-    private static async Task WaitForEmbeddingsAsync(lucia.Data.InMemory.InMemoryEntityLocationService service)
+    private static async Task WaitForEmbeddingsAsync(EntityLocationService service)
     {
         var deadline = DateTime.UtcNow.AddMinutes(3);
         while (DateTime.UtcNow < deadline)

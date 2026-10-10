@@ -20,6 +20,8 @@ public sealed class CacheProviderRegistrationTests
     [InlineData(typeof(IPromptCacheService), typeof(RedisPromptCacheService))]
     [InlineData(typeof(IKeyValueCache), typeof(RedisKeyValueCache))]
     [InlineData(typeof(IEntityLocationService), typeof(EntityLocationService))]
+    [InlineData(typeof(ILocationSnapshotStore), typeof(RedisLocationSnapshotStore))]
+    [InlineData(typeof(IVisibilityConfigStore), typeof(RedisVisibilityConfigStore))]
     public void AddRedisCacheProviders_RegistersTheRedisImplementation(Type service, Type implementation)
     {
         var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings());
@@ -56,7 +58,9 @@ public sealed class CacheProviderRegistrationTests
     [InlineData(typeof(ISessionCacheService), typeof(InMemorySessionCacheService))]
     [InlineData(typeof(IPromptCacheService), typeof(InMemoryPromptCacheService))]
     [InlineData(typeof(IKeyValueCache), typeof(InMemoryKeyValueCache))]
-    [InlineData(typeof(IEntityLocationService), typeof(InMemoryEntityLocationService))]
+    [InlineData(typeof(IEntityLocationService), typeof(EntityLocationService))]
+    [InlineData(typeof(ILocationSnapshotStore), typeof(InProcessLocationSnapshotStore))]
+    [InlineData(typeof(IVisibilityConfigStore), typeof(ConfigStoreVisibilityConfigStore))]
     public void AddInMemoryCacheProviders_RegistersTheSameServices(Type service, Type implementation)
     {
         var builder = Host.CreateEmptyApplicationBuilder(new HostApplicationBuilderSettings());

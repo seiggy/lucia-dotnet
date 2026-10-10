@@ -50,6 +50,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IKeyValueCache, RedisKeyValueCache>();
 
         // Shared floor/area/entity resolution, persisted to Redis
+        builder.Services.AddSingleton<ILocationSnapshotStore, RedisLocationSnapshotStore>();
+        builder.Services.AddSingleton<IVisibilityConfigStore, RedisVisibilityConfigStore>();
         builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
 
         return builder;
@@ -81,8 +83,11 @@ public static class ServiceCollectionExtensions
         });
         builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<InMemoryTaskStore>());
 
-        // Entity location service (in-memory, no Redis needed)
-        builder.Services.AddSingleton<IEntityLocationService, lucia.Data.InMemory.InMemoryEntityLocationService>();
+        // Same entity location service as the Redis mode; the snapshot stays in this process and
+        // visibility settings persist in the SQLite or PostgreSQL configuration store.
+        builder.Services.AddSingleton<ILocationSnapshotStore, InProcessLocationSnapshotStore>();
+        builder.Services.AddSingleton<IVisibilityConfigStore, ConfigStoreVisibilityConfigStore>();
+        builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
         // Only register in-memory IMemoryStore if no durable store has been registered yet
         builder.Services.TryAddSingleton<IMemoryStore, lucia.Data.InMemory.InMemoryMemoryStore>();
         AddMemorySupportServices(builder.Services);

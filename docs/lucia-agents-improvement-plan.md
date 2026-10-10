@@ -25,11 +25,13 @@ Done:
 
 Not done, found along the way:
 - `IConditionalSpeakerProfileStore.DeleteExpiredProvisionalAsync` has no provider contract test.
-- ``EntityLocationService`` still talks to Redis directly, so ``lucia.Agents`` keeps ``Aspire.StackExchange.Redis``. Extracting an ``ILocationSnapshotCache`` during its split removes the last Redis reference; the architecture test lands after that.
+- `lucia.Agents` no longer references Redis. `EntityLocationService` talks to `ILocationSnapshotStore` and `IVisibilityConfigStore`, and `AgentsDependencyTests` fails if a storage driver comes back.
 - The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.
 - RELEASE_NOTES needs a breaking-change entry: MongoDB removed, re-run setup, new compose env (`POSTGRES_PASSWORD`), Helm values (`bundledPostgres`, no `mongodb`/`a2aAgents`).
 
 ## EntityLocationService split design
+
+Status: done. The facade went from 1,438 to about 600 lines, backed by `LocationSearchService`, `LocationSnapshotLoader`, `EntityEmbeddingJob` and the two store interfaces. `InMemoryEntityLocationService` is gone. In-memory mode registers `InProcessLocationSnapshotStore` and persists visibility through `ConfigStoreVisibilityConfigStore`, so visibility now survives restarts without Redis.
 
 Agreed approach. Facade first: `IEntityLocationService` stays, and the 34 production and 23 test consumers keep compiling. Narrow interfaces come later.
 
