@@ -199,6 +199,8 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
         // The template uses area_name(id) as the "area" field: {"area":"<area_name>","entities":[...]}
         var areaMappings = _areas.Select(a => new
         {
+            area_id = a.AreaId,
+            area_name = a.AreaName,
             area = a.AreaName,
             entities = a.Entities
         });
