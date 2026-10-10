@@ -185,7 +185,8 @@ public sealed class CachedApiKeyService : IApiKeyService
             await _cache.SetAsync(GenerationKey, Guid.NewGuid().ToString("N"), GenerationTimeToLive).ConfigureAwait(false);
             _logger.LogInformation("API key validation cache invalidated");
         }
-        catch (Exception ex) when (!ex.IsCancellation())
+        // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+        catch (Exception ex)
         {
             // Cached entries may still accept a revoked key. Validate against the store until they have
             // aged out. Other instances sharing the cache cannot learn this, so they keep serving the

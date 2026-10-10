@@ -156,7 +156,8 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             {
                 await entry.Client.DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception ex) when (!ex.IsCancellation())
+            // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+            catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error disposing MCP client for {ServerId}", serverId);
             }
@@ -250,7 +251,8 @@ public sealed class McpToolRegistry : IMcpToolRegistry
                 _logger.LogInformation("Shutting down MCP server {ServerId}...", kvp.Key);
                 await kvp.Value.Client.DisposeAsync().ConfigureAwait(false);
             }
-            catch (Exception ex) when (!ex.IsCancellation())
+            // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+            catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error disposing MCP client for {ServerId}", kvp.Key);
             }

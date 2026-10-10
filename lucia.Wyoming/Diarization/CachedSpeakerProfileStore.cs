@@ -152,7 +152,8 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
         {
             await _cache.RemoveAsync(EnrolledCacheKey).ConfigureAwait(false);
         }
-        catch (Exception ex) when (!ex.IsCancellation())
+        // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+        catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to invalidate enrolled profiles cache");
         }

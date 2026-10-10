@@ -21,14 +21,14 @@ public sealed class CachedApiKeyServiceTests
     private CachedApiKeyService CreateService()
         => new(_inner, new InMemoryKeyValueCache(new MemoryCache(new MemoryCacheOptions())), _logger, cacheDuration: ShortCache);
 
-    private sealed class GenerationWriteFailsCache(IKeyValueCache inner) : IKeyValueCache
+    private sealed class GenerationWriteFailsCache(IKeyValueCache inner, Exception? failure = null) : IKeyValueCache
     {
         public Task<string?> GetAsync(string key, CancellationToken cancellationToken = default)
             => inner.GetAsync(key, cancellationToken);
 
         public Task SetAsync(string key, string value, TimeSpan timeToLive, CancellationToken cancellationToken = default)
             => key.EndsWith("generation", StringComparison.Ordinal)
-                ? throw new InvalidOperationException("cache is read-only")
+                ? throw (failure ?? new InvalidOperationException("cache is read-only"))
                 : inner.SetAsync(key, value, timeToLive, cancellationToken);
 
         public Task RemoveAsync(string key, CancellationToken cancellationToken = default)
@@ -54,6 +54,21 @@ public sealed class CachedApiKeyServiceTests
             .Returns(Task.FromResult<ApiKeyEntry?>(null));
 
         Assert.Null(await svc.ValidateKeyAsync(plaintext));
+    }
+
+    [Fact]
+    public async Task RevokeKeyAsync_WhenInvalidationTimesOut_StillRevokes()
+    {
+        A.CallTo(() => _inner.RevokeKeyAsync("key-1", A<CancellationToken>._)).Returns(true);
+        var svc = new CachedApiKeyService(
+            _inner,
+            new GenerationWriteFailsCache(
+                new InMemoryKeyValueCache(new MemoryCache(new MemoryCacheOptions())),
+                new TaskCanceledException("timed out", new TimeoutException())),
+            _logger,
+            cacheDuration: ShortCache);
+
+        Assert.True(await svc.RevokeKeyAsync("key-1"));
     }
 
     [Fact]

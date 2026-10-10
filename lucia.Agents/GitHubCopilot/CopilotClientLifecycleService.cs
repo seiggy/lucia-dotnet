@@ -108,7 +108,8 @@ public sealed class CopilotClientLifecycleService : IHostedService, IAsyncDispos
             await client.DisposeAsync().ConfigureAwait(false);
             _logger.LogInformation("GitHub Copilot CLI stopped");
         }
-        catch (Exception ex) when (!ex.IsCancellation())
+        // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+        catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error stopping GitHub Copilot CLI");
         }

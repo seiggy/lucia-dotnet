@@ -228,7 +228,8 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             var elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
             TraceCaptureTelemetry.CaptureLatency.Record(elapsedMs);
         }
-        catch (Exception ex) when (!ex.IsCancellation())
+        // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+        catch (Exception ex)
         {
             TraceCaptureTelemetry.StorageErrors.Add(1);
             _logger.LogError(ex, "Failed to persist conversation trace {TraceId}", trace.Id);
