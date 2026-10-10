@@ -85,7 +85,7 @@ The following features have been implemented and are working:
 - [x] Local LLM integration - Ollama/local model support available `L`
 - [ ] Pattern recognition - Identify user behavior patterns `XL`
 - [ ] Automation suggestions - Recommend automations based on usage `L`
-- [x] Persistent runtime storage - Redis + MongoDB for sessions, traces, config, and task records `M`
+- [x] Persistent runtime storage - Redis + PostgreSQL or SQLite for sessions, traces, config, and task records `M`
 
 ### Should-Have Features
 

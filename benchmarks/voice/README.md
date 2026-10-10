@@ -33,7 +33,7 @@ For the Jetson voice deployment:
 docker compose -p lucia-voice -f infra/docker/docker-compose.jetson-voice.yml cp lucia-agenthost-voice:/app/data/voice-clips benchmarks/voice/live-clips
 ```
 
-Speaker profile embeddings stay in PostgreSQL or MongoDB and already use persistent database volumes. Accepted enrollment WAV files are stored under their final profile ID. The benchmark recomputes embeddings from recordings for each candidate model, so copied stored embeddings are not valid comparison inputs.
+Speaker profile embeddings stay in PostgreSQL or SQLite and already use persistent database volumes. Accepted enrollment WAV files are stored under their final profile ID. The benchmark recomputes embeddings from recordings for each candidate model, so copied stored embeddings are not valid comparison inputs.
 
 Example manifest:
 
