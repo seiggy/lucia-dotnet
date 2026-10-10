@@ -7,7 +7,7 @@
 #   From infra/docker: ./deploy-lucia.sh
 #
 # Options:
-#   --wipe     Stop containers and remove all Lucia volumes (Redis + MongoDB).
+#   --wipe     Stop containers and remove all Lucia volumes (Redis + PostgreSQL).
 #              Next up will start with empty DBs; you will need to run setup again.
 #   --rebuild  Build images with --no-cache before starting.
 #
@@ -65,7 +65,7 @@ compose() {
 }
 
 if [[ $WIPE -eq 1 ]]; then
-  echo "Wiping Lucia data: stopping containers and removing volumes (lucia-redis-data, lucia-mongo-data)..."
+  echo "Wiping Lucia data: stopping containers and removing volumes (lucia-redis-data, lucia-postgres-data)..."
   compose down -v
   echo "Lucia data wiped."
 fi

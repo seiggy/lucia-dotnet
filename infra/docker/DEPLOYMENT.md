@@ -24,7 +24,7 @@ This guide covers deploying Lucia Agent Host using Docker Compose for single-nod
 - Docker Engine 24.0+ ([Install](https://docs.docker.com/get-docker/))
 - Docker Compose v2.20+ ([Install](https://docs.docker.com/compose/install/))
 - 2GB available RAM
-- 10GB free disk space (for logs, Redis, and MongoDB persistence)
+- 10GB free disk space (for logs, Redis, and PostgreSQL persistence)
 
 ### Recommended
 
@@ -61,7 +61,7 @@ Open `http://localhost:7233` in your browser. The setup wizard will guide you th
 2. **Home Assistant** — Enter your HA URL and long-lived access token
 3. **API Key** — Set an optional API key for securing the Lucia API
 
-All configuration is stored in MongoDB and persists across restarts.
+All configuration is stored in PostgreSQL and persists across restarts.
 
 ### 3. Verify Deployment
 
@@ -75,8 +75,8 @@ curl http://localhost:7233/health
 # Redis connectivity
 docker compose exec lucia-redis redis-cli PING
 
-# MongoDB connectivity
-docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
+# PostgreSQL connectivity
+docker compose exec lucia-postgres pg_isready -U postgres
 ```
 
 ### 4. Test Agent API
@@ -95,7 +95,7 @@ curl -X POST http://localhost:7233/api/chat \
 
 Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:
 
-- **Standalone** (default) — `standalone`: All agents run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB.
+- **Standalone** (default) — `standalone`: All agents run embedded in the main AgentHost process. Simplest setup — single container plus Redis and PostgreSQL.
 - **Mesh** — `mesh`: Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution.
 
 **When to use each mode:**
@@ -114,12 +114,12 @@ environment:
 
 ### Setup Wizard (Recommended)
 
-All user-facing configuration — LLM provider, Home Assistant connection, API keys — is handled by the setup wizard on first launch. Settings are stored in MongoDB (`luciaconfig` database) and loaded automatically on startup.
+All user-facing configuration — LLM provider, Home Assistant connection, API keys — is handled by the setup wizard on first launch. Settings are stored in PostgreSQL (`luciaconfig` database) and loaded automatically on startup.
 
-To re-run the setup wizard, drop the luciaconfig database (clears config, API keys, agents, model providers):
+To re-run the setup wizard, reset the luciaconfig database (clears config, API keys, agents, model providers):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml exec lucia-mongo mongosh luciaconfig --eval "db.dropDatabase()"
+docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml exec lucia-postgres sh -c 'psql -U postgres -c "DROP DATABASE luciaconfig WITH (FORCE)" -c "CREATE DATABASE luciaconfig"'
 docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml restart lucia
 ```
 
@@ -133,9 +133,9 @@ The `docker-compose.yml` only contains infrastructure-level environment variable
 | -------- | ------- | ------- |
 | `ASPNETCORE_ENVIRONMENT` | Runtime environment | `Production` |
 | `ASPNETCORE_URLS` | Listen address | `http://+:8080` |
-| `ConnectionStrings__luciatraces` | MongoDB traces DB | `mongodb://lucia-mongo:27017/luciatraces` |
-| `ConnectionStrings__luciaconfig` | MongoDB config DB | `mongodb://lucia-mongo:27017/luciaconfig` |
-| `ConnectionStrings__luciatasks` | MongoDB tasks DB | `mongodb://lucia-mongo:27017/luciatasks` |
+| `ConnectionStrings__luciatraces` | PostgreSQL traces DB | `Host=lucia-postgres;Database=luciatraces;Username=postgres;Password=...` |
+| `ConnectionStrings__luciaconfig` | PostgreSQL config DB | `Host=lucia-postgres;Database=luciaconfig;Username=postgres;Password=...` |
+| `ConnectionStrings__luciatasks` | PostgreSQL tasks DB | `Host=lucia-postgres;Database=luciatasks;Username=postgres;Password=...` |
 | `ConnectionStrings__redis` | Redis connection | `lucia-redis:6379` |
 | `Deployment__Mode` | Deployment topology | `standalone` (omitted = standalone) |
 
@@ -284,14 +284,14 @@ curl http://localhost:7233/health
 # Redis connectivity
 docker compose exec lucia-redis redis-cli PING
 
-# MongoDB connectivity
-docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
+# PostgreSQL connectivity
+docker compose exec lucia-postgres pg_isready -U postgres
 ```
 
 ### Restart Services
 
 ```bash
-# Restart Lucia (keeps Redis/MongoDB running)
+# Restart Lucia (keeps Redis/PostgreSQL running)
 docker compose restart lucia
 
 # Restart everything
@@ -304,12 +304,13 @@ docker compose up -d
 
 ### Backup and Restore
 
-#### Backup MongoDB Data
+#### Backup PostgreSQL Data
 
 ```bash
-# Dump all Lucia databases
-docker compose exec lucia-mongo mongodump --out /tmp/backup
-docker cp lucia-mongo:/tmp/backup ./backups/mongo-$(date +%Y%m%d)
+# Dump all Lucia databases (custom format)
+docker compose exec lucia-postgres sh -c 'for db in luciaconfig luciatraces luciatasks; do pg_dump -U postgres -Fc $db > /tmp/$db.dump; done'
+mkdir -p ./backups/postgres-$(date +%Y%m%d)
+docker cp lucia-postgres:/tmp/. ./backups/postgres-$(date +%Y%m%d)/
 ```
 
 #### Backup Redis Data
@@ -319,11 +320,11 @@ docker run --rm -v lucia-redis-data:/data -v ./backups:/backups \
   redis:8.2-alpine tar czf /backups/redis-$(date +%Y%m%d).tar.gz -C / data
 ```
 
-#### Restore MongoDB Data
+#### Restore PostgreSQL Data
 
 ```bash
-docker cp ./backups/mongo-20260225 lucia-mongo:/tmp/restore
-docker compose exec lucia-mongo mongorestore /tmp/restore
+docker cp ./backups/postgres-20260225/. lucia-postgres:/tmp/restore/
+docker compose exec lucia-postgres sh -c 'for db in luciaconfig luciatraces luciatasks; do pg_restore -U postgres -d $db --clean --if-exists /tmp/restore/$db.dump; done'
 ```
 
 #### Restore Redis Data
@@ -352,10 +353,6 @@ docker compose up -d
 
 ## Troubleshooting
 
-### MongoDB crash-loop on Linux kernel 6.19+
-
-If you see `Linux kernel versions 6.19 and newer has a known incompatibility` in `docker logs lucia-mongo`, the workaround is already built into compose via `GLIBC_TUNABLES=glibc.pthread.rseq=1` on the `lucia-mongo` service. If you're on a custom compose file, copy that env var across. See upstream: [SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912).
-
 ### Services Won't Start
 
 ```bash
@@ -379,8 +376,8 @@ docker compose ps
 # Check if the port is reachable
 curl -v http://localhost:7233/health
 
-# Check MongoDB connectivity (setup state is stored there)
-docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
+# Check PostgreSQL connectivity (setup state is stored there)
+docker compose exec lucia-postgres pg_isready -U postgres
 ```
 
 ### High Memory Usage
@@ -432,7 +429,7 @@ curl http://localhost:11434/api/tags
 
 ```bash
 # Default: 0.0.0.0:7233 (LAN-accessible — required for Home Assistant integration)
-# Redis/MongoDB remain localhost-only (127.0.0.1)
+# Redis stays localhost-only (127.0.0.1); PostgreSQL is not published
 
 # To restrict AgentHost to localhost only, change in docker-compose.yml:
 # ports:
