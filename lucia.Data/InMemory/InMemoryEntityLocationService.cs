@@ -449,9 +449,7 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService, IAge
 
         var trimmed = query.Trim();
 
-        if (snap.AreaById.TryGetValue(trimmed, out var area))
-            return area;
-
+        // Display names only; area_id is an internal Home Assistant identifier.
         foreach (var a in snap.Areas)
         {
             if (string.Equals(a.Name, trimmed, StringComparison.OrdinalIgnoreCase))
