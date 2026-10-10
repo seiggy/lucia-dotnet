@@ -29,6 +29,34 @@ Not done, found along the way:
 - The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.
 - RELEASE_NOTES needs a breaking-change entry: MongoDB removed, re-run setup, new compose env (`POSTGRES_PASSWORD`), Helm values (`bundledPostgres`, no `mongodb`/`a2aAgents`).
 
+## EntityLocationService split design
+
+Agreed approach. Facade first: `IEntityLocationService` stays, and the 34 production and 23 test consumers keep compiling. Narrow interfaces come later.
+
+Facts behind it:
+- `EntityLocationService` (Redis, 1,438 lines) and `InMemoryEntityLocationService` (1,021 lines) share 39 of about 47 method names. They differ in where the snapshot is persisted, how staleness is detected (Redis version counter) and where visibility config lives.
+- In-memory mode loses per-agent visibility settings on every restart and regenerates all embeddings on each boot.
+
+Target classes, one per file:
+
+| Class | Job |
+|---|---|
+| `LocationSnapshotLoader` | Load and build floors, areas and entities from Home Assistant |
+| `LocationSearchService` | Hybrid and hierarchical search, exact match, find by location. Pure logic over a snapshot |
+| `EntityEmbeddingJob` | Batching, retries, regenerate and evict |
+| `EntityVisibilityService` | Exposed-only flag and per-agent filters |
+| `ILocationSnapshotStore` | Persist and reload the snapshot, plus the version counter. Redis and in-memory implementations |
+| `IVisibilityConfigStore` | Persist the visibility config. Redis implementation (same key as today) when Redis is the cache provider, config-store implementation (`IConfigStoreWriter`) otherwise |
+| `EntityLocationService` | Thin facade implementing today's interface. Replaces `InMemoryEntityLocationService`, which becomes a registration |
+
+Order of work, each step its own commit with characterization tests first:
+1. Characterization tests for search and visibility behaviour through the interface, run against both current implementations.
+2. Extract `LocationSearchService` (pure, lowest risk).
+3. Extract `LocationSnapshotLoader` and `EntityEmbeddingJob`.
+4. Introduce the two store interfaces with the Redis and in-memory implementations; route the facade through them.
+5. Add the config-store visibility implementation, so visibility persists in SQLite and PostgreSQL deployments. Behaviour change: visibility now survives restarts in non-Redis mode.
+6. Delete `InMemoryEntityLocationService`; `lucia.Agents` drops its Redis package; add the architecture test.
+
 ## Health by namespace
 
 | Namespace | Files | LOC | Health | Notes |
