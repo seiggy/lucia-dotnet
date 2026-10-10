@@ -30,7 +30,7 @@ public interface ILuciaPlugin
     /// <summary>
     /// Configurable properties exposed by this plugin.
     /// The dashboard generates a dynamic form from these definitions.
-    /// Values are stored in the standard MongoDB config store under <see cref="ConfigSection"/>.
+    /// Values are stored in the standard config store under <see cref="ConfigSection"/>.
     /// </summary>
     IReadOnlyList<PluginConfigProperty> ConfigProperties => [];
 

@@ -80,7 +80,7 @@ public sealed class DynamicAgentLoader : BackgroundService
     }
 
     /// <summary>
-    /// Reloads all dynamic agent definitions from MongoDB and re-registers them.
+    /// Reloads all dynamic agent definitions from the store and re-registers them.
     /// Called on startup and on-demand via the reload API.
     /// </summary>
     public async Task ReloadAsync(CancellationToken ct = default)

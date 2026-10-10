@@ -12,7 +12,7 @@ namespace lucia.Agents.Training;
 
 /// <summary>
 /// Singleton observer that captures orchestrator request lifecycles into
-/// <see cref="ConversationTrace"/> objects and persists them to MongoDB.
+/// <see cref="ConversationTrace"/> objects and persists them to the trace store.
 /// Uses a <see cref="ConcurrentDictionary{TKey,TValue}"/> keyed by request ID
 /// instead of <see cref="AsyncLocal{T}"/>, which does not survive the MAF
 /// <c>InProcessExecution</c> workflow boundary.

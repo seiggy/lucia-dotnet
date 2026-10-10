@@ -1,11 +1,9 @@
 using lucia.Agents.Configuration;
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.Agents.PluginFramework;
 
 /// <summary>
-/// MongoDB document representing a configured plugin repository.
+/// Document representing a configured plugin repository.
 /// Caches the fetched manifest for dashboard queries.
 /// </summary>
 public sealed class PluginRepositoryDefinition
@@ -13,8 +11,6 @@ public sealed class PluginRepositoryDefinition
     public const string CollectionName = "pluginRepositories";
     public const string DatabaseName = "luciaconfig";
 
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = default!;
 
     public string Name { get; set; } = default!;

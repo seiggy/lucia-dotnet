@@ -10,7 +10,7 @@ public interface ISkillConfigProvider
     /// <summary>
     /// Returns the skill configuration sections this agent owns.
     /// Each section maps to an <see cref="Microsoft.Extensions.Options.IOptionsMonitor{TOptions}"/>
-    /// that hot-reloads from the MongoDB configuration store.
+    /// that hot-reloads from the configuration store.
     /// </summary>
     IReadOnlyList<SkillConfigSection> GetSkillConfigSections();
 }

@@ -10,7 +10,7 @@ namespace lucia.Agents.Mcp;
 
 /// <summary>
 /// Manages MCP client connections and exposes a tool catalog for dynamic agents.
-/// Connects to MCP servers defined in MongoDB, caches clients, and resolves
+/// Connects to MCP servers defined in the store, caches clients, and resolves
 /// individual tools by serverId + toolName.
 ///
 /// MCP stdio server processes are long-lived — they are spawned without a

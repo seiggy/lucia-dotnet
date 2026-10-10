@@ -6,7 +6,7 @@ namespace lucia.Agents.Auth;
 
 /// <summary>
 /// Decorator that caches <see cref="IApiKeyService.ValidateKeyAsync"/> results in memory
-/// to avoid a MongoDB round-trip on every authenticated request. The cache is invalidated
+/// to avoid a database round-trip on every authenticated request. The cache is invalidated
 /// automatically when keys are created, revoked, or regenerated.
 /// </summary>
 public sealed class CachedApiKeyService : IApiKeyService

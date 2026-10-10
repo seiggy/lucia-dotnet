@@ -20,12 +20,12 @@ public sealed class TraceCaptureOptions
         @"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     ];
 
-    /// <summary>MongoDB database name for trace storage.</summary>
+    /// <summary>Database name for trace storage.</summary>
     public string DatabaseName { get; set; } = "luciatraces";
 
-    /// <summary>MongoDB collection name for conversation traces.</summary>
+    /// <summary>Collection name for conversation traces.</summary>
     public string TracesCollectionName { get; set; } = "traces";
 
-    /// <summary>MongoDB collection name for dataset export records.</summary>
+    /// <summary>Collection name for dataset export records.</summary>
     public string ExportsCollectionName { get; set; } = "exports";
 }

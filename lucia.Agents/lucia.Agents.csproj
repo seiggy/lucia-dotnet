@@ -32,7 +32,6 @@
     <PackageReference Include="Microsoft.ML.Tokenizers" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" />
-    <PackageReference Include="MongoDB.Driver" />
     <PackageReference Include="OllamaSharp" />
     <PackageReference Include="System.Linq.Async">
       <ExcludeAssets>all</ExcludeAssets>

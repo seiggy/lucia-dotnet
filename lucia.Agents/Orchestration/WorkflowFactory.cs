@@ -118,7 +118,7 @@ public sealed class WorkflowFactory
         // Do NOT wrap them as A2AAgent here (AsAIAgent creates an internal HttpClient
         // that bypasses Aspire service discovery).
 
-        // Resolve dynamic agents (user-defined via MCP) — lazily built from latest Mongo definition
+        // Resolve dynamic agents (user-defined via MCP) — lazily built from latest stored definition
         if (_dynamicAgentProvider is null) return resolved.AsReadOnly();
         
         foreach (var dynamicAgent in _dynamicAgentProvider.GetAllAgents())

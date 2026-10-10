@@ -1,20 +1,16 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.Agents.Configuration.UserConfiguration;
 
 /// <summary>
-/// Represents a single configuration entry persisted to MongoDB.
+/// Represents a single persisted configuration entry.
 /// Uses flat ASP.NET Core configuration key format (e.g., "HomeAssistant:BaseUrl").
 /// </summary>
 public sealed class ConfigEntry
 {
     /// <summary>
-    /// MongoDB document ID — uses the configuration key as the natural ID.
+    /// Document ID. Uses the configuration key as the natural ID.
     /// Example: "HomeAssistant:BaseUrl"
     /// </summary>
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
     public string Key { get; set; } = default!;
 
     /// <summary>
@@ -45,12 +41,12 @@ public sealed class ConfigEntry
     public bool IsSensitive { get; set; }
 
     /// <summary>
-    /// Collection name constant for MongoDB.
+    /// Collection name constant.
     /// </summary>
     public const string CollectionName = "configuration";
 
     /// <summary>
-    /// Database name constant for MongoDB.
+    /// Database name constant.
     /// </summary>
     public const string DatabaseName = "luciaconfig";
 }

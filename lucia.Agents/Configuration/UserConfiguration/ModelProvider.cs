@@ -1,10 +1,8 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.Agents.Configuration.UserConfiguration;
 
 /// <summary>
-/// User-configured LLM provider connection stored in MongoDB.
+/// User-configured LLM provider connection stored in the database.
 /// Each provider maps to a unique key and produces an IChatClient at runtime.
 /// </summary>
 public sealed class ModelProvider
@@ -13,8 +11,6 @@ public sealed class ModelProvider
     /// Unique key for this provider (e.g., "gpt4o-prod", "claude-sonnet").
     /// Used as the reference key in agent definitions.
     /// </summary>
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = default!;
 
     /// <summary>
@@ -25,14 +21,12 @@ public sealed class ModelProvider
     /// <summary>
     /// The LLM provider SDK to use for creating the client.
     /// </summary>
-    [BsonRepresentation(BsonType.String)]
     public ProviderType ProviderType { get; set; }
 
     /// <summary>
     /// Whether this provider produces a chat client or an embedding generator.
     /// Defaults to <see cref="ModelPurpose.Chat"/> for backward compatibility.
     /// </summary>
-    [BsonRepresentation(BsonType.String)]
     public ModelPurpose Purpose { get; set; } = ModelPurpose.Chat;
 
     /// <summary>

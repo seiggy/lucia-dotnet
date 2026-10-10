@@ -75,9 +75,7 @@ public static class ServiceCollectionExtensions
 
         // Determine data provider mode (avoids circular dependency on lucia.Data)
         var cacheProvider = builder.Configuration["DataProvider:Cache"] ?? "Redis";
-        var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
         var useRedis = !cacheProvider.Equals("InMemory", StringComparison.OrdinalIgnoreCase);
-        var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
 
         if (useRedis)
         {
@@ -112,10 +110,6 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<SkillOptimizerService>();
 
         // Register presence detection service (auto-discovers sensors, maps to areas)
-        if (useMongo)
-        {
-            builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
-        }
         builder.Services.AddSingleton<IPresenceDetectionService, PresenceDetectionService>();
 
         builder.Services.Configure<RouterExecutorOptions>(
@@ -158,7 +152,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<OrchestratorAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<OrchestratorAgent>());
 
-        // Skill options (hot-reloaded from MongoDB configuration)
+        // Skill options (hot-reloaded from the configuration store)
         builder.Services.Configure<LightControlSkillOptions>(
             builder.Configuration.GetSection(LightControlSkillOptions.SectionName));
         builder.Services.Configure<SecurityControlSkillOptions>(
@@ -215,27 +209,19 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHostedService<InputRequiredTimeoutService>();
 
         // Register MCP tool registry and dynamic agent system
-        if (useMongo)
-        {
-            builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
-        }
         builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
         builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
         builder.Services.AddSingleton<DynamicAgentLoader>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DynamicAgentLoader>());
 
         // Register model provider system
-        if (useMongo)
-        {
-            builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
-        }
         builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
         builder.Services.AddSingleton<CopilotConnectService>();
         builder.Services.AddSingleton<CopilotClientLifecycleService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<CopilotClientLifecycleService>());
 
         // Register embedding provider resolver — skills use this to get IEmbeddingGenerator
-        // from the MongoDB-backed model provider system instead of hardcoded connection strings.
+        // from the model provider system instead of hardcoded connection strings.
         builder.Services.AddSingleton<IEmbeddingProviderResolver, EmbeddingProviderResolver>();
 
         // Register chat client resolver — built-in agents use this to resolve IChatClient

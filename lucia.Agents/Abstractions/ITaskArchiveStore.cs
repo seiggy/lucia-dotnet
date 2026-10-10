@@ -6,7 +6,7 @@ using lucia.Agents.Training.Models;
 namespace lucia.Agents.Abstractions;
 
 /// <summary>
-/// Durable archive store for completed agent tasks (MongoDB-backed).
+/// Durable archive store for completed agent tasks (database-backed).
 /// </summary>
 public interface ITaskArchiveStore
 {
