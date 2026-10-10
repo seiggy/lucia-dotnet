@@ -29,6 +29,9 @@ public abstract class EntityLocationServiceContract
     protected static IHybridEntityMatcher Matcher()
         => new HybridEntityMatcher(new EmbeddingSimilarityService(), NullLogger<HybridEntityMatcher>.Instance);
 
+    protected static LocationSearchService Search()
+        => new(EmbeddingResolver(), Matcher(), NullLogger<LocationSearchService>.Instance);
+
     protected static async Task LoadAsync(IEntityLocationService service)
     {
         await service.InitializeAsync();

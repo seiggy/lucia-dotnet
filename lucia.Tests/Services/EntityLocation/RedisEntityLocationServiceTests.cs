@@ -29,7 +29,7 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
             home.Client,
             redis,
             EmbeddingResolver(),
-            Matcher(),
+            Search(),
             NullLogger<EntityLocationService>.Instance);
         return new StoreScope<IEntityLocationService>(service, () => ValueTask.CompletedTask);
     }
@@ -44,7 +44,7 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
 
         var secondHome = new SampleHomeAssistant();
         var second = new EntityLocationService(
-            secondHome.Client, redis, EmbeddingResolver(), Matcher(), NullLogger<EntityLocationService>.Instance);
+            secondHome.Client, redis, EmbeddingResolver(), Search(), NullLogger<EntityLocationService>.Instance);
         await second.InitializeAsync();
 
         Assert.Equal(0, secondHome.RegistryLoadCount);
@@ -61,7 +61,7 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
         var redis = await SharedRedis.Value;
 
         var second = new EntityLocationService(
-            new SampleHomeAssistant().Client, redis, EmbeddingResolver(), Matcher(), NullLogger<EntityLocationService>.Instance);
+            new SampleHomeAssistant().Client, redis, EmbeddingResolver(), Search(), NullLogger<EntityLocationService>.Instance);
         await second.InitializeAsync();
 
         Assert.Equal(["light-agent"], (await second.GetVisibilityConfigAsync()).EntityAgentMap["light.porch"]);

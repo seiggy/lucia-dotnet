@@ -52,7 +52,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
     private readonly IHomeAssistantClient _haClient;
     private readonly IConnectionMultiplexer _redis;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
-    private readonly IHybridEntityMatcher _entityMatcher;
+    private readonly LocationSearchService _search;
     private readonly ILogger<EntityLocationService> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
     private readonly object _embeddingJobGate = new();
@@ -108,13 +108,13 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         IHomeAssistantClient haClient,
         IConnectionMultiplexer redis,
         IEmbeddingProviderResolver embeddingResolver,
-        IHybridEntityMatcher entityMatcher,
+        LocationSearchService search,
         ILogger<EntityLocationService> logger)
     {
         _haClient = haClient;
         _redis = redis;
         _embeddingResolver = embeddingResolver;
-        _entityMatcher = entityMatcher;
+        _search = search;
         _logger = logger;
     }
 
@@ -189,13 +189,13 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
     public Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         string locationName, CancellationToken ct = default)
-        => FindEntitiesByLocationAsync(locationName, domainFilter: null, DefaultLocationOptions, ct);
+        => FindEntitiesByLocationAsync(locationName, domainFilter: null, LocationSearchService.DefaultOptions, ct);
 
     public Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         string locationName,
         IReadOnlyList<string>? domainFilter,
         CancellationToken ct = default)
-        => FindEntitiesByLocationAsync(locationName, domainFilter, DefaultLocationOptions, ct);
+        => FindEntitiesByLocationAsync(locationName, domainFilter, LocationSearchService.DefaultOptions, ct);
 
     public async Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         string locationName,
@@ -204,82 +204,8 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("search.query", locationName);
-        var start = Stopwatch.GetTimestamp();
-        SearchCount.Add(1);
-
-        try
-        {
-            var snap = _snapshot;
-            var matchedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            string? matchType = null;
-
-            var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-
-            // 1. Hybrid search against areas (name + aliases scored by HybridEntityMatcher)
-            if (embeddingService is not null)
-            {
-                var areaMatches = await _entityMatcher.FindMatchesAsync(
-                    locationName, snap.Areas, embeddingService,
-                    hybridMatchOptions, ct).ConfigureAwait(false);
-
-                foreach (var match in areaMatches)
-                {
-                    matchedAreaIds.Add(match.Entity.AreaId);
-                    matchType = "hybrid_area";
-                }
-            }
-
-            // 2. Hybrid search against floors → expand to all areas on matched floors
-            if (matchedAreaIds.Count == 0 && embeddingService is not null)
-            {
-                var floorMatches = await _entityMatcher.FindMatchesAsync(
-                    locationName, snap.Floors, embeddingService,
-                    hybridMatchOptions, ct).ConfigureAwait(false);
-
-                foreach (var floorMatch in floorMatches)
-                {
-                    foreach (var area in snap.Areas)
-                    {
-                        if (area.FloorId == floorMatch.Entity.FloorId)
-                            matchedAreaIds.Add(area.AreaId);
-                    }
-                    matchType = "hybrid_floor";
-                }
-            }
-
-            activity?.SetTag("search.match_type", matchType ?? "none");
-            activity?.SetTag("search.matched_areas", matchedAreaIds.Count);
-
-            if (matchedAreaIds.Count == 0)
-            {
-                _logger.LogDebug("No location match found for '{LocationName}'", locationName);
-                return ImmutableArray<HomeAssistantEntity>.Empty;
-            }
-
-            // Collect entities from matched areas, applying domain filter
-            var result = snap.Entities
-                .Where(e => e.AreaId is not null && matchedAreaIds.Contains(e.AreaId));
-
-            if (domainFilter is { Count: > 0 })
-            {
-                var filterSet = domainFilter.ToHashSet(StringComparer.OrdinalIgnoreCase);
-                result = result.Where(e => filterSet.Contains(e.Domain));
-            }
-
-            var matched = result.ToImmutableArray();
-
-            _logger.LogDebug(
-                "Location search '{LocationName}' matched {MatchType}: {AreaCount} areas, {EntityCount} entities",
-                locationName, matchType, matchedAreaIds.Count, matched.Length);
-
-            return matched;
-        }
-        finally
-        {
-            SearchDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        return await _search.FindEntitiesByLocationAsync(_snapshot, locationName, domainFilter, hybridMatchOptions, ct)
+            .ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesAsync(
@@ -289,35 +215,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
-
-        var candidates = (IReadOnlyList<HomeAssistantEntity>)_snapshot.Entities;
-        if (domainFilter is { Count: > 0 })
-        {
-            var filterSet = domainFilter.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            candidates = _snapshot.Entities.Where(e => filterSet.Contains(e.Domain)).ToList();
-        }
-
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        if (embeddingService is null)
-        {
-            // Fallback: substring match on FriendlyName and EntityId when no embedding provider
-            var substringMatches = candidates
-                .Where(e =>
-                    (e.FriendlyName is not null && e.FriendlyName.Contains(query, StringComparison.OrdinalIgnoreCase))
-                    || e.EntityId.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(e => e.FriendlyName, StringComparer.OrdinalIgnoreCase)
-                .Select(e => new EntityMatchResult<HomeAssistantEntity>
-                {
-                    Entity = e,
-                    HybridScore = 1.0,
-                    EmbeddingSimilarity = 0.0
-                })
-                .ToList();
-            return substringMatches;
-        }
-
-        return await _entityMatcher.FindMatchesAsync(
-            query, candidates, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
+        return await _search.SearchEntitiesAsync(_snapshot, query, domainFilter, options, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<EntityMatchResult<AreaInfo>>> SearchAreasAsync(
@@ -326,13 +224,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
-
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        if (embeddingService is null)
-            return [];
-
-        return await _entityMatcher.FindMatchesAsync(
-            query, _snapshot.Areas, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
+        return await _search.SearchAreasAsync(_snapshot, query, options, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<EntityMatchResult<FloorInfo>>> SearchFloorsAsync(
@@ -341,13 +233,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
-
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        if (embeddingService is null)
-            return [];
-
-        return await _entityMatcher.FindMatchesAsync(
-            query, _snapshot.Floors, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
+        return await _search.SearchFloorsAsync(_snapshot, query, options, ct).ConfigureAwait(false);
     }
 
     public Task<HierarchicalSearchResult> SearchHierarchyAsync(
@@ -373,156 +259,13 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         CancellationToken ct)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
-
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        var opts = options ?? DefaultLocationOptions;
-        var snap = _snapshot;
-
-        IReadOnlyList<EntityMatchResult<FloorInfo>> floorMatches = [];
-        IReadOnlyList<EntityMatchResult<AreaInfo>> areaMatches = [];
-        IReadOnlyList<EntityMatchResult<HomeAssistantEntity>> entityMatches = [];
-
-        // Build the domain-filtered entity list once
-        var filteredEntities = domainFilter is { Count: > 0 }
-            ? snap.Entities.Where(e => 
-                    domainFilter.Contains(e.Domain, StringComparer.OrdinalIgnoreCase) &&
-                    (e.IncludeForAgent == null || e.IncludeForAgent.Count > 0)
-                )
-                .ToList()
-            : (IReadOnlyList<HomeAssistantEntity>)snap.Entities;
-        if (callerAgentId is not null)
-        {
-            filteredEntities = filteredEntities
-                .Where(entity => entity.IncludeForAgent is null
-                    || entity.IncludeForAgent.Contains(callerAgentId))
-                .ToList();
-        }
-
-        if (embeddingService is not null)
-        {
-            // Search all three levels in parallel
-            var floorTask = _entityMatcher.FindMatchesAsync(
-                query, snap.Floors, embeddingService, opts, ct);
-            var areaTask = _entityMatcher.FindMatchesAsync(
-                query, snap.Areas, embeddingService, opts, ct);
-            var entityTask = _entityMatcher.FindMatchesAsync(
-                query, filteredEntities, embeddingService, opts, ct);
-
-            await Task.WhenAll(floorTask, areaTask, entityTask).ConfigureAwait(false);
-
-            floorMatches = await floorTask.ConfigureAwait(false);
-            areaMatches = await areaTask.ConfigureAwait(false);
-            entityMatches = await entityTask.ConfigureAwait(false);
-        }
-
-        // Compare best embedding similarity across levels to decide resolution path
-        var bestEntityHybrid = entityMatches.Count > 0
-            ? entityMatches.Max(m => m.HybridScore)
-            : (double?)null;
-        
-        var bestAreaHybrid = areaMatches.Count > 0
-            ? areaMatches.Max(m => m.HybridScore)
-            : (double?)null;
-        var bestFloorHybrid = floorMatches.Count > 0
-            ? floorMatches.Max(m => m.HybridScore)
-            : (double?)null;
-        
-        var margin = opts.EmbeddingResolutionMargin;
-
-        ResolutionStrategy strategy;
-        string reason;
-        List<HomeAssistantEntity> resolvedEntities;
-
-        if (bestEntityHybrid is not null
-            && (bestAreaHybrid is null || bestAreaHybrid - bestEntityHybrid < margin)
-            && (bestFloorHybrid is null || bestFloorHybrid - bestEntityHybrid < margin))
-        {
-            // Entity embedding is clearly stronger — user means a specific device
-            strategy = ResolutionStrategy.Entity;
-            reason = $"Entity path: best entity score {bestEntityHybrid:F4}"
-                   + $", area {bestAreaHybrid?.ToString("F4") ?? "none"}"
-                   + $", floor {bestFloorHybrid?.ToString("F4") ?? "none"}"
-                   + $" (margin {margin:F2})";
-            resolvedEntities = entityMatches.Select(m => m.Entity).ToList();
-        }
-        else if (bestAreaHybrid is not null
-            && (bestFloorHybrid is null || bestFloorHybrid - bestAreaHybrid < margin))
-        {
-            // Area is the best match — expand to all entities in matched areas
-            strategy = ResolutionStrategy.Area;
-            reason = $"Area path: best area score {bestAreaHybrid:F4}"
-                   + $", entity {bestEntityHybrid?.ToString("F4") ?? "none"}"
-                   + $", floor {bestFloorHybrid?.ToString("F4") ?? "none"}"
-                   + $" (margin {margin:F2})";
-
-            var resolvedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var am in areaMatches)
-                resolvedAreaIds.Add(am.Entity.AreaId);
-
-            resolvedEntities = filteredEntities
-                .Where(e => e.AreaId is not null && resolvedAreaIds.Contains(e.AreaId))
-                .ToList();
-        }
-        else if (bestFloorHybrid is not null)
-        {
-            // Floor match — expand floors → areas → entities
-            strategy = ResolutionStrategy.Floor;
-            reason = $"Floor path: best floor score {bestFloorHybrid:F4}";
-
-            var resolvedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var fm in floorMatches)
-            {
-                foreach (var area in snap.Areas)
-                {
-                    if (string.Equals(area.FloorId, fm.Entity.FloorId, StringComparison.OrdinalIgnoreCase))
-                        resolvedAreaIds.Add(area.AreaId);
-                }
-            }
-
-            resolvedEntities = filteredEntities
-                .Where(e => e.AreaId is not null && resolvedAreaIds.Contains(e.AreaId))
-                .ToList();
-        }
-        else
-        {
-            strategy = ResolutionStrategy.None;
-            reason = "No matches at any level";
-            resolvedEntities = [];
-        }
-
-        return new HierarchicalSearchResult
-        {
-            FloorMatches = floorMatches,
-            AreaMatches = areaMatches,
-            EntityMatches = entityMatches,
-            ResolvedEntities = resolvedEntities,
-            ResolutionStrategy = strategy,
-            ResolutionReason = reason,
-            BestEntityScore = bestEntityHybrid,
-            BestAreaScore = bestAreaHybrid,
-            BestFloorScore = bestFloorHybrid
-        };
+        return await _search.SearchHierarchyAsync(_snapshot, query, options, domainFilter, callerAgentId, ct)
+            .ConfigureAwait(false);
     }
 
-    public AreaInfo? GetAreaForEntity(string entityId)
-    {
-        var snap = _snapshot;
-        if (!snap.EntityById.TryGetValue(entityId, out var entity) || entity.AreaId is null)
-            return null;
+    public AreaInfo? GetAreaForEntity(string entityId) => LocationSearchService.GetAreaForEntity(_snapshot, entityId);
 
-        snap.AreaById.TryGetValue(entity.AreaId, out var area);
-        return area;
-    }
-
-    public FloorInfo? GetFloorForArea(string areaId)
-    {
-        var snap = _snapshot;
-        if (!snap.AreaById.TryGetValue(areaId, out var area) || area.FloorId is null)
-            return null;
-
-        snap.FloorById.TryGetValue(area.FloorId, out var floor);
-        return floor;
-    }
+    public FloorInfo? GetFloorForArea(string areaId) => LocationSearchService.GetFloorForArea(_snapshot, areaId);
 
     // ── Synchronous, cache-only fast-path lookups ───────────────────
 
@@ -534,72 +277,10 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
     /// <inheritdoc />
     public IReadOnlyList<HomeAssistantEntity> ExactMatchEntities(string query, IReadOnlyList<string>? domainFilter = null)
-    {
-        var snap = _snapshot;
-        if (snap.Entities.IsEmpty)
-            return [];
-
-        var trimmed = query.Trim();
-
-        // 1. Exact entity_id match
-        if (snap.EntityById.TryGetValue(trimmed, out var exactEntity))
-        {
-            if (domainFilter is null || domainFilter.Contains(exactEntity.Domain, StringComparer.OrdinalIgnoreCase))
-                return [exactEntity];
-            return [];
-        }
-
-        // 2. Exact area name match → all entities in that area filtered by domain
-        var matchedArea = ExactMatchArea(trimmed);
-        if (matchedArea is not null)
-        {
-            var areaEntities = new List<HomeAssistantEntity>();
-            foreach (var entity in snap.Entities)
-            {
-                if (string.Equals(entity.AreaId, matchedArea.AreaId, StringComparison.OrdinalIgnoreCase)
-                    && (domainFilter is null || domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase)))
-                {
-                    areaEntities.Add(entity);
-                }
-            }
-
-            if (areaEntities.Count > 0)
-                return areaEntities;
-        }
-
-        // 3. Exact friendly name match
-        var results = new List<HomeAssistantEntity>();
-        foreach (var entity in snap.Entities)
-        {
-            if (string.Equals(entity.FriendlyName, trimmed, StringComparison.OrdinalIgnoreCase)
-                && (domainFilter is null || domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase)))
-            {
-                results.Add(entity);
-            }
-        }
-
-        return results;
-    }
+        => LocationSearchService.ExactMatchEntities(_snapshot, query, domainFilter);
 
     /// <inheritdoc />
-    public AreaInfo? ExactMatchArea(string query)
-    {
-        var snap = _snapshot;
-        if (snap.Areas.IsEmpty)
-            return null;
-
-        var trimmed = query.Trim();
-
-        // Match against area names only — not area_id (internal HA identifier).
-        // Users reference areas by display name or alias, not internal IDs.
-        foreach (var a in snap.Areas)
-        {
-            if (string.Equals(a.Name, trimmed, StringComparison.OrdinalIgnoreCase))
-                return a;
-        }
-
-        return null;
-    }
+    public AreaInfo? ExactMatchArea(string query) => LocationSearchService.ExactMatchArea(_snapshot, query);
 
     // ── Private: Loading ────────────────────────────────────────────
 

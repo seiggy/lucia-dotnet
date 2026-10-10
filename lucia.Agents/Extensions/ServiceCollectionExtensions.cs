@@ -78,6 +78,7 @@ public static class ServiceCollectionExtensions
 
         builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
         builder.Services.AddSingleton<IHybridEntityMatcher, HybridEntityMatcher>();
+        builder.Services.AddSingleton<LocationSearchService>();
 
         // Skill optimizer service (coordinate descent for matching parameters)
         builder.Services.AddSingleton<SkillOptimizerService>();
