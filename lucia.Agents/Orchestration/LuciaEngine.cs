@@ -202,7 +202,7 @@ public class LuciaEngine
             activity?.SetStatus(ActivityStatusCode.Ok);
             return new OrchestratorResult { Text = finalText, NeedsInput = needsInput };
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error processing user request: {Request}", userRequest);
             activity?.SetStatus(ActivityStatusCode.Error);

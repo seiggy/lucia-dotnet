@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using lucia.AgentHost.Startup;
 
 using lucia.AgentHost;
 using lucia.AgentHost.Apis;
@@ -51,12 +52,7 @@ builder.Services.AddAntiforgery();
 builder.Services.AddFeatureManagement();
 
 // Determine data provider backends
-if ((builder.Configuration[$"{DataProviderOptions.SectionName}:Store"] ?? "")
-    .Equals("MongoDB", StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException(
-        "DataProvider:Store 'MongoDB' is no longer supported. Set it to 'PostgreSQL' or 'SQLite' and re-run setup.");
-}
+LegacyMongoGuard.ThrowIfConfigured(builder.Configuration);
 
 var dataProviderOptions = new DataProviderOptions();
 builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(dataProviderOptions);

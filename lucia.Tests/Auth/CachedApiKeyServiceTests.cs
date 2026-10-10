@@ -41,7 +41,7 @@ public sealed class CachedApiKeyServiceTests
     }
 
     [Fact]
-    public async Task ValidateKeyAsync_InvalidKey_IsCachedAsKnownInvalid()
+    public async Task ValidateKeyAsync_InvalidKey_IsNotCached()
     {
         const string plaintext = "lk_unknown_key_abcdef1234567890ab";
         A.CallTo(() => _inner.ValidateKeyAsync(plaintext, A<CancellationToken>._))
@@ -52,7 +52,7 @@ public sealed class CachedApiKeyServiceTests
         Assert.Null(await svc.ValidateKeyAsync(plaintext));
 
         A.CallTo(() => _inner.ValidateKeyAsync(plaintext, A<CancellationToken>._))
-            .MustHaveHappenedOnceExactly();
+            .MustHaveHappenedTwiceExactly();
     }
 
     [Fact]

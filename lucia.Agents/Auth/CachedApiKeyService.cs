@@ -14,7 +14,6 @@ public sealed class CachedApiKeyService : IApiKeyService
 {
     private const string GenerationKey = "lucia:api-keys:generation";
     private const string EntryKeyPrefix = "lucia:api-keys:entry:";
-    private const string KnownInvalid = "null";
 
     // Outlives any entry, so a generation can never be forgotten while its entries are alive.
     private static readonly TimeSpan GenerationTimeToLive = TimeSpan.FromDays(1);
@@ -54,32 +53,28 @@ public sealed class CachedApiKeyService : IApiKeyService
             var cached = await _cache.GetAsync(entryKey, cancellationToken).ConfigureAwait(false);
             if (cached is not null)
             {
-                return cached == KnownInvalid ? null : JsonSerializer.Deserialize<ApiKeyEntry>(cached, JsonOptions);
+                return JsonSerializer.Deserialize<ApiKeyEntry>(cached, JsonOptions);
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogDebug(ex, "API key cache read failed; validating against the store");
         }
 
         var entry = await _inner.ValidateKeyAsync(plaintextKey, cancellationToken).ConfigureAwait(false);
 
-        if (entryKey is not null)
+        // Invalid keys are not cached. Each one would add an entry to a shared cache that any caller can fill.
+        if (entryKey is not null && entry is not null)
         {
             try
             {
-                var payload = entry is null ? KnownInvalid : JsonSerializer.Serialize(entry, JsonOptions);
+                var payload = JsonSerializer.Serialize(entry, JsonOptions);
                 await _cache.SetAsync(entryKey, payload, _cacheDuration, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogDebug(ex, "API key cache write failed");
             }
-        }
-
-        if (entry is not null)
-        {
-            _logger.LogDebug("Cached API key validation for prefix {Prefix}", entry.KeyPrefix);
         }
 
         return entry;
@@ -202,7 +197,7 @@ public sealed class CachedApiKeyService : IApiKeyService
             await _cache.SetAsync(GenerationKey, Guid.NewGuid().ToString("N"), GenerationTimeToLive).ConfigureAwait(false);
             _logger.LogInformation("API key validation cache invalidated");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             // The store stays authoritative; entries age out after the cache duration.
             _logger.LogWarning(ex, "Failed to invalidate the API key validation cache");

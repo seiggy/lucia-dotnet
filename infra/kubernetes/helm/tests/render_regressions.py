@@ -22,6 +22,12 @@ assert 'POSTGRES_HOST' in default.stdout and 'value: "lucia-postgres"' in defaul
 assert 'ConnectionStrings__luciaconfig' in default.stdout
 assert 'Password=' in default.stdout.split("kind: Secret", 1)[1].split("---", 1)[0]
 
+custom_port = render("bundledPostgres.service.port=5433")
+assert custom_port.returncode == 0, custom_port.stderr
+secret = custom_port.stdout.split("kind: Secret", 1)[1].split("---", 1)[0]
+assert "Port=5433;" in secret and "Port=5432;" not in secret
+assert 'value: "5433"' in custom_port.stdout
+
 postgres = [
     "postgres.enabled=true", "bundledPostgres.enabled=false",
     "postgres.host=postgres-rw.example.svc", "postgres.existingSecret=lucia-db",

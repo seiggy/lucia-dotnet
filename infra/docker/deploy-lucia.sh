@@ -48,7 +48,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   if [[ -f .env.lucia.example ]]; then
     cp .env.lucia.example "$ENV_FILE"
     echo "Created $ENV_FILE from .env.lucia.example."
-    echo "Edit $ENV_FILE and set at least: HOMEASSISTANT__ACCESSTOKEN (or HomeAssistant__AccessToken)"
+    echo "Edit $ENV_FILE and set at least: POSTGRES_PASSWORD and HOMEASSISTANT__ACCESSTOKEN (or HomeAssistant__AccessToken)"
     echo "Then run: $0 --env-file $ENV_FILE"
     exit 1
   else

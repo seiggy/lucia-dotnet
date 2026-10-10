@@ -171,7 +171,7 @@ public sealed class EntityEmbeddingJob
         {
             _logger.LogDebug("Embedding generation job cancelled");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Background embedding generation failed");
         }
@@ -207,7 +207,7 @@ public sealed class EntityEmbeddingJob
                     RetryDelay.TotalMilliseconds);
                 await Task.Delay(RetryDelay, ct).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(
                     ex,

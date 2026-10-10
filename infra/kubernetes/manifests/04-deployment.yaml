@@ -27,7 +27,7 @@ metadata:
     app.kubernetes.io/name: lucia
     app.kubernetes.io/component: api
 spec:
-  replicas: 2
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:

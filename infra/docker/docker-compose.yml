@@ -186,7 +186,7 @@ services:
       - lucia-models:/app/models
     
     # All user configuration (LLM keys, Home Assistant connection, etc.) is handled
-    # by the setup wizard on first launch and stored in PostgreSQL. No .env file needed.
+    # by the setup wizard on first launch and stored in PostgreSQL. Set POSTGRES_PASSWORD in .env.
     environment:
       # ASP.NET Core configuration
       - ASPNETCORE_ENVIRONMENT=Production

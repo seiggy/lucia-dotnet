@@ -1,3 +1,4 @@
+using lucia.Agents;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -86,7 +87,7 @@ public sealed class ScheduledTaskRecoveryService : BackgroundService
                 "ScheduledTaskRecoveryService finished — recovered: {Recovered}, expired: {Expired}, total: {Total}",
                 recovered, expired, documents.Count);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Failed to recover scheduled tasks from the store");
         }

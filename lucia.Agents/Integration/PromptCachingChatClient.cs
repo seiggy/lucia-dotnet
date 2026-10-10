@@ -78,7 +78,7 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
                     return ReconstructResponse(cached);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(ex, "Chat cache lookup failed, falling through to LLM");
                 activity?.SetTag("cache.result", "error");
@@ -105,7 +105,7 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
                     activity?.SetTag("cache.skip_reason", "no_tool_calls");
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(ex, "Failed to cache chat response");
             }

@@ -225,7 +225,9 @@ bundledPostgres:
     tag: "17-alpine"
     pullPolicy: IfNotPresent
   auth:
-    # Leave empty to generate a password once and keep it across upgrades.
+    # Leave empty to generate a password once and keep it across upgrades. Tools that render with
+    # `helm template` (Argo CD, Flux) cannot look up the existing Secret and would generate a new
+    # password on every sync, which the data volume rejects. Set a value here when you use them.
     password: ""
   service:
     type: ClusterIP

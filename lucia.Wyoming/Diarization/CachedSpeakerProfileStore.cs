@@ -1,3 +1,4 @@
+using lucia.Agents;
 using System.Text.Json;
 using lucia.Agents.Abstractions;
 using Microsoft.Extensions.Logging;
@@ -50,7 +51,7 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
                     return profiles;
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogDebug(ex, "Cache miss for enrolled profiles, falling back to store");
         }
@@ -82,7 +83,7 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
             if (cached is not null)
                 return JsonSerializer.Deserialize<SpeakerProfile>(cached, JsonOptions);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogDebug(ex, "Cache miss for speaker profile {ProfileId}, falling back to store", id);
         }
@@ -151,7 +152,7 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
         {
             await _cache.RemoveAsync(EnrolledCacheKey).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogDebug(ex, "Failed to invalidate enrolled profiles cache");
         }

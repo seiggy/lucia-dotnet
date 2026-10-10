@@ -29,6 +29,19 @@ any storage driver.
   (trace capture database and collection names, task archive names, the speaker
   profile database name, and the config and API key collection constants).
 
+## Upgrading from 1.5.x
+
+1. Pick SQLite or PostgreSQL. Set `DataProvider:Store` explicitly. Old Compose and
+   Kubernetes files never set it and relied on the MongoDB default, so a stale file now fails
+   at startup if it still sets `DataProvider:Store=MongoDB` or any `mongodb://` or
+   `mongodb+srv://` connection string. Replace them.
+2. Docker Compose users set `POSTGRES_PASSWORD` in `.env`.
+3. Helm users drop `mongodb` and `a2aAgents` values. If you render with Argo CD or Flux, set
+   `bundledPostgres.auth.password` so the Secret stays stable between syncs.
+4. Raw manifest users apply the new `07-postgres.yaml`. The AgentHost Deployment runs one
+   replica, which the standalone mode requires.
+5. Re-run setup. Mongo data is not migrated.
+
 ## Fixes
 
 - SQLite task statistics now count tasks per agent. The query read a field that
@@ -59,8 +72,10 @@ any storage driver.
 - Redis stores and caches moved from `lucia.Agents` to `lucia.Data/Redis`.
   `lucia.Agents` no longer references `Aspire.StackExchange.Redis`, and a test
   fails if a storage driver is referenced again.
-- The 101 broad `catch` blocks in `lucia.Agents` no longer swallow
-  cancellation.
+- About 90 broad `catch` blocks no longer swallow cancellation. They use
+  `Exception.IsCancellation()`, which still treats an `HttpClient` timeout as a failure to handle.
+- `CachedApiKeyService` no longer caches invalid keys, so unauthenticated requests cannot fill the
+  shared cache.
 - Every `.cs` file now holds one class.
 - In-memory `ExactMatchArea` now matches display names only, like the Redis
   version.

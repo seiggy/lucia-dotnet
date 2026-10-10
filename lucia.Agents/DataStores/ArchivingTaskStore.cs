@@ -65,7 +65,7 @@ public sealed class ArchivingTaskStore : ITaskStore
             await _archive.ArchiveTaskAsync(task, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Archived task {TaskId} with status {Status}.", taskId, task.Status.State);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             // Fire-and-forget: archive failure should not break the primary flow
             _logger.LogError(ex, "Failed to archive task {TaskId} to the task archive.", taskId);

@@ -266,7 +266,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             SensorSearchFailures.Add(1);
             return $"No sensor found matching '{searchTerm}'. Available sensors: {string.Join(", ", _cachedSensors.Take(5).Select(s => s.FriendlyName))}";
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error finding sensor for search term: {SearchTerm}", searchTerm);
             SensorSearchFailures.Add(1);
@@ -325,7 +325,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error finding sensors in area: {AreaName}", areaName);
             return AreaSensorSearchErrorMessage;
@@ -348,7 +348,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             var device = _cachedSensors.FirstOrDefault(s => s.EntityId == entityId);
             return FormatSensorState(state, device);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error getting sensor state for {EntityId}", entityId);
             return SensorStateErrorMessage;
@@ -387,7 +387,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error getting binary sensor state for {EntityId}", entityId);
             return BinarySensorStateErrorMessage;
@@ -452,7 +452,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error finding sensors in area: {AreaName}", areaName);
             return AreaSensorSearchErrorMessage;
@@ -621,7 +621,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             _logger.LogInformation("Cached {Count} sensor entities", newSensors.Count);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error refreshing sensor cache");
         }

@@ -67,7 +67,7 @@ public sealed class LocationSnapshotLoader
                 entityEntries.Length, filtered.Length);
             return filtered;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Failed to fetch exposed entity list — loading all entities instead");
             return entityEntries;
@@ -93,7 +93,7 @@ public sealed class LocationSnapshotLoader
             }
             return map;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Failed to load area→entity map via Jinja template, falling back to registry area_id only");
             return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);

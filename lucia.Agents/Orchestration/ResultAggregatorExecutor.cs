@@ -160,7 +160,7 @@ public sealed class ResultAggregatorExecutor : Executor
         {
             throw;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Personality rewrite failed, falling back to raw composed message");
             return composedMessage;

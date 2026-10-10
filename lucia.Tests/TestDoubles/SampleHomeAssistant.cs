@@ -103,8 +103,10 @@ public sealed class SampleHomeAssistant
         string entityId,
         string name,
         string[]? aliases = null,
-        string? disabledBy = null) => new()
+        string? disabledBy = null,
+        string? areaId = null) => new()
     {
+        AreaId = areaId,
         EntityId = entityId,
         Name = name,
         Aliases = aliases?.ToList() ?? [],

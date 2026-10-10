@@ -353,7 +353,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
                 _logger.LogInformation("Entity location cache is empty, attempting to load from Home Assistant...");
                 await InitializeAsync(ct).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(ex, "Auto-reload of empty entity location cache failed — will retry in {Interval}s",
                     EmptyCacheRetryInterval.TotalSeconds);
@@ -496,7 +496,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             await PersistEmbeddingUpdatesAsync(ct).ConfigureAwait(false);
             return true;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(
                 ex,
