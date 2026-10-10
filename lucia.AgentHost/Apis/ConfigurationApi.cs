@@ -414,10 +414,7 @@ public static class ConfigurationApi
             [
                 new("Enabled", "boolean", "Whether trace capture is enabled", "true"),
                 new("RetentionDays", "number", "Number of days to retain unlabeled traces before cleanup", "30"),
-                new("RedactionPatterns", "array", "Regex patterns for redacting sensitive data from trace content", ""),
-                new("DatabaseName", "string", "Database for traces", "luciatraces"),
-                new("TracesCollectionName", "string", "Collection name for traces", "traces"),
-                new("ExportsCollectionName", "string", "Collection name for exports", "exports")
+                new("RedactionPatterns", "array", "Regex patterns for redacting sensitive data from trace content", "")
             ]
         },
         new()

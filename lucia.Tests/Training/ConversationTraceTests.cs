@@ -69,9 +69,7 @@ public sealed class ConversationTraceTests
 
         Assert.True(options.Enabled);
         Assert.Equal(30, options.RetentionDays);
-        Assert.Equal("luciatraces", options.DatabaseName);
-        Assert.Equal("traces", options.TracesCollectionName);
-        Assert.Equal("exports", options.ExportsCollectionName);
+
         Assert.NotNull(options.RedactionPatterns);
         Assert.Equal(2, options.RedactionPatterns.Length);
     }

@@ -57,14 +57,4 @@ public sealed class ApiKeyEntry
     /// Future: granular permissions like ["read:config", "write:agents"].
     /// </summary>
     public string[] Scopes { get; set; } = ["*"];
-
-    /// <summary>
-    /// Collection name for API keys.
-    /// </summary>
-    public const string CollectionName = "api_keys";
-
-    /// <summary>
-    /// Database name (shared with config store).
-    /// </summary>
-    public const string DatabaseName = "luciaconfig";
 }

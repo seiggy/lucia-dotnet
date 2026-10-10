@@ -23,7 +23,6 @@ Done:
 
 Not done, found along the way:
 - `CachedApiKeyService` and `CachedSpeakerProfileStore` are now unused outside tests. Only the Mongo registrations wrapped them, so API key validation hits the database on every request for SQLite and Postgres. Decide: wrap those providers, or delete the decorators.
-- Vestigial Mongo-era settings still exist and still appear in the dashboard config schema: `TaskArchiveOptions` (`DatabaseName`, `CollectionName`), `TraceCaptureOptions` (`DatabaseName`, collection names), `DiarizationOptions.ProfileStoreDatabaseName`, and the `CollectionName`/`DatabaseName` constants on `ConfigEntry` and `ApiKeyEntry`.
 - `IConditionalSpeakerProfileStore.DeleteExpiredProvisionalAsync` has no provider contract test.
 - Redis stores still live in lucia.Agents (the second half of P0).
 - The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.

@@ -39,14 +39,4 @@ public sealed class ConfigEntry
     /// Sensitive values are masked when returned from the API.
     /// </summary>
     public bool IsSensitive { get; set; }
-
-    /// <summary>
-    /// Collection name constant.
-    /// </summary>
-    public const string CollectionName = "configuration";
-
-    /// <summary>
-    /// Database name constant.
-    /// </summary>
-    public const string DatabaseName = "luciaconfig";
 }

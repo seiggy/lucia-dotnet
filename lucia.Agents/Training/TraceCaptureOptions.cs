@@ -20,12 +20,4 @@ public sealed class TraceCaptureOptions
         @"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     ];
 
-    /// <summary>Database name for trace storage.</summary>
-    public string DatabaseName { get; set; } = "luciatraces";
-
-    /// <summary>Collection name for conversation traces.</summary>
-    public string TracesCollectionName { get; set; } = "traces";
-
-    /// <summary>Collection name for dataset export records.</summary>
-    public string ExportsCollectionName { get; set; } = "exports";
 }
