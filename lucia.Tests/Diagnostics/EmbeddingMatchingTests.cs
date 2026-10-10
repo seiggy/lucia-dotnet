@@ -114,7 +114,7 @@ public sealed class EmbeddingMatchingTests
     [InlineData("Zack's Light")]
     [InlineData("Sack's Light")]
     [InlineData("zack's light")]
-    public async Task FindLightAsync_EndToEnd(string searchTerm)
+    public async Task GetLightsStateAsync_EndToEnd(string searchTerm)
     {
         var snapshotPath = Path.Combine(AppContext.BaseDirectory, "TestData", "ha-snapshot.json");
         Assert.True(File.Exists(snapshotPath), $"Snapshot not found: {snapshotPath}");
@@ -130,10 +130,23 @@ public sealed class EmbeddingMatchingTests
         var similarity = new EmbeddingSimilarityService();
         var entityMatcher = new HybridEntityMatcher(similarity, loggerFactory.CreateLogger<HybridEntityMatcher>());
         
-        var skill = new LightControlSkill(haClient, logger, A.Fake<IEntityLocationService>(), optionsMonitor);
+        var locationService = A.Fake<IEntityLocationService>();
+        var zacksLight = new lucia.Agents.Models.HomeAssistant.HomeAssistantEntity { EntityId = "light.zacks_light", FriendlyName = "Zack's Light" };
+        A.CallTo(() => locationService.SearchHierarchyAsync(A<string>._, A<HybridMatchOptions>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches = [],
+                EntityMatches = [],
+                ResolvedEntities = [zacksLight],
+                ResolutionStrategy = ResolutionStrategy.Entity,
+                ResolutionReason = "stub"
+            });
 
-        _output.WriteLine($"Calling FindLightAsync('{searchTerm}')...");
-        var result = await skill.FindLightAsync(searchTerm);
+        var skill = new LightControlSkill(haClient, logger, locationService, optionsMonitor);
+
+        _output.WriteLine($"Calling GetLightsStateAsync('{searchTerm}')...");
+        var result = await skill.GetLightsStateAsync([searchTerm]);
         _output.WriteLine($"Result:\n{result}");
 
         // Should find "Zack's Light" (light.zacks_light)
