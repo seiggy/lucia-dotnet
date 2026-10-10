@@ -101,6 +101,9 @@ public static class ServiceCollectionExtensions
 
             // Register Redis session cache for multi-turn conversations
             builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
+
+            // Shared string cache for store decorators (API key and speaker profile caches)
+            builder.Services.AddSingleton<IKeyValueCache, RedisKeyValueCache>();
         }
 
         builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();

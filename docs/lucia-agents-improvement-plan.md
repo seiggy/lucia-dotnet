@@ -22,7 +22,6 @@ Done:
 - Phase 1, Mongo removal: all Mongo stores, the Mongo config provider, BSON attributes, packages, AppHost resource, `lucia.A2AHost`, compose stacks (now PostgreSQL), Helm chart and raw manifests (bundled PostgreSQL), CI, docs. `DataProvider:Store=MongoDB` now fails at startup with a clear message. The default store is SQLite.
 
 Not done, found along the way:
-- `CachedApiKeyService` and `CachedSpeakerProfileStore` are now unused outside tests. Only the Mongo registrations wrapped them, so API key validation hits the database on every request for SQLite and Postgres. Decide: wrap those providers, or delete the decorators.
 - `IConditionalSpeakerProfileStore.DeleteExpiredProvisionalAsync` has no provider contract test.
 - Redis stores still live in lucia.Agents (the second half of P0).
 - The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.

@@ -1,5 +1,6 @@
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
 using lucia.Agents.CommandTracing;
 using lucia.Agents.DataStores;
 using lucia.Agents.Services;
@@ -35,6 +36,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISessionCacheService, lucia.Data.InMemory.InMemorySessionCacheService>();
         builder.Services.AddSingleton<IDeviceCacheService, lucia.Data.InMemory.InMemoryDeviceCacheService>();
         builder.Services.AddSingleton<IPromptCacheService, lucia.Data.InMemory.InMemoryPromptCacheService>();
+        builder.Services.AddSingleton<IKeyValueCache, lucia.Data.InMemory.InMemoryKeyValueCache>();
 
         // Task store + task ID index (wraps with ArchivingTaskStore decorator when available)
         builder.Services.AddSingleton<InMemoryTaskStore>();
@@ -99,8 +101,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IAgentDefinitionRepository, SqliteAgentDefinitionRepository>();
         builder.Services.AddSingleton<IPresenceSensorRepository, SqlitePresenceSensorRepository>();
         builder.Services.AddSingleton<IPluginManagementRepository, SqlitePluginManagementRepository>();
-        builder.Services.AddSingleton<IApiKeyService, SqliteApiKeyService>();
-        builder.Services.AddSingleton<ISpeakerProfileStore, SqliteSpeakerProfileStore>();
+        AddCachedApiKeyService<SqliteApiKeyService>(builder.Services);
+        AddSpeakerProfileStore<SqliteSpeakerProfileStore>(builder.Services);
         builder.Services.AddSingleton<ITranscriptStore, SqliteTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, SqliteModelPreferenceStore>();
         builder.Services.AddSingleton<IMemoryStore, SqliteMemoryStore>();
@@ -163,8 +165,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IAgentDefinitionRepository, PostgresAgentDefinitionRepository>();
         builder.Services.AddSingleton<IPresenceSensorRepository, PostgresPresenceSensorRepository>();
         builder.Services.AddSingleton<IPluginManagementRepository, PostgresPluginManagementRepository>();
-        builder.Services.AddSingleton<IApiKeyService, PostgresApiKeyService>();
-        builder.Services.AddSingleton<ISpeakerProfileStore, PostgresSpeakerProfileStore>();
+        AddCachedApiKeyService<PostgresApiKeyService>(builder.Services);
+        AddSpeakerProfileStore<PostgresSpeakerProfileStore>(builder.Services);
         builder.Services.AddSingleton<ITranscriptStore, PostgresTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, PostgresModelPreferenceStore>();
         builder.Services.AddSingleton<IMemoryStore, PostgresMemoryStore>();
@@ -187,5 +189,43 @@ public static class ServiceCollectionExtensions
     {
         services.TryAddSingleton<ChatHistoryProvider>();
         services.TryAddSingleton<UserContextProvider>();
+    }
+
+    /// <summary>
+    /// Registers <typeparamref name="TService"/> behind <see cref="CachedApiKeyService"/> so key
+    /// validation skips the database on every authenticated request. The cache lives in the
+    /// configured <see cref="IKeyValueCache"/> (Redis, or in-memory when none is registered).
+    /// </summary>
+    private static void AddCachedApiKeyService<TService>(IServiceCollection services)
+        where TService : class, IApiKeyService
+    {
+        AddKeyValueCacheFallback(services);
+        services.AddSingleton<TService>();
+        services.AddSingleton<IApiKeyService>(sp => new CachedApiKeyService(
+            sp.GetRequiredService<TService>(),
+            sp.GetRequiredService<IKeyValueCache>(),
+            sp.GetRequiredService<ILogger<CachedApiKeyService>>()));
+    }
+
+    /// <summary>
+    /// Registers <typeparamref name="TStore"/> behind <see cref="CachedSpeakerProfileStore"/> for fast
+    /// enrolled-profile reads, using the configured <see cref="IKeyValueCache"/>.
+    /// </summary>
+    private static void AddSpeakerProfileStore<TStore>(IServiceCollection services)
+        where TStore : class, ISpeakerProfileStore
+    {
+        AddKeyValueCacheFallback(services);
+        services.AddSingleton<TStore>();
+        services.AddSingleton<ISpeakerProfileStore>(sp => new CachedSpeakerProfileStore(
+            sp.GetRequiredService<TStore>(),
+            sp.GetRequiredService<IKeyValueCache>(),
+            sp.GetRequiredService<ILogger<CachedSpeakerProfileStore>>()));
+    }
+
+    // Keeps a Redis registration made earlier; otherwise caches in process.
+    private static void AddKeyValueCacheFallback(IServiceCollection services)
+    {
+        services.AddMemoryCache();
+        services.TryAddSingleton<IKeyValueCache, InMemoryKeyValueCache>();
     }
 }
