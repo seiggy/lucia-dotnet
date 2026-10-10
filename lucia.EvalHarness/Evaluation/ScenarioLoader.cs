@@ -23,8 +23,3 @@ public static class ScenarioLoader
         return doc?.Scenarios ?? [];
     }
 }
-
-internal sealed class ScenarioDocument
-{
-    public List<TestScenario> Scenarios { get; set; } = [];
-}
