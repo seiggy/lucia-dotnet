@@ -67,11 +67,6 @@ var storeProvider = builder.Configuration[$"{DataProviderOptions.SectionName}:St
 var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
 var useSqlite = !usePostgres;
 
-if (useRedis)
-{
-    builder.AddRedisClient(connectionName: "redis");
-    builder.Services.AddSingleton<IPromptCacheService, RedisPromptCacheService>();
-}
 
 if (usePostgres)
 {
@@ -107,8 +102,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
 
-// Register lightweight data providers when not using Redis
-if (!useRedis)
+// Cache and task-store providers: Redis, or in-process for mono-container deployments
+if (useRedis)
+{
+    builder.AddRedisCacheProviders();
+}
+else
 {
     builder.AddInMemoryCacheProviders();
 }

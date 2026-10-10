@@ -2,10 +2,11 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
 using A2A;
+using lucia.Agents;
 using lucia.Agents.Abstractions;
 using StackExchange.Redis;
 
-namespace lucia.Agents.Integration;
+namespace lucia.Data.Redis;
 
 /// <summary>
 /// Redis-based implementation of ITaskStore for durable task persistence.

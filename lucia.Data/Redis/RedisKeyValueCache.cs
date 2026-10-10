@@ -1,7 +1,7 @@
 using lucia.Agents.Abstractions;
 using StackExchange.Redis;
 
-namespace lucia.Agents.Services;
+namespace lucia.Data.Redis;
 
 /// <summary>
 /// Redis-backed <see cref="IKeyValueCache"/>.

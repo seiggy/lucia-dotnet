@@ -21,9 +21,11 @@ Done:
 - Bugs those tests exposed and the fixes: SQLite task stats grouped by a nonexistent `agentId` (always empty); SQLite and Postgres let you regenerate a revoked API key (Mongo blocked it); duplicate response templates returned 500 on SQLite and Postgres because only Mongo's exception was caught (now `DuplicateResponseTemplateException`).
 - Phase 1, Mongo removal: all Mongo stores, the Mongo config provider, BSON attributes, packages, AppHost resource, `lucia.A2AHost`, compose stacks (now PostgreSQL), Helm chart and raw manifests (bundled PostgreSQL), CI, docs. `DataProvider:Store=MongoDB` now fails at startup with a clear message. The default store is SQLite.
 
+- Redis stores moved out of lucia.Agents into `lucia.Data/Redis` (task store, device, session and prompt caches, key-value cache), registered by `AddRedisCacheProviders()` next to `AddInMemoryCacheProviders()`. I used a folder, not a new project, because seven Dockerfiles list csproj files for their restore layer and a new project would need blind edits to all of them.
+
 Not done, found along the way:
 - `IConditionalSpeakerProfileStore.DeleteExpiredProvisionalAsync` has no provider contract test.
-- Redis stores still live in lucia.Agents (the second half of P0).
+- ``EntityLocationService`` still talks to Redis directly, so ``lucia.Agents`` keeps ``Aspire.StackExchange.Redis``. Extracting an ``ILocationSnapshotCache`` during its split removes the last Redis reference; the architecture test lands after that.
 - The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.
 - RELEASE_NOTES needs a breaking-change entry: MongoDB removed, re-run setup, new compose env (`POSTGRES_PASSWORD`), Helm values (`bundledPostgres`, no `mongodb`/`a2aAgents`).
 

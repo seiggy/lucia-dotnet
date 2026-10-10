@@ -16,7 +16,7 @@ using lucia.Agents.Orchestration.Models;
 
 using StackExchange.Redis;
 
-namespace lucia.Agents.Services;
+namespace lucia.Data.Redis;
 
 /// <summary>
 /// Redis-backed prompt cache with exact SHA256 and semantic similarity matching.

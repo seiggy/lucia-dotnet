@@ -73,38 +73,8 @@ public static class ServiceCollectionExtensions
         // Register Telemetry Source
         builder.Services.AddSingleton<AgentsTelemetrySource>();
 
-        // Determine data provider mode (avoids circular dependency on lucia.Data)
-        var cacheProvider = builder.Configuration["DataProvider:Cache"] ?? "Redis";
-        var useRedis = !cacheProvider.Equals("InMemory", StringComparison.OrdinalIgnoreCase);
-
-        if (useRedis)
-        {
-            // Register Redis using Aspire client integration
-            builder.AddRedisClient(connectionName: "redis");
-
-            // Register Redis task store (T037) with archiving decorator
-            builder.Services.AddSingleton<RedisTaskStore>();
-            builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<RedisTaskStore>());
-            builder.Services.AddSingleton<ITaskStore>(sp =>
-            {
-                var redisStore = sp.GetRequiredService<RedisTaskStore>();
-                var archive = sp.GetRequiredService<ITaskArchiveStore>();
-                var logger = sp.GetRequiredService<ILogger<ArchivingTaskStore>>();
-                return new ArchivingTaskStore(redisStore, archive, logger);
-            });
-
-            // Register Redis device cache service
-            builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
-
-            // Register entity location service (shared singleton for floor/area/entity resolution)
-            builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
-
-            // Register Redis session cache for multi-turn conversations
-            builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
-
-            // Shared string cache for store decorators (API key and speaker profile caches)
-            builder.Services.AddSingleton<IKeyValueCache, RedisKeyValueCache>();
-        }
+        // Cache and task-store providers (Redis or in-memory) are registered by the host through
+        // AddRedisCacheProviders() or AddInMemoryCacheProviders() in lucia.Data.
 
         builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
         builder.Services.AddSingleton<IHybridEntityMatcher, HybridEntityMatcher>();

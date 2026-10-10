@@ -1,3 +1,4 @@
+using lucia.Data.Redis;
 using FakeItEasy;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;

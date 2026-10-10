@@ -7,6 +7,7 @@ using lucia.Agents.Services;
 using lucia.Agents.Training;
 using lucia.Data.InMemory;
 using lucia.Data.PostgreSQL;
+using lucia.Data.Redis;
 using lucia.Data.Sqlite;
 using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Diarization;
@@ -26,6 +27,33 @@ namespace lucia.Data.Extensions;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
+    /// <summary>
+    /// Registers the Redis cache providers: session, device and prompt caches, the task store
+    /// (with archiving), the shared key-value cache and the entity location service.
+    /// </summary>
+    public static IHostApplicationBuilder AddRedisCacheProviders(
+        this IHostApplicationBuilder builder)
+    {
+        // Redis through the Aspire client integration
+        builder.AddRedisClient(connectionName: "redis");
+
+        builder.Services.AddSingleton<RedisTaskStore>();
+        builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<RedisTaskStore>());
+        builder.Services.AddSingleton<ITaskStore>(sp => new ArchivingTaskStore(
+            sp.GetRequiredService<RedisTaskStore>(),
+            sp.GetRequiredService<ITaskArchiveStore>(),
+            sp.GetRequiredService<ILogger<ArchivingTaskStore>>()));
+
+        builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+        builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
+        builder.Services.AddSingleton<IPromptCacheService, RedisPromptCacheService>();
+        builder.Services.AddSingleton<IKeyValueCache, RedisKeyValueCache>();
+
+        // Shared floor/area/entity resolution, persisted to Redis
+        builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
+
+        return builder;
+    }
     /// <summary>
     /// Registers InMemory cache services (replacing Redis).
     /// </summary>

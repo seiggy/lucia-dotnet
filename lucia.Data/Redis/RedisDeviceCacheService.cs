@@ -7,9 +7,10 @@ using Microsoft.Extensions.Logging;
 
 using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
+using lucia.Agents.Services;
 using StackExchange.Redis;
 
-namespace lucia.Agents.Services;
+namespace lucia.Data.Redis;
 
 /// <summary>
 /// Redis-backed implementation of <see cref="IDeviceCacheService"/>.

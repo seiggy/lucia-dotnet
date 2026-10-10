@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
-namespace lucia.Agents.Services;
+namespace lucia.Data.Redis;
 
 /// <summary>
 /// Redis-backed session cache for multi-turn orchestrator conversations.

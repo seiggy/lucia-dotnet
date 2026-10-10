@@ -1,3 +1,4 @@
+using lucia.Data.Redis;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
 using StackExchange.Redis;
