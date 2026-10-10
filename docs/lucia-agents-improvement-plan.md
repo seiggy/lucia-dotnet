@@ -13,6 +13,22 @@ The first review used regex counts across four projects. For `lucia.Agents` two 
 
 Drop both from the target table. The 124 `catch (Exception)` figure holds and is analysed below.
 
+## Status (branch refactor/agents-phase0)
+
+Done:
+- Phase 0: multi-class splits in lucia.Agents, cancellation filters on 101 broad catches, catch triage sheet, CA1031 as a suggestion.
+- Provider contract tests: one abstract contract per store interface, run on SQLite and PostgreSQL against the migrated schema (lucia.Tests/Data/Providers, 244+ tests).
+- Bugs those tests exposed and the fixes: SQLite task stats grouped by a nonexistent `agentId` (always empty); SQLite and Postgres let you regenerate a revoked API key (Mongo blocked it); duplicate response templates returned 500 on SQLite and Postgres because only Mongo's exception was caught (now `DuplicateResponseTemplateException`).
+- Phase 1, Mongo removal: all Mongo stores, the Mongo config provider, BSON attributes, packages, AppHost resource, `lucia.A2AHost`, compose stacks (now PostgreSQL), Helm chart and raw manifests (bundled PostgreSQL), CI, docs. `DataProvider:Store=MongoDB` now fails at startup with a clear message. The default store is SQLite.
+
+Not done, found along the way:
+- `CachedApiKeyService` and `CachedSpeakerProfileStore` are now unused outside tests. Only the Mongo registrations wrapped them, so API key validation hits the database on every request for SQLite and Postgres. Decide: wrap those providers, or delete the decorators.
+- Vestigial Mongo-era settings still exist and still appear in the dashboard config schema: `TaskArchiveOptions` (`DatabaseName`, `CollectionName`), `TraceCaptureOptions` (`DatabaseName`, collection names), `DiarizationOptions.ProfileStoreDatabaseName`, and the `CollectionName`/`DatabaseName` constants on `ConfigEntry` and `ApiKeyEntry`.
+- `IConditionalSpeakerProfileStore.DeleteExpiredProvisionalAsync` has no provider contract test.
+- Redis stores still live in lucia.Agents (the second half of P0).
+- The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.
+- RELEASE_NOTES needs a breaking-change entry: MongoDB removed, re-run setup, new compose env (`POSTGRES_PASSWORD`), Helm values (`bundledPostgres`, no `mongodb`/`a2aAgents`).
+
 ## Health by namespace
 
 | Namespace | Files | LOC | Health | Notes |
