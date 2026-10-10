@@ -1,3 +1,4 @@
+using lucia.Agents.Services;
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.Models;
 using lucia.Agents.Abstractions;
@@ -68,7 +69,7 @@ public static class ConfigurationApi
 
         var sections = entries
             .GroupBy(e => e.Section)
-            .Where(g => !SkillConfigSections.Contains(g.Key))
+            .Where(g => !SkillConfigSections.Contains(g.Key) && g.Key != ConfigStoreVisibilityConfigStore.Section)
             .Select(g => new ConfigSectionSummary
             {
                 Section = g.Key,
