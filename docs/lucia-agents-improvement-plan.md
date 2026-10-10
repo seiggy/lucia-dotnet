@@ -47,7 +47,7 @@ Target classes, one per file:
 | `EntityVisibilityService` | Exposed-only flag and per-agent filters |
 | `ILocationSnapshotStore` | Persist and reload the snapshot, plus the version counter. Redis and in-memory implementations |
 | `IVisibilityConfigStore` | Persist the visibility config. Redis implementation (same key as today) when Redis is the cache provider, config-store implementation (`IConfigStoreWriter`) otherwise |
-| `EntityLocationService` | Thin facade implementing today's interface. Replaces `InMemoryEntityLocationService`, which becomes a registration |
+| `EntityLocationService` | Thin facade implementing today's interface. One implementation serves both cache providers. `InMemoryEntityLocationService` is retired as a class; in-memory mode stays and is just the in-process `ILocationSnapshotStore` registration |
 
 Order of work, each step its own commit with characterization tests first:
 1. Characterization tests for search and visibility behaviour through the interface, run against both current implementations.
@@ -55,7 +55,7 @@ Order of work, each step its own commit with characterization tests first:
 3. Extract `LocationSnapshotLoader` and `EntityEmbeddingJob`.
 4. Introduce the two store interfaces with the Redis and in-memory implementations; route the facade through them.
 5. Add the config-store visibility implementation, so visibility persists in SQLite and PostgreSQL deployments. Behaviour change: visibility now survives restarts in non-Redis mode.
-6. Delete `InMemoryEntityLocationService`; `lucia.Agents` drops its Redis package; add the architecture test.
+6. Retire the `InMemoryEntityLocationService` class (the in-memory mode itself stays); `lucia.Agents` drops its Redis package; add the architecture test.
 
 ## Health by namespace
 
