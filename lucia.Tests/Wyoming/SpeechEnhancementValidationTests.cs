@@ -527,6 +527,8 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
                 NumThreads = 4,
                 RefreshIntervalMs = 400,
                 MinAudioMs = 300,
+                // The sample is a short command. Lower the threshold so the progressive path runs.
+                ProgressiveThresholdSeconds = 0.5,
             }),
             Options.Create(new SttModelOptions { ModelBasePath = sttDir }),
             notifier,
@@ -565,6 +567,9 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
 
             // Raw audio to STT — matches the live pipeline
             sttSession.AcceptAudioChunk(chunk, sampleRate);
+
+            // Wyoming delivers a chunk every 10ms. Pace the loop so background decodes can publish partials.
+            await Task.Delay(10);
 
             // Check for partial updates
             var partial = sttSession.GetPartialResult().Text;
@@ -639,12 +644,20 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
         using var enhancerSession = new GtcrnStreamingSession(onnxSession);
         var enhancedSamples = FeedInChunks(enhancerSession, inputSamples, ChunkSize);
 
+        // SherpaSttEngine is the streaming recognizer. Offline-only models such as Parakeet TDT make the
+        // native loader abort the whole process, so they are benchmarked in Benchmark_OfflineEngines_WerComparison.
         var modelDirs = Directory.EnumerateDirectories(sttDir)
             .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
+            .Where(d =>
+            {
+                var name = Path.GetFileName(d);
+                return name.Contains("streaming", StringComparison.OrdinalIgnoreCase)
+                    && !name.Contains("tdt", StringComparison.OrdinalIgnoreCase);
+            })
             .OrderBy(d => d)
             .ToList();
 
-        Skip.If(modelDirs.Count == 0, "No valid STT models found");
+        Skip.If(modelDirs.Count == 0, "No streaming STT models found");
 
         foreach (var modelDir in modelDirs)
         {
