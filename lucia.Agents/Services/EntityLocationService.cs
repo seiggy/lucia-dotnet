@@ -36,31 +36,18 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
     private static readonly TimeSpan EmbeddingBatchDelay = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan EmbeddingRetryDelay = TimeSpan.FromSeconds(1);
 
-    private static readonly HybridMatchOptions DefaultLocationOptions = new()
-    {
-        EmbeddingWeight = 0.55,
-        ScoreDropoffRatio = 0.9,
-        Threshold = 0.2
-    };
-
     private static readonly ActivitySource ActivitySource = new("Lucia.Services.EntityLocation", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Services.EntityLocation", "1.0.0");
-    private static readonly Counter<long> SearchCount = Meter.CreateCounter<long>("entity_location.search.count");
     private static readonly Counter<long> CacheReloads = Meter.CreateCounter<long>("entity_location.cache.reloads");
-    private static readonly Histogram<double> SearchDuration = Meter.CreateHistogram<double>("entity_location.search.duration", "ms");
 
     private readonly IHomeAssistantClient _haClient;
     private readonly IConnectionMultiplexer _redis;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
     private readonly LocationSearchService _search;
+    private readonly LocationSnapshotLoader _loader;
+    private readonly EntityEmbeddingJob _embeddingJob;
     private readonly ILogger<EntityLocationService> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
-    private readonly object _embeddingJobGate = new();
-    private CancellationTokenSource? _embeddingJobCts;
-    private Task? _embeddingJobTask;
-    private long _embeddingJobCounter;
-    private long _activeEmbeddingJobId;
-    private int _isEmbeddingGenerationRunning;
 
     private static readonly TimeSpan EmptyCacheRetryInterval = TimeSpan.FromSeconds(30);
 
@@ -97,7 +84,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             EntityTotalCount = snap.Entities.Length,
             EntityGeneratedCount = entityGeneratedCount,
             EntityMissingCount = Math.Max(snap.Entities.Length - entityGeneratedCount, 0),
-            IsGenerationRunning = Volatile.Read(ref _isEmbeddingGenerationRunning) == 1,
+            IsGenerationRunning = _embeddingJob.IsRunning,
             LastLoadedAt = LastLoadedAt
         };
 
@@ -109,12 +96,16 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         IConnectionMultiplexer redis,
         IEmbeddingProviderResolver embeddingResolver,
         LocationSearchService search,
+        LocationSnapshotLoader loader,
+        EntityEmbeddingJob embeddingJob,
         ILogger<EntityLocationService> logger)
     {
         _haClient = haClient;
         _redis = redis;
         _embeddingResolver = embeddingResolver;
         _search = search;
+        _loader = loader;
+        _embeddingJob = embeddingJob;
         _logger = logger;
     }
 
@@ -135,7 +126,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         {
             ApplyVisibilityToEntities();
             var snap = _snapshot;
-            StartEmbeddingGenerationJob(snap.Floors, snap.Areas, snap.Entities);
+            _embeddingJob.Start(snap.Floors, snap.Areas, snap.Entities, PersistEmbeddingUpdatesAsync);
             _logger.LogInformation(
                 "Loaded location data from Redis: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities",
                 snap.Floors.Length, snap.Areas.Length, snap.Entities.Length);
@@ -301,53 +292,14 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
             _logger.LogInformation("Loading entity location data from Home Assistant config registries...");
 
-            // Fetch all three registries in parallel
-            var floorTask = _haClient.GetFloorRegistryAsync(ct);
-            var areaTask = _haClient.GetAreaRegistryAsync(ct);
-            var entityTask = _haClient.GetEntityRegistryAsync(ct);
-
-            await Task.WhenAll(floorTask, areaTask, entityTask).ConfigureAwait(false);
-
-            var floorEntries = await floorTask.ConfigureAwait(false);
-            var areaEntries = await areaTask.ConfigureAwait(false);
-            var entityEntries = await entityTask.ConfigureAwait(false);
-
-            // Optionally filter to only HA-exposed entities
-            if (_visibilityConfig.UseExposedEntitiesOnly)
-            {
-                try
-                {
-                    var exposed = await _haClient.GetExposedEntitiesAsync(ct).ConfigureAwait(false);
-                    var exposedIds = new HashSet<string>(
-                        exposed.Where(kv => kv.Value.IsExposedToAny).Select(kv => kv.Key),
-                        StringComparer.OrdinalIgnoreCase);
-
-                    var before = entityEntries.Length;
-                    entityEntries = entityEntries.Where(e => exposedIds.Contains(e.EntityId)).ToArray();
-                    _logger.LogInformation(
-                        "Filtered to exposed entities only: {Before} → {After}",
-                        before, entityEntries.Length);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogWarning(ex,
-                        "Failed to fetch exposed entity list — loading all entities instead");
-                }
-            }
-
-            // Get authoritative area→entity mapping via Jinja (handles device inheritance)
-            var areaEntityMap = await LoadAreaEntityMapAsync(ct).ConfigureAwait(false);
-
-            // Build domain models
-            var floors = BuildFloors(floorEntries);
-            var areas = BuildAreas(areaEntries, areaEntityMap);
-            var entities = BuildEntities(entityEntries, areaEntityMap);
-
-            // Generate phonetic keys eagerly; embeddings are generated in a throttled background job.
-            GeneratePhoneticData(floors, areas, entities);
+            var snapshot = await _loader.LoadAsync(_visibilityConfig.UseExposedEntitiesOnly, ct).ConfigureAwait(false);
+            var floors = snapshot.Floors;
+            var areas = snapshot.Areas;
+            var entities = snapshot.Entities;
 
             // Atomic swap of all collections
-            SwapData(floors, areas, entities);
+            _snapshot = snapshot;
+            Volatile.Write(ref _lastLoadedAtTicks, DateTimeOffset.UtcNow.UtcTicks);
 
             // Apply per-entity agent visibility from config
             ApplyVisibilityToEntities();
@@ -360,7 +312,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             await SaveToRedisAsync(ct).ConfigureAwait(false);
 
             // Generate embeddings asynchronously in throttled batches.
-            StartEmbeddingGenerationJob(floors, areas, entities);
+            _embeddingJob.Start(floors, areas, entities, PersistEmbeddingUpdatesAsync);
         }
         catch (Exception ex)
         {
@@ -373,327 +325,6 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         }
     }
 
-    private async Task<Dictionary<string, List<string>>> LoadAreaEntityMapAsync(CancellationToken ct)
-    {
-        // Jinja template returns JSON: [{"area":"Kitchen","entities":["light.kitchen",...]},...]
-        const string template =
-            "[{% for id in areas() %}{% if not loop.first %}, {% endif %}" +
-            "{\"area_id\":\"{{ id }}\",\"area_name\":\"{{ area_name(id) }}\",\"entities\":" +
-            "[{% for e in area_entities(id) %}{% if not loop.first %}, {% endif %}\"{{ e }}\"{% endfor %}]}" +
-            "{% endfor %}]";
-
-        try
-        {
-            var result = await _haClient.RunTemplateAsync<List<JinjaAreaResult>>(template, ct).ConfigureAwait(false);
-            var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-            foreach (var entry in result)
-            {
-                map[entry.AreaId] = entry.Entities;
-            }
-            return map;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Failed to load area→entity map via Jinja template, falling back to registry area_id only");
-            return new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-        }
-    }
-
-    private static ImmutableArray<FloorInfo> BuildFloors(FloorRegistryEntry[] entries)
-    {
-        return [
-            ..entries.Select(f => new FloorInfo
-            {
-                FloorId = f.FloorId,
-                Aliases = EntityMatchNameFormatter.SanitizeAliases(f.Aliases).AsReadOnly(),
-                Name = EntityMatchNameFormatter.ResolveName(
-                    f.Name,
-                    f.Aliases,
-                    f.FloorId),
-                Level = f.Level,
-                Icon = f.Icon
-            })
-        ];
-    }
-
-    private static ImmutableArray<AreaInfo> BuildAreas(
-        AreaRegistryEntry[] entries,
-        Dictionary<string, List<string>> areaEntityMap)
-    {
-        return [
-            ..entries.Select(a => new AreaInfo
-            {
-                AreaId = a.AreaId,
-                Name = EntityMatchNameFormatter.ResolveName(
-                    a.Name,
-                    a.Aliases,
-                    a.AreaId),
-                FloorId = a.FloorId,
-                Aliases = EntityMatchNameFormatter.SanitizeAliases(a.Aliases).AsReadOnly(),
-                EntityIds = areaEntityMap.TryGetValue(a.AreaId, out var entityIds)
-                    ? entityIds.AsReadOnly()
-                    : [],
-                Icon = a.Icon,
-                Labels = a.Labels.AsReadOnly()
-            })
-        ];
-    }
-
-    private static ImmutableArray<HomeAssistantEntity> BuildEntities(
-        EntityRegistryEntry[] entries,
-        Dictionary<string, List<string>> areaEntityMap)
-    {
-        // Build reverse lookup: entity_id → area_id from Jinja (authoritative)
-        var entityToArea = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (areaId, entityIds) in areaEntityMap)
-        {
-            foreach (var entityId in entityIds)
-            {
-                entityToArea.TryAdd(entityId, areaId);
-            }
-        }
-
-        return [
-            ..entries
-                .Where(e => e.DisabledBy is null) // Exclude disabled entities
-                .Select(e => new HomeAssistantEntity
-                {
-                    EntityId = e.EntityId,
-                    FriendlyName = EntityMatchNameFormatter.ResolveName(
-                        e.Name ?? e.OriginalName,
-                        e.Aliases,
-                        e.EntityId,
-                        stripDomainFromId: true),
-                    Aliases = EntityMatchNameFormatter.SanitizeAliases(e.Aliases).AsReadOnly(),
-                    // Prefer Jinja area (device-inherited), fall back to registry direct assignment
-                    AreaId = entityToArea.TryGetValue(e.EntityId, out var jinjaArea)
-                        ? jinjaArea
-                        : e.AreaId,
-                    Platform = e.Platform,
-                    SupportedFeatures = (SupportedFeaturesFlags)e.SupportedFeatures
-                })
-        ];
-    }
-
-    private void GeneratePhoneticData(
-        ImmutableArray<FloorInfo> floors,
-        ImmutableArray<AreaInfo> areas,
-        ImmutableArray<HomeAssistantEntity> entities)
-    {
-        foreach (var floor in floors)
-        {
-            floor.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(floor.Name);
-            floor.AliasPhoneticKeys = BuildAliasPhoneticKeys(floor.Aliases);
-        }
-
-        foreach (var area in areas)
-        {
-            area.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(area.Name);
-            area.AliasPhoneticKeys = BuildAliasPhoneticKeys(area.Aliases);
-        }
-
-        foreach (var entity in entities)
-        {
-            entity.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(entity.FriendlyName);
-            entity.AliasPhoneticKeys = BuildAliasPhoneticKeys(entity.Aliases);
-        }
-    }
-
-    private void StartEmbeddingGenerationJob(
-        ImmutableArray<FloorInfo> floors,
-        ImmutableArray<AreaInfo> areas,
-        ImmutableArray<HomeAssistantEntity> entities)
-    {
-        lock (_embeddingJobGate)
-        {
-            _embeddingJobCts?.Cancel();
-            _embeddingJobCts?.Dispose();
-
-            var cts = new CancellationTokenSource();
-            _embeddingJobCts = cts;
-            var jobId = Interlocked.Increment(ref _embeddingJobCounter);
-            Volatile.Write(ref _activeEmbeddingJobId, jobId);
-            Volatile.Write(ref _isEmbeddingGenerationRunning, 1);
-            _embeddingJobTask = Task.Run(
-                () => RunEmbeddingGenerationJobAsync(floors, areas, entities, jobId, cts.Token),
-                cts.Token);
-        }
-    }
-
-    private async Task RunEmbeddingGenerationJobAsync(
-        ImmutableArray<FloorInfo> floors,
-        ImmutableArray<AreaInfo> areas,
-        ImmutableArray<HomeAssistantEntity> entities,
-        long jobId,
-        CancellationToken ct)
-    {
-        try
-        {
-            var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-            if (embeddingService is null)
-            {
-                _logger.LogWarning("No embedding provider available — embedding-based search will be disabled");
-                return;
-            }
-
-            var namesToEmbed = new Dictionary<string, List<Action<Embedding<float>>>>(StringComparer.OrdinalIgnoreCase);
-
-            void RegisterForEmbedding(string name, Action<Embedding<float>> setter, bool hasEmbedding)
-            {
-                if (hasEmbedding || string.IsNullOrWhiteSpace(name))
-                {
-                    return;
-                }
-
-                if (!namesToEmbed.TryGetValue(name, out var setters))
-                {
-                    setters = [];
-                    namesToEmbed[name] = setters;
-                }
-
-                setters.Add(setter);
-            }
-
-            foreach (var floor in floors)
-            {
-                RegisterForEmbedding(floor.Name, e => floor.NameEmbedding = e, floor.NameEmbedding is not null);
-            }
-
-            foreach (var area in areas)
-            {
-                RegisterForEmbedding(area.Name, e => area.NameEmbedding = e, area.NameEmbedding is not null);
-            }
-
-            foreach (var entity in entities)
-            {
-                RegisterForEmbedding(entity.FriendlyName, e => entity.NameEmbedding = e, entity.NameEmbedding is not null);
-            }
-
-            if (namesToEmbed.Count == 0)
-            {
-                _logger.LogDebug("Embedding cache already complete for current location snapshot");
-                return;
-            }
-
-            var names = namesToEmbed.Keys.ToList();
-            var generated = 0;
-
-            for (var offset = 0; offset < names.Count; offset += EmbeddingBatchSize)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                var batchNames = names.Skip(offset).Take(EmbeddingBatchSize).ToArray();
-                var batchEmbeddings = await TryGenerateBatchWithRetryAsync(embeddingService, batchNames, ct).ConfigureAwait(false);
-                if (batchEmbeddings is null)
-                {
-                    continue;
-                }
-
-                var count = Math.Min(batchNames.Length, batchEmbeddings.Count);
-                for (var i = 0; i < count; i++)
-                {
-                    if (!namesToEmbed.TryGetValue(batchNames[i], out var setters))
-                    {
-                        continue;
-                    }
-
-                    foreach (var setter in setters)
-                    {
-                        setter(CloneEmbedding(batchEmbeddings[i]));
-                    }
-
-                    generated++;
-                }
-
-                await PersistEmbeddingUpdatesAsync(ct).ConfigureAwait(false);
-
-                if (offset + EmbeddingBatchSize < names.Count)
-                {
-                    await Task.Delay(EmbeddingBatchDelay, ct).ConfigureAwait(false);
-                }
-            }
-
-            _logger.LogInformation(
-                "Generated {GeneratedCount} embeddings for location snapshot (requested {RequestedCount})",
-                generated,
-                namesToEmbed.Count);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            _logger.LogDebug("Embedding generation job cancelled");
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Background embedding generation failed");
-        }
-        finally
-        {
-            if (Volatile.Read(ref _activeEmbeddingJobId) == jobId)
-            {
-                Volatile.Write(ref _isEmbeddingGenerationRunning, 0);
-            }
-        }
-    }
-
-    private async Task<GeneratedEmbeddings<Embedding<float>>?> TryGenerateBatchWithRetryAsync(
-        IEmbeddingGenerator<string, Embedding<float>> embeddingService,
-        string[] batchNames,
-        CancellationToken ct)
-    {
-        for (var attempt = 1; attempt <= EmbeddingBatchMaxAttempts; attempt++)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            try
-            {
-                return await embeddingService.GenerateAsync(batchNames, cancellationToken: ct).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (attempt < EmbeddingBatchMaxAttempts)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Embedding batch failed on attempt {Attempt}/{MaxAttempts}; retrying in {DelayMs}ms",
-                    attempt,
-                    EmbeddingBatchMaxAttempts,
-                    EmbeddingRetryDelay.TotalMilliseconds);
-                await Task.Delay(EmbeddingRetryDelay, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(
-                    ex,
-                    "Embedding batch failed after {MaxAttempts} attempts for {ItemCount} items",
-                    EmbeddingBatchMaxAttempts,
-                    batchNames.Length);
-                return null;
-            }
-        }
-
-        return null;
-    }
-    
-    private static Embedding<float> CloneEmbedding(Embedding<float> source)
-    {
-        var cloned = source.Vector.ToArray();
-        return new Embedding<float>(cloned)
-        {
-            CreatedAt = source.CreatedAt,
-            ModelId = source.ModelId,
-            AdditionalProperties = source.AdditionalProperties
-        };
-    }
-
-    private static IReadOnlyList<string[]> BuildAliasPhoneticKeys(IReadOnlyList<string> aliases)
-    {
-        if (aliases.Count == 0)
-            return [];
-
-        var result = new string[aliases.Count][];
-        for (var i = 0; i < aliases.Count; i++)
-            result[i] = StringSimilarity.BuildPhoneticKeys(aliases[i]);
-        return result;
-    }
-
     // ── Private: Data Swap ──────────────────────────────────────────
 
     private void SwapData(
@@ -701,11 +332,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         ImmutableArray<AreaInfo> areas,
         ImmutableArray<HomeAssistantEntity> entities)
     {
-        var floorById = floors.ToImmutableDictionary(f => f.FloorId, StringComparer.OrdinalIgnoreCase);
-        var areaById = areas.ToImmutableDictionary(a => a.AreaId, StringComparer.OrdinalIgnoreCase);
-        var entityById = entities.ToImmutableDictionary(e => e.EntityId, StringComparer.OrdinalIgnoreCase);
-
-        _snapshot = new LocationSnapshot(floors, areas, entities, floorById, areaById, entityById);
+        _snapshot = LocationSnapshot.Create(floors, areas, entities);
         Volatile.Write(ref _lastLoadedAtTicks, DateTimeOffset.UtcNow.UtcTicks);
     }
 
@@ -819,7 +446,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             {
                 CacheReloads.Add(1);
                 var snap = _snapshot;
-                StartEmbeddingGenerationJob(snap.Floors, snap.Areas, snap.Entities);
+                _embeddingJob.Start(snap.Floors, snap.Areas, snap.Entities, PersistEmbeddingUpdatesAsync);
             }
         }
         catch (RedisException ex)
@@ -967,7 +594,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             var embedding = await embeddingService
                 .GenerateAsync(matchableName, cancellationToken: ct)
                 .ConfigureAwait(false);
-            setEmbedding(CloneEmbedding(embedding));
+            setEmbedding(EntityEmbeddingJob.Clone(embedding));
             await PersistEmbeddingUpdatesAsync(ct).ConfigureAwait(false);
             return true;
         }
@@ -1099,20 +726,6 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             default:
                 return false;
         }
-    }
-
-    // ── Private: Jinja DTOs ─────────────────────────────────────────
-
-    private sealed class JinjaAreaResult
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("area_id")]
-        public string AreaId { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("area_name")]
-        public string AreaName { get; set; } = string.Empty;
-
-        [System.Text.Json.Serialization.JsonPropertyName("entities")]
-        public List<string> Entities { get; set; } = [];
     }
 
     // ── Private: Thread-safe snapshot ────────────────────────────────

@@ -20,17 +20,25 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
         return await ConnectionMultiplexer.ConnectAsync(container.GetConnectionString() + ",allowAdmin=true");
     }
 
+    private static EntityLocationService CreateService(SampleHomeAssistant home, IConnectionMultiplexer redis)
+    {
+        var resolver = EmbeddingResolver();
+        return new EntityLocationService(
+            home.Client,
+            redis,
+            resolver,
+            Search(),
+            new LocationSnapshotLoader(home.Client, NullLogger<LocationSnapshotLoader>.Instance),
+            new EntityEmbeddingJob(resolver, NullLogger<EntityEmbeddingJob>.Instance),
+            NullLogger<EntityLocationService>.Instance);
+    }
+
     protected override async Task<StoreScope<IEntityLocationService>> CreateAsync(SampleHomeAssistant home)
     {
         var redis = await SharedRedis.Value;
         await redis.GetServer(redis.GetEndPoints()[0]).FlushAllDatabasesAsync();
 
-        var service = new EntityLocationService(
-            home.Client,
-            redis,
-            EmbeddingResolver(),
-            Search(),
-            NullLogger<EntityLocationService>.Instance);
+        var service = CreateService(home, redis);
         return new StoreScope<IEntityLocationService>(service, () => ValueTask.CompletedTask);
     }
 
@@ -43,8 +51,7 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
         var redis = await SharedRedis.Value;
 
         var secondHome = new SampleHomeAssistant();
-        var second = new EntityLocationService(
-            secondHome.Client, redis, EmbeddingResolver(), Search(), NullLogger<EntityLocationService>.Instance);
+        var second = CreateService(secondHome, redis);
         await second.InitializeAsync();
 
         Assert.Equal(0, secondHome.RegistryLoadCount);
@@ -60,8 +67,7 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
         await first.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?> { ["light.porch"] = ["light-agent"] });
         var redis = await SharedRedis.Value;
 
-        var second = new EntityLocationService(
-            new SampleHomeAssistant().Client, redis, EmbeddingResolver(), Search(), NullLogger<EntityLocationService>.Instance);
+        var second = CreateService(new SampleHomeAssistant(), redis);
         await second.InitializeAsync();
 
         Assert.Equal(["light-agent"], (await second.GetVisibilityConfigAsync()).EntityAgentMap["light.porch"]);
