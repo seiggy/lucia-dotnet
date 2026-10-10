@@ -2,8 +2,8 @@ namespace lucia.MusicAgent;
 
 /// <summary>
 /// Configurable options for <see cref="MusicPlaybackSkill"/>.
-/// Stored in MongoDB configuration under the <c>MusicPlaybackSkill</c> section
-/// and hot-reloaded via <see cref="lucia.Agents.Configuration.MongoConfigurationProvider"/>.
+/// Stored in the configuration store under the <c>MusicPlaybackSkill</c> section
+/// and hot-reloaded by the configuration provider.
 /// </summary>
 public sealed class MusicPlaybackSkillOptions
 {

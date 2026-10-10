@@ -1,7 +1,7 @@
 namespace lucia.Wyoming.Models;
 
 /// <summary>
-/// No-op preference store used when MongoDB is not available.
+/// No-op preference store used when no persistent store is configured.
 /// </summary>
 public sealed class InMemoryModelPreferenceStore : IModelPreferenceStore
 {

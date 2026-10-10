@@ -253,7 +253,7 @@ public sealed partial class WyomingSession : IDisposable
             SetState(WyomingSessionState.Disconnected);
             // Release STT slot FIRST — transcript-storage fire-and-forget tasks are
             // unrelated to STT capacity. Another session's utterance must not be gated
-            // on this session's MongoDB/audio-clip write completing.
+            // on this session's database/audio-clip write completing.
             await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
             DisposeCurrentVadSession();
             _currentEnhancerSession?.Dispose();
@@ -1404,7 +1404,7 @@ public sealed partial class WyomingSession : IDisposable
             if (_unknownTracker is not null)
             {
                 // Defer unknown speaker tracking and clip saving to background
-                // — these involve MongoDB writes that shouldn't block the transcript
+                // — these involve database writes that shouldn't block the transcript
                 var embeddingCopy = embedding;
                 var audioCopy = utteranceAudio;
                 var sr = sampleRate;

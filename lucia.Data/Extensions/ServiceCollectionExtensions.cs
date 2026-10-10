@@ -62,7 +62,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Registers SQLite repository implementations with three keyed connection factories
-    /// mirroring the MongoDB/PostgreSQL three-database pattern (luciaconfig, luciatraces, luciatasks).
+    /// mirroring the PostgreSQL three-database pattern (luciaconfig, luciatraces, luciatasks).
     /// </summary>
     public static IHostApplicationBuilder AddSqliteStoreProviders(
         this IHostApplicationBuilder builder)
@@ -121,7 +121,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Registers PostgreSQL repository implementations with three keyed connection factories
-    /// mirroring the MongoDB three-database pattern (luciaconfig, luciatraces, luciatasks).
+    /// mirroring the three-database pattern (luciaconfig, luciatraces, luciatasks).
     /// </summary>
     public static IHostApplicationBuilder AddPostgresStoreProviders(
         this IHostApplicationBuilder builder)

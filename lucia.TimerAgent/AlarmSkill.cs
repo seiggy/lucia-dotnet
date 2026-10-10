@@ -9,7 +9,7 @@ namespace lucia.TimerAgent;
 
 /// <summary>
 /// Skill that manages alarm clocks — recurring or one-shot alarms that ring on media_player devices.
-/// Alarms are persisted in MongoDB via <see cref="IAlarmClockRepository"/> and executed as
+/// Alarms are persisted via <see cref="IAlarmClockRepository"/> and executed as
 /// <see cref="AlarmScheduledTask"/> instances through the <see cref="ScheduledTaskStore"/> pipeline.
 /// </summary>
 public sealed class AlarmSkill
@@ -241,7 +241,7 @@ public sealed class AlarmSkill
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update dismissed alarm task {TaskId} status in MongoDB", task.Id);
+                _logger.LogWarning(ex, "Failed to update dismissed alarm task {TaskId} status in the database", task.Id);
             }
         }
 
@@ -320,7 +320,7 @@ public sealed class AlarmSkill
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update snoozed alarm task {TaskId} status in MongoDB", task.Id);
+                _logger.LogWarning(ex, "Failed to update snoozed alarm task {TaskId} status in the database", task.Id);
             }
         }
 

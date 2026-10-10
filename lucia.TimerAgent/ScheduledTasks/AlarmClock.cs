@@ -1,15 +1,13 @@
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.TimerAgent.ScheduledTasks;
 
 /// <summary>
-/// A configured alarm clock definition — persisted in MongoDB "alarm_clocks" collection.
+/// A configured alarm clock definition — persisted in the "alarm_clocks" table.
 /// This is the alarm DEFINITION (what/when/where). Each firing produces an AlarmTask instance.
 /// </summary>
 public sealed class AlarmClock
 {
-    /// <summary>Unique ID (MongoDB _id).</summary>
-    [BsonId]
+    /// <summary>Unique ID (primary key).</summary>
     public required string Id { get; init; }
 
     /// <summary>User-facing name (e.g., "Morning Wake Up", "Nap Alarm").</summary>

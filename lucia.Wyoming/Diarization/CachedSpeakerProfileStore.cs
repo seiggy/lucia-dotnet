@@ -6,7 +6,7 @@ namespace lucia.Wyoming.Diarization;
 
 /// <summary>
 /// Redis-cached decorator for ISpeakerProfileStore. Reads enrolled profiles from
-/// Redis cache (~1ms) instead of MongoDB (~500ms+). Cache is refreshed on writes
+/// Redis cache (~1ms) instead of the database. Cache is refreshed on writes
 /// and expires after a configurable TTL.
 /// </summary>
 public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore

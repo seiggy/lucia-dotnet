@@ -2,7 +2,7 @@ namespace lucia.Wyoming.Telemetry;
 
 /// <summary>
 /// Persistent record of a voice pipeline transcript with full diagnostic metadata.
-/// Stored in MongoDB for troubleshooting and quality analysis.
+/// Stored for troubleshooting and quality analysis.
 /// </summary>
 public sealed record TranscriptRecord
 {

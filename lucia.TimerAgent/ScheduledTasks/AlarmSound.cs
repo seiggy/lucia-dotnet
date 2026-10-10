@@ -1,15 +1,13 @@
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.TimerAgent.ScheduledTasks;
 
 /// <summary>
-/// A named alarm sound — persisted in MongoDB "alarm_sounds" collection.
+/// A named alarm sound — persisted in the "alarm_sounds" table.
 /// Maps a user-friendly name to a media-source:// URI on the Home Assistant instance.
 /// </summary>
 public sealed class AlarmSound
 {
-    /// <summary>Unique ID (MongoDB _id).</summary>
-    [BsonId]
+    /// <summary>Unique ID (primary key).</summary>
     public required string Id { get; init; }
 
     /// <summary>User-facing name (e.g., "Gentle", "Radar", "Classic").</summary>

@@ -14,8 +14,8 @@ public sealed class DiarizationOptions
     public float SpeakerThreshold { get; set; } = 0.35f;
 
     /// <summary>
-    /// MongoDB database name for persistent speaker profile storage.
-    /// Used only when a MongoDB connection is available; otherwise profiles are stored in memory.
+    /// Database name for persistent speaker profile storage.
+    /// Used only when a persistent store is available; otherwise profiles are stored in memory.
     /// </summary>
     public string ProfileStoreDatabaseName { get; set; } = "luciawyoming";
 }

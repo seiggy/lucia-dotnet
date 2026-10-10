@@ -12,7 +12,7 @@ namespace lucia.Data.Sqlite;
 
 /// <summary>
 /// SQLite-backed API key service. Stores SHA-256 hashes of keys, never plaintext.
-/// Crypto logic is identical to <c>MongoApiKeyService</c>.
+/// Crypto logic is identical to <c>PostgresApiKeyService</c>.
 /// </summary>
 public sealed class SqliteApiKeyService : IApiKeyService
 {
@@ -634,7 +634,7 @@ public sealed class SqliteApiKeyService : IApiKeyService
         }, revokedCount);
     }
 
-    // ── Crypto helpers (identical to MongoApiKeyService) ────────
+    // ── Crypto helpers (identical to PostgresApiKeyService) ────────
 
     private static string GenerateKey()
     {
