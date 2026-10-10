@@ -204,14 +204,12 @@ public sealed class LocationSearchService
         IReadOnlyList<EntityMatchResult<AreaInfo>> areaMatches = [];
         IReadOnlyList<EntityMatchResult<HomeAssistantEntity>> entityMatches = [];
 
-        // Build the domain-filtered entity list once
-        var filteredEntities = domainFilter is { Count: > 0 }
-            ? snap.Entities.Where(e =>
-                    domainFilter.Contains(e.Domain, StringComparer.OrdinalIgnoreCase) &&
-                    (e.IncludeForAgent == null || e.IncludeForAgent.Count > 0)
-                )
-                .ToList()
-            : (IReadOnlyList<HomeAssistantEntity>)snap.Entities;
+        // An empty allow-list hides the entity from every agent, with or without a domain filter.
+        var filteredEntities = snap.Entities
+            .Where(e => e.IncludeForAgent is null || e.IncludeForAgent.Count > 0)
+            .Where(e => domainFilter is not { Count: > 0 }
+                || domainFilter.Contains(e.Domain, StringComparer.OrdinalIgnoreCase))
+            .ToList() as IReadOnlyList<HomeAssistantEntity>;
         if (callerAgentId is not null)
         {
             filteredEntities = filteredEntities

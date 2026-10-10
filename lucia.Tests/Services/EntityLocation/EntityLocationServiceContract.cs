@@ -317,6 +317,35 @@ public abstract class EntityLocationServiceContract
     }
 
     [Fact]
+    public async Task SetEntityAgentsAsync_EmptyList_HidesTheEntityWithoutADomainFilter()
+    {
+        var home = new SampleHomeAssistant();
+        await using var scope = await CreateAsync(home);
+        await LoadAsync(scope.Store);
+
+        await scope.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?> { ["light.kitchen_ceiling"] = [] });
+
+        var result = await scope.Store.SearchHierarchyAsync("Kitchen");
+        Assert.DoesNotContain("light.kitchen_ceiling", Ids(result.ResolvedEntities));
+        Assert.Contains("light.kitchen_island", Ids(result.ResolvedEntities));
+    }
+
+    [Fact]
+    public async Task SetEntityAgentsAsync_ConcurrentUpdates_AllLand()
+    {
+        var home = new SampleHomeAssistant();
+        await using var scope = await CreateAsync(home);
+        await LoadAsync(scope.Store);
+        var entityIds = home.Entities.Select(entity => entity.EntityId).ToArray();
+
+        await Task.WhenAll(entityIds.Select(entityId => Task.Run(() => scope.Store.SetEntityAgentsAsync(
+            new Dictionary<string, List<string>?> { [entityId] = ["light-agent"] }))));
+
+        var map = (await scope.Store.GetVisibilityConfigAsync()).EntityAgentMap;
+        Assert.Equal(entityIds.Order(), map.Keys.Order());
+    }
+
+    [Fact]
     public async Task ClearAllAgentFiltersAsync_RestoresVisibilityToEveryAgent()
     {
         var home = new SampleHomeAssistant();

@@ -215,7 +215,7 @@ public class LuciaEngine
                 {
                     await _observer.OnResponseAggregatedAsync(requestId, errorResponse, CancellationToken.None).ConfigureAwait(false);
                 }
-                catch (Exception traceEx) when (traceEx is not OperationCanceledException)
+                catch (Exception traceEx) when (!traceEx.IsCancellation())
                 {
                     _logger.LogError(traceEx, "Failed to persist error trace");
                 }
@@ -244,7 +244,7 @@ public class LuciaEngine
                     _logger.LogInformation("Task {TaskId} marked as failed", failedTaskId);
                 }
             }
-            catch (Exception taskEx) when (taskEx is not OperationCanceledException)
+            catch (Exception taskEx) when (!taskEx.IsCancellation())
             {
                 _logger.LogError(taskEx, "Failed to update task status to Failed");
             }

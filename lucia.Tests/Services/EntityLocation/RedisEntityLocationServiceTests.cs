@@ -26,7 +26,7 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
         var resolver = EmbeddingResolver();
         return new EntityLocationService(
             new RedisLocationSnapshotStore(redis, NullLogger<RedisLocationSnapshotStore>.Instance),
-            new RedisVisibilityConfigStore(redis, NullLogger<RedisVisibilityConfigStore>.Instance),
+            new RedisVisibilityConfigStore(redis),
             resolver,
             Search(),
             new LocationSnapshotLoader(home.Client, NullLogger<LocationSnapshotLoader>.Instance),

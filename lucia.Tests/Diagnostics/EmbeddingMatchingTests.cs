@@ -114,7 +114,8 @@ public sealed class EmbeddingMatchingTests
     [InlineData("Zack's Light")]
     [InlineData("Sack's Light")]
     [InlineData("zack's light")]
-    public async Task GetLightsStateAsync_EndToEnd(string searchTerm)
+    [InlineData("qzxv wvpp", false)]
+    public async Task GetLightsStateAsync_EndToEnd(string searchTerm, bool expectZacksLight = true)
     {
         var snapshotPath = Path.Combine(AppContext.BaseDirectory, "TestData", "ha-snapshot.json");
         Assert.True(File.Exists(snapshotPath), $"Snapshot not found: {snapshotPath}");
@@ -130,18 +131,18 @@ public sealed class EmbeddingMatchingTests
         var similarity = new EmbeddingSimilarityService();
         var entityMatcher = new HybridEntityMatcher(similarity, loggerFactory.CreateLogger<HybridEntityMatcher>());
         
-        var locationService = A.Fake<IEntityLocationService>();
-        var zacksLight = new lucia.Agents.Models.HomeAssistant.HomeAssistantEntity { EntityId = "light.zacks_light", FriendlyName = "Zack's Light" };
-        A.CallTo(() => locationService.SearchHierarchyAsync(A<string>._, A<HybridMatchOptions>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
-            .Returns(new HierarchicalSearchResult
-            {
-                FloorMatches = [],
-                AreaMatches = [],
-                EntityMatches = [],
-                ResolvedEntities = [zacksLight],
-                ResolutionStrategy = ResolutionStrategy.Entity,
-                ResolutionReason = "stub"
-            });
+        // Real location service over the snapshot, so a broken matcher fails the test.
+        var embeddingResolver = A.Fake<IEmbeddingProviderResolver>();
+        A.CallTo(() => embeddingResolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(embGen));
+        var locationService = InProcessEntityLocation.Create(haClient, embeddingResolver, entityMatcher, loggerFactory);
+        await locationService.InitializeAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while ((await locationService.GetEmbeddingProgressAsync()) is { IsGenerationRunning: true } or { EntityMissingCount: > 0 }
+            && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(25);
+        }
 
         var skill = new LightControlSkill(haClient, logger, locationService, optionsMonitor);
 
@@ -149,8 +150,7 @@ public sealed class EmbeddingMatchingTests
         var result = await skill.GetLightsStateAsync([searchTerm]);
         _output.WriteLine($"Result:\n{result}");
 
-        // Should find "Zack's Light" (light.zacks_light)
-        Assert.Contains("zacks_light", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(expectZacksLight, result.Contains("zacks_light", StringComparison.OrdinalIgnoreCase));
     }
     
     private static double CosineSimilarity(Embedding<float> a, Embedding<float> b)

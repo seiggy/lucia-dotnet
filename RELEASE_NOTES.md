@@ -80,6 +80,11 @@ any storage driver.
   for the next five minutes instead of trusting cached keys.
 - Turning on exposed-only entity loading during a reload now reloads again, so the entity list can
   no longer keep unexposed entities.
+- Entity visibility fails closed. If Home Assistant cannot return its exposed-entity list, or Redis
+  cannot return the saved visibility settings, the load fails and keeps the previous snapshot. Before,
+  Lucia loaded every entity or reset the settings to their defaults.
+- Entities with an empty agent allow-list are hidden from every search, with or without a domain filter.
+- Visibility updates run one at a time on a copy of the settings, so concurrent edits no longer race.
 - Every `.cs` file now holds one class.
 - In-memory `ExactMatchArea` now matches display names only, like the Redis
   version.

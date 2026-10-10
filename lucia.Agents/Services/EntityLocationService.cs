@@ -36,6 +36,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
     private readonly EntityEmbeddingJob _embeddingJob;
     private readonly ILogger<EntityLocationService> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
+    private readonly SemaphoreSlim _visibilityGate = new(1, 1);
 
     private static readonly TimeSpan EmptyCacheRetryInterval = TimeSpan.FromSeconds(30);
 
@@ -430,12 +431,17 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
     public async Task SetUseExposedOnlyAsync(bool useExposedOnly, CancellationToken ct = default)
     {
-        var config = _visibilityConfig;
-        if (config.UseExposedEntitiesOnly == useExposedOnly)
-            return;
+        var changed = await UpdateVisibilityAsync(config =>
+        {
+            if (config.UseExposedEntitiesOnly == useExposedOnly)
+                return false;
 
-        config.UseExposedEntitiesOnly = useExposedOnly;
-        await _visibilityStore.SaveAsync(_visibilityConfig, ct).ConfigureAwait(false);
+            config.UseExposedEntitiesOnly = useExposedOnly;
+            return true;
+        }, ct).ConfigureAwait(false);
+
+        if (!changed)
+            return;
 
         // Changing this flag requires a full HA reload to apply the filter
         await InvalidateAndReloadAsync(ct).ConfigureAwait(false);
@@ -443,32 +449,70 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
     public async Task SetEntityAgentsAsync(Dictionary<string, List<string>?> updates, CancellationToken ct = default)
     {
-        var config = _visibilityConfig;
-
-        foreach (var (entityId, agents) in updates)
+        await UpdateVisibilityAsync(config =>
         {
-            if (agents is null)
+            foreach (var (entityId, agents) in updates)
             {
-                // null = visible to all → remove the override
-                config.EntityAgentMap.Remove(entityId);
+                if (agents is null)
+                {
+                    // null = visible to all → remove the override
+                    config.EntityAgentMap.Remove(entityId);
+                }
+                else
+                {
+                    config.EntityAgentMap[entityId] = [.. agents];
+                }
             }
-            else
-            {
-                config.EntityAgentMap[entityId] = agents;
-            }
-        }
 
-        await _visibilityStore.SaveAsync(_visibilityConfig, ct).ConfigureAwait(false);
+            return true;
+        }, ct).ConfigureAwait(false);
+
         ApplyVisibilityToEntities();
         await BumpVersionAsync(ct).ConfigureAwait(false);
     }
 
     public async Task ClearAllAgentFiltersAsync(CancellationToken ct = default)
     {
-        _visibilityConfig.EntityAgentMap.Clear();
-        await _visibilityStore.SaveAsync(_visibilityConfig, ct).ConfigureAwait(false);
+        await UpdateVisibilityAsync(config =>
+        {
+            config.EntityAgentMap.Clear();
+            return true;
+        }, ct).ConfigureAwait(false);
+
         ApplyVisibilityToEntities();
         await BumpVersionAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Applies a change to a copy of the configuration, saves the copy, and only then publishes it. Updates run
+    /// one at a time, a failed save leaves the previous policy in place, and readers never see a dictionary
+    /// that is being modified.
+    /// </summary>
+    private async Task<bool> UpdateVisibilityAsync(Func<EntityVisibilityConfig, bool> change, CancellationToken ct)
+    {
+        await _visibilityGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var current = _visibilityConfig;
+            var updated = new EntityVisibilityConfig
+            {
+                UseExposedEntitiesOnly = current.UseExposedEntitiesOnly,
+                EntityAgentMap = new Dictionary<string, List<string>>(
+                    current.EntityAgentMap.Select(pair => KeyValuePair.Create(pair.Key, pair.Value.ToList())),
+                    StringComparer.OrdinalIgnoreCase),
+            };
+
+            if (!change(updated))
+                return false;
+
+            await _visibilityStore.SaveAsync(updated, ct).ConfigureAwait(false);
+            _visibilityConfig = updated;
+            return true;
+        }
+        finally
+        {
+            _visibilityGate.Release();
+        }
     }
 
     public async Task<bool> EvictEmbeddingAsync(string itemType, string itemId, CancellationToken ct = default)

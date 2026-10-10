@@ -52,26 +52,20 @@ public sealed class LocationSnapshotLoader
         return LocationSnapshot.Create(floors, areas, entities);
     }
 
+    // A failure here propagates. Falling back to the full registry would hand agents entities the user
+    // chose not to expose, so the caller keeps the previous snapshot and retries instead.
     private async Task<EntityRegistryEntry[]> FilterToExposedAsync(EntityRegistryEntry[] entityEntries, CancellationToken ct)
     {
-        try
-        {
-            var exposed = await _haClient.GetExposedEntitiesAsync(ct).ConfigureAwait(false);
-            var exposedIds = new HashSet<string>(
-                exposed.Where(kv => kv.Value.IsExposedToAny).Select(kv => kv.Key),
-                StringComparer.OrdinalIgnoreCase);
+        var exposed = await _haClient.GetExposedEntitiesAsync(ct).ConfigureAwait(false);
+        var exposedIds = new HashSet<string>(
+            exposed.Where(kv => kv.Value.IsExposedToAny).Select(kv => kv.Key),
+            StringComparer.OrdinalIgnoreCase);
 
-            var filtered = entityEntries.Where(e => exposedIds.Contains(e.EntityId)).ToArray();
-            _logger.LogInformation(
-                "Filtered to exposed entities only: {Before} → {After}",
-                entityEntries.Length, filtered.Length);
-            return filtered;
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogWarning(ex, "Failed to fetch exposed entity list — loading all entities instead");
-            return entityEntries;
-        }
+        var filtered = entityEntries.Where(e => exposedIds.Contains(e.EntityId)).ToArray();
+        _logger.LogInformation(
+            "Filtered to exposed entities only: {Before} → {After}",
+            entityEntries.Length, filtered.Length);
+        return filtered;
     }
 
     private async Task<Dictionary<string, List<string>>> LoadAreaEntityMapAsync(CancellationToken ct)

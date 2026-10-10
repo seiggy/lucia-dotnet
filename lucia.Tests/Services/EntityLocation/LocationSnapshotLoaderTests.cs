@@ -32,6 +32,17 @@ public sealed class LocationSnapshotLoaderTests
     }
 
     [Fact]
+    public async Task LoadAsync_ExposedListFails_PropagatesInsteadOfLoadingEverything()
+    {
+        var home = new SampleHomeAssistant();
+        A.CallTo(() => home.Client.GetExposedEntitiesAsync(A<CancellationToken>._))
+            .Throws(new HttpRequestException("Home Assistant is unreachable"));
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => CreateLoader(home).LoadAsync(exposedEntitiesOnly: true));
+    }
+
+    [Fact]
     public async Task LoadAsync_CallerCancellation_Propagates()
     {
         var home = new SampleHomeAssistant();

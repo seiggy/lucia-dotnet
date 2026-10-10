@@ -85,7 +85,7 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
         }
         catch (Exception ex) when (!ex.IsCancellation())
         {
-            _logger.LogDebug(ex, "Cache miss for speaker profile {ProfileId}, falling back to store", id);
+            _logger.LogDebug(ex, "Speaker profile cache read failed, falling back to store");
         }
 
         return await _inner.GetAsync(id, ct).ConfigureAwait(false);
