@@ -1,5 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
+using lucia.Data.Redis;
 using lucia.Tests.Data.Providers;
 using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -24,8 +25,8 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
     {
         var resolver = EmbeddingResolver();
         return new EntityLocationService(
-            home.Client,
-            redis,
+            new RedisLocationSnapshotStore(redis, NullLogger<RedisLocationSnapshotStore>.Instance),
+            new RedisVisibilityConfigStore(redis, NullLogger<RedisVisibilityConfigStore>.Instance),
             resolver,
             Search(),
             new LocationSnapshotLoader(home.Client, NullLogger<LocationSnapshotLoader>.Instance),

@@ -12,36 +12,24 @@ using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
-using StackExchange.Redis;
 
 namespace lucia.Agents.Services;
 
 /// <summary>
 /// Centralized, thread-safe entity location resolution across floors, areas, and entities.
 /// All in-memory data is stored in immutable collections swapped atomically via <see cref="Volatile"/>.
-/// Redis provides 24h persistence; HA config registry is the source of truth.
+/// A snapshot store shares the data across processes; the HA config registry is the source of truth.
 /// </summary>
 public sealed class EntityLocationService : IEntityLocationService, IAgentFilteredEntityLocationService
 {
-    private const string FloorsKey = "lucia:location:floors";
-    private const string AreasKey = "lucia:location:areas";
-    private const string EntitiesKey = "lucia:location:entities";
-    private const string LoadedAtKey = "lucia:location:loaded-at";
-    private const string VersionKey = "lucia:location:version";
-    private const string VisibilityKey = "lucia:entity-visibility";
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan VersionCheckInterval = TimeSpan.FromSeconds(30);
-    private const int EmbeddingBatchSize = 25;
-    private const int EmbeddingBatchMaxAttempts = 3;
-    private static readonly TimeSpan EmbeddingBatchDelay = TimeSpan.FromMilliseconds(250);
-    private static readonly TimeSpan EmbeddingRetryDelay = TimeSpan.FromSeconds(1);
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Services.EntityLocation", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Services.EntityLocation", "1.0.0");
     private static readonly Counter<long> CacheReloads = Meter.CreateCounter<long>("entity_location.cache.reloads");
 
-    private readonly IHomeAssistantClient _haClient;
-    private readonly IConnectionMultiplexer _redis;
+    private readonly ILocationSnapshotStore _snapshots;
+    private readonly IVisibilityConfigStore _visibilityStore;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
     private readonly LocationSearchService _search;
     private readonly LocationSnapshotLoader _loader;
@@ -92,16 +80,16 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
     }
 
     public EntityLocationService(
-        IHomeAssistantClient haClient,
-        IConnectionMultiplexer redis,
+        ILocationSnapshotStore snapshots,
+        IVisibilityConfigStore visibilityStore,
         IEmbeddingProviderResolver embeddingResolver,
         LocationSearchService search,
         LocationSnapshotLoader loader,
         EntityEmbeddingJob embeddingJob,
         ILogger<EntityLocationService> logger)
     {
-        _haClient = haClient;
-        _redis = redis;
+        _snapshots = snapshots;
+        _visibilityStore = visibilityStore;
         _embeddingResolver = embeddingResolver;
         _search = search;
         _loader = loader;
@@ -119,16 +107,16 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         }
 
         // Always load visibility config first (persisted without TTL)
-        await LoadVisibilityConfigAsync().ConfigureAwait(false);
+        _visibilityConfig = await _visibilityStore.LoadAsync(ct).ConfigureAwait(false) ?? new EntityVisibilityConfig();
 
-        // Try Redis first, fall back to HA
-        if (await TryLoadFromRedisAsync(ct).ConfigureAwait(false))
+        // Try the shared store first, fall back to HA
+        if (await TryLoadFromStoreAsync(ct).ConfigureAwait(false))
         {
             ApplyVisibilityToEntities();
             var snap = _snapshot;
             _embeddingJob.Start(snap.Floors, snap.Areas, snap.Entities, PersistEmbeddingUpdatesAsync);
             _logger.LogInformation(
-                "Loaded location data from Redis: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities",
+                "Loaded location data from the snapshot store: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities",
                 snap.Floors.Length, snap.Areas.Length, snap.Entities.Length);
             return;
         }
@@ -139,25 +127,12 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
     public async Task InvalidateAndReloadAsync(CancellationToken ct = default)
     {
         using var activity = ActivitySource.StartActivity();
-        try
-        {
-            var db = _redis.GetDatabase();
-            await db.KeyDeleteAsync([
-                (RedisKey)FloorsKey, (RedisKey)AreasKey, (RedisKey)EntitiesKey,
-                (RedisKey)LoadedAtKey
-            ]).ConfigureAwait(false);
-
-            _logger.LogInformation("Invalidated entity location cache, reloading from Home Assistant");
-        }
-        catch (RedisException ex)
-        {
-            _logger.LogWarning(ex, "Failed to clear Redis location cache, proceeding with reload");
-        }
+        await _snapshots.InvalidateAsync(ct).ConfigureAwait(false);
 
         await LoadFromHomeAssistantAsync(ct).ConfigureAwait(false);
 
-        // Bump version so other instances (A2AHost) know to reload from Redis
-        await BumpRedisVersionAsync().ConfigureAwait(false);
+        // Bump version so other instances know to reload from the shared store
+        await BumpVersionAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<FloorInfo>> GetFloorsAsync(CancellationToken ct = default)
@@ -308,8 +283,8 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
                 "Loaded location data: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities",
                 floors.Length, areas.Length, entities.Length);
 
-            // Persist to Redis
-            await SaveToRedisAsync(ct).ConfigureAwait(false);
+            // Persist to the shared store
+            await SaveSnapshotAsync(ct).ConfigureAwait(false);
 
             // Generate embeddings asynchronously in throttled batches.
             _embeddingJob.Start(floors, areas, entities, PersistEmbeddingUpdatesAsync);
@@ -338,57 +313,24 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
     // ── Private: Redis Persistence ──────────────────────────────────
 
-    private async Task<bool> TryLoadFromRedisAsync(CancellationToken ct)
+    private async Task<bool> TryLoadFromStoreAsync(CancellationToken ct)
     {
-        try
-        {
-            var db = _redis.GetDatabase();
-
-            var floorsJson = db.StringGetSetExpiryAsync(FloorsKey, CacheTtl);
-            var areasJson = db.StringGetSetExpiryAsync(AreasKey, CacheTtl);
-            var entitiesJson = db.StringGetSetExpiryAsync(EntitiesKey, CacheTtl);
-            var loadedAtStr = db.StringGetSetExpiryAsync(LoadedAtKey, CacheTtl);
-            var versionVal = db.StringGetSetExpiryAsync(VersionKey, CacheTtl);
-
-            await Task.WhenAll(floorsJson, areasJson, entitiesJson, loadedAtStr, versionVal)
-                .ConfigureAwait(false);
-
-            var floorsResult = await floorsJson.ConfigureAwait(false);
-            var areasResult = await areasJson.ConfigureAwait(false);
-            var entitiesResult = await entitiesJson.ConfigureAwait(false);
-            var loadedAtResult = await loadedAtStr.ConfigureAwait(false);
-            var versionResult = await versionVal.ConfigureAwait(false);
-
-            if (floorsResult.IsNullOrEmpty || areasResult.IsNullOrEmpty || entitiesResult.IsNullOrEmpty)
-                return false;
-
-            var floors = JsonSerializer.Deserialize<FloorInfo[]>((string)floorsResult!)
-                ?.ToImmutableArray() ?? ImmutableArray<FloorInfo>.Empty;
-            var areas = JsonSerializer.Deserialize<AreaInfo[]>((string)areasResult!)
-                ?.ToImmutableArray() ?? ImmutableArray<AreaInfo>.Empty;
-            var entities = JsonSerializer.Deserialize<HomeAssistantEntity[]>((string)entitiesResult!)
-                ?.ToImmutableArray() ?? ImmutableArray<HomeAssistantEntity>.Empty;
-
-            SwapData(floors, areas, entities);
-
-            if (!loadedAtResult.IsNullOrEmpty && DateTimeOffset.TryParse((string)loadedAtResult!, out var loadedAt))
-            {
-                Volatile.Write(ref _lastLoadedAtTicks, loadedAt.UtcTicks);
-            }
-
-            if (versionResult.TryParse(out long ver))
-            {
-                Volatile.Write(ref _knownVersion, ver);
-            }
-            Volatile.Write(ref _lastVersionCheckTicks, Stopwatch.GetTimestamp());
-
-            return true;
-        }
-        catch (RedisException ex)
-        {
-            _logger.LogWarning(ex, "Failed to load location data from Redis, will load from Home Assistant");
+        var stored = await _snapshots.TryLoadAsync(ct).ConfigureAwait(false);
+        if (stored is null)
             return false;
+
+        _snapshot = stored.Snapshot;
+        Volatile.Write(
+            ref _lastLoadedAtTicks,
+            (stored.LoadedAt ?? DateTimeOffset.UtcNow).UtcTicks);
+
+        if (stored.Version is { } version)
+        {
+            Volatile.Write(ref _knownVersion, version);
         }
+        Volatile.Write(ref _lastVersionCheckTicks, Stopwatch.GetTimestamp());
+
+        return true;
     }
 
     /// <summary>
@@ -426,88 +368,44 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
         Volatile.Write(ref _lastVersionCheckTicks, Stopwatch.GetTimestamp());
 
-        try
+        var remoteVersion = await _snapshots.GetVersionAsync(ct).ConfigureAwait(false);
+        if (remoteVersion is null)
+            return;
+
+        var localVersion = Volatile.Read(ref _knownVersion);
+        if (remoteVersion <= localVersion)
+            return;
+
+        _logger.LogInformation(
+            "Location snapshot version changed ({LocalVersion} → {RemoteVersion}), reloading from the store",
+            localVersion, remoteVersion);
+
+        if (await TryLoadFromStoreAsync(ct).ConfigureAwait(false))
         {
-            var db = _redis.GetDatabase();
-            var versionVal = await db.StringGetSetExpiryAsync(VersionKey, CacheTtl).ConfigureAwait(false);
-
-            if (!versionVal.TryParse(out long remoteVersion))
-                return;
-
-            var localVersion = Volatile.Read(ref _knownVersion);
-            if (remoteVersion <= localVersion)
-                return;
-
-            _logger.LogInformation(
-                "Redis location cache version changed ({LocalVersion} → {RemoteVersion}), reloading from Redis",
-                localVersion, remoteVersion);
-
-            if (await TryLoadFromRedisAsync(ct).ConfigureAwait(false))
-            {
-                CacheReloads.Add(1);
-                var snap = _snapshot;
-                _embeddingJob.Start(snap.Floors, snap.Areas, snap.Entities, PersistEmbeddingUpdatesAsync);
-            }
-        }
-        catch (RedisException ex)
-        {
-            _logger.LogWarning(ex, "Failed to check Redis location cache version, using current in-memory data");
+            CacheReloads.Add(1);
+            var snap = _snapshot;
+            _embeddingJob.Start(snap.Floors, snap.Areas, snap.Entities, PersistEmbeddingUpdatesAsync);
         }
     }
 
-    private async Task BumpRedisVersionAsync()
+    private async Task BumpVersionAsync(CancellationToken ct)
     {
-        try
-        {
-            var db = _redis.GetDatabase();
-            var newVersion = await db.StringIncrementAsync(VersionKey).ConfigureAwait(false);
-            Volatile.Write(ref _knownVersion, newVersion);
-            Volatile.Write(ref _lastVersionCheckTicks, Stopwatch.GetTimestamp());
+        var newVersion = await _snapshots.BumpVersionAsync(ct).ConfigureAwait(false);
+        if (newVersion is null)
+            return;
 
-            _logger.LogDebug("Bumped Redis location cache version to {Version}", newVersion);
-        }
-        catch (RedisException ex)
-        {
-            _logger.LogWarning(ex, "Failed to bump Redis location cache version");
-        }
+        Volatile.Write(ref _knownVersion, newVersion.Value);
+        Volatile.Write(ref _lastVersionCheckTicks, Stopwatch.GetTimestamp());
     }
 
     private async Task PersistEmbeddingUpdatesAsync(CancellationToken ct)
     {
-        await SaveToRedisAsync(ct).ConfigureAwait(false);
-        await BumpRedisVersionAsync().ConfigureAwait(false);
+        await SaveSnapshotAsync(ct).ConfigureAwait(false);
+        await BumpVersionAsync(ct).ConfigureAwait(false);
     }
 
-    private async Task SaveToRedisAsync(CancellationToken ct)
-    {
-        try
-        {
-            var db = _redis.GetDatabase();
-            var snap = _snapshot;
-
-            var floorsJson = JsonSerializer.Serialize(snap.Floors);
-            var areasJson = JsonSerializer.Serialize(snap.Areas);
-            var entitiesJson = JsonSerializer.Serialize(snap.Entities);
-
-            var batch = db.CreateBatch();
-            var tasks = new List<Task>
-            {
-                batch.StringSetAsync(FloorsKey, floorsJson, CacheTtl, flags: CommandFlags.FireAndForget),
-                batch.StringSetAsync(AreasKey, areasJson, CacheTtl, flags: CommandFlags.FireAndForget),
-                batch.StringSetAsync(EntitiesKey, entitiesJson, CacheTtl, flags: CommandFlags.FireAndForget),
-                batch.StringSetAsync(LoadedAtKey, LastLoadedAt?.ToString("O") ?? "", CacheTtl, flags: CommandFlags.FireAndForget)
-            };
-            batch.Execute();
-
-            await Task.WhenAll(tasks).ConfigureAwait(false);
-
-            _logger.LogDebug("Saved entity location data to Redis");
-        }
-        catch (RedisException ex)
-        {
-            _logger.LogWarning(ex, "Failed to save location data to Redis — data is available in-memory only");
-        }
-    }
+    private Task SaveSnapshotAsync(CancellationToken ct)
+        => _snapshots.SaveAsync(_snapshot, LastLoadedAt, ct);
 
     // ── Public: Visibility Configuration ────────────────────────────
 
@@ -523,7 +421,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             return;
 
         config.UseExposedEntitiesOnly = useExposedOnly;
-        await SaveVisibilityConfigAsync().ConfigureAwait(false);
+        await _visibilityStore.SaveAsync(_visibilityConfig, ct).ConfigureAwait(false);
 
         // Changing this flag requires a full HA reload to apply the filter
         await InvalidateAndReloadAsync(ct).ConfigureAwait(false);
@@ -546,17 +444,17 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
             }
         }
 
-        await SaveVisibilityConfigAsync().ConfigureAwait(false);
+        await _visibilityStore.SaveAsync(_visibilityConfig, ct).ConfigureAwait(false);
         ApplyVisibilityToEntities();
-        await BumpRedisVersionAsync().ConfigureAwait(false);
+        await BumpVersionAsync(ct).ConfigureAwait(false);
     }
 
     public async Task ClearAllAgentFiltersAsync(CancellationToken ct = default)
     {
         _visibilityConfig.EntityAgentMap.Clear();
-        await SaveVisibilityConfigAsync().ConfigureAwait(false);
+        await _visibilityStore.SaveAsync(_visibilityConfig, ct).ConfigureAwait(false);
         ApplyVisibilityToEntities();
-        await BumpRedisVersionAsync().ConfigureAwait(false);
+        await BumpVersionAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<bool> EvictEmbeddingAsync(string itemType, string itemId, CancellationToken ct = default)
@@ -618,47 +516,14 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
 
         var newEntities = snap.Entities.Remove(entity);
         SwapData(snap.Floors, snap.Areas, newEntities);
-        await SaveToRedisAsync(ct).ConfigureAwait(false);
-        await BumpRedisVersionAsync().ConfigureAwait(false);
+        await SaveSnapshotAsync(ct).ConfigureAwait(false);
+        await BumpVersionAsync(ct).ConfigureAwait(false);
 
         _logger.LogInformation("Removed entity '{EntityId}' from location cache", entityId);
         return true;
     }
 
     // ── Private: Visibility Persistence ─────────────────────────────
-
-    private async Task LoadVisibilityConfigAsync()
-    {
-        try
-        {
-            var db = _redis.GetDatabase();
-            var json = await db.StringGetAsync(VisibilityKey).ConfigureAwait(false);
-            if (!json.IsNullOrEmpty)
-            {
-                _visibilityConfig = JsonSerializer.Deserialize<EntityVisibilityConfig>((string)json!)
-                    ?? new EntityVisibilityConfig();
-            }
-        }
-        catch (RedisException ex)
-        {
-            _logger.LogWarning(ex, "Failed to load entity visibility config from Redis, using defaults");
-        }
-    }
-
-    private async Task SaveVisibilityConfigAsync()
-    {
-        try
-        {
-            var db = _redis.GetDatabase();
-            var json = JsonSerializer.Serialize(_visibilityConfig);
-            // No TTL — user configuration persists indefinitely
-            await db.StringSetAsync(VisibilityKey, json).ConfigureAwait(false);
-        }
-        catch (RedisException ex)
-        {
-            _logger.LogWarning(ex, "Failed to save entity visibility config to Redis");
-        }
-    }
 
     /// <summary>
     /// Applies the <see cref="_visibilityConfig"/> agent mappings to all in-memory entities.
