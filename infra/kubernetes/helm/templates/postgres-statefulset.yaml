@@ -1,0 +1,148 @@
+{{- /*
+Lucia bundled PostgreSQL StatefulSet Template
+
+Runs a single PostgreSQL server for the luciaconfig, luciatraces and luciatasks
+databases. Disable it (bundledPostgres.enabled=false) and set postgres.enabled=true
+to use an external server instead.
+*/ -}}
+
+{{- if .Values.bundledPostgres.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lucia.fullname" . }}-postgres-init
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+data:
+  01-create-databases.sql: |
+    CREATE DATABASE luciaconfig;
+    CREATE DATABASE luciatraces;
+    CREATE DATABASE luciatasks;
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lucia.fullname" . }}-postgres
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  type: {{ .Values.bundledPostgres.service.type }}
+  ports:
+    - port: {{ .Values.bundledPostgres.service.port }}
+      targetPort: postgres
+      protocol: TCP
+      name: postgres
+  selector:
+    {{- include "lucia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "lucia.fullname" . }}-postgres
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ include "lucia.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lucia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "lucia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+        version: {{ .Chart.AppVersion | quote }}
+    spec:
+      {{- with .Values.bundledPostgres.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: postgres
+          {{- with .Values.bundledPostgres.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.bundledPostgres.image.repository }}:{{ .Values.bundledPostgres.image.tag }}"
+          imagePullPolicy: {{ .Values.bundledPostgres.image.pullPolicy }}
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lucia.fullname" . }}-postgres
+                  key: POSTGRES_PASSWORD
+            # A subdirectory keeps initdb away from the volume's lost+found entry.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+          {{- with .Values.bundledPostgres.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+
+      volumes:
+        - name: postgres-init
+          configMap:
+            name: {{ include "lucia.fullname" . }}-postgres-init
+        {{- if not .Values.bundledPostgres.storage.enabled }}
+        - name: postgres-data
+          emptyDir: {}
+        {{- end }}
+
+  {{- if .Values.bundledPostgres.storage.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          {{- include "lucia.labels" . | nindent 10 }}
+          app.kubernetes.io/component: postgres
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.bundledPostgres.storage.storageClassName }}
+        resources:
+          requests:
+            storage: {{ .Values.bundledPostgres.storage.size }}
+  {{- end }}
+{{- end }}

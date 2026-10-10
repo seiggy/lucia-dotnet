@@ -31,8 +31,7 @@ curl http://localhost:8080/health
 | `04-deployment.yaml` | Application | Lucia app Deployment and Service |
 | `05-ingress.yaml` | Routing | Ingress configuration for external access |
 | `06-rbac.yaml` | Access Control | ServiceAccount, Role, RoleBinding, PDB |
-| `07-mongodb.yaml` | Database | MongoDB StatefulSet and Service for persistence |
-| `08-a2a-deployment.yaml` | A2A Agents | Separate A2A agent Deployments (mesh mode) |
+| `07-postgres.yaml` | Database | PostgreSQL StatefulSet, Service and database init SQL for persistence |
 | `kustomization.yaml` | Orchestration | Kustomize configuration file |
 
 ## Applying Manifests
@@ -51,8 +50,7 @@ kubectl apply -f 03-redis.yaml
 kubectl apply -f 04-deployment.yaml
 kubectl apply -f 05-ingress.yaml
 kubectl apply -f 06-rbac.yaml
-kubectl apply -f 07-mongodb.yaml
-kubectl apply -f 08-a2a-deployment.yaml
+kubectl apply -f 07-postgres.yaml
 ```
 
 ### Option 2: Apply with Custom Values
