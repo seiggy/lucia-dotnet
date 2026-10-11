@@ -22,6 +22,9 @@ public sealed class ResultAggregatorExecutor : Executor
     /// <summary>Workflow state key used for aggregation state.</summary>
     public const string StateKey = "responses";
 
+    /// <summary>Failure reason surfaced when an agent reports success without rendered content.</summary>
+    private const string EmptyResponseMessage = "the agent finished without producing a response.";
+
     private readonly ILogger<ResultAggregatorExecutor> _logger;
     private readonly ResultAggregatorOptions _options;
     private readonly IChatClient? _personalityChatClient;
@@ -90,17 +93,23 @@ public sealed class ResultAggregatorExecutor : Executor
         {
             totalTime += Math.Max(0, response.ExecutionTimeMs);
 
-            if (response.Success)
+            if (response.NeedsInput)
+            {
+                needsInput = true;
+            }
+
+            if (response.Success && HasContent(response.Content))
             {
                 successes.Add(response);
-                if (response.NeedsInput)
-                {
-                    needsInput = true;
-                }
+            }
+            else if (!response.Success)
+            {
+                failures.Add(new AggregatedFailure(response.AgentId, response.ErrorMessage ?? _options.DefaultFailureMessage));
             }
             else
             {
-                failures.Add(new AggregatedFailure(response.AgentId, response.ErrorMessage ?? _options.DefaultFailureMessage));
+                // A "successful" run that rendered no text is not a success worth surfacing.
+                failures.Add(new AggregatedFailure(response.AgentId, EmptyResponseMessage));
             }
         }
 
@@ -259,19 +268,11 @@ public sealed class ResultAggregatorExecutor : Executor
         return builder.ToString();
     }
 
-    private string NormalizeSuccessMessage(OrchestratorAgentResponse response)
-    {
-        var content = response.Content?.Trim();
-        if (string.IsNullOrWhiteSpace(content))
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                _options.DefaultSuccessTemplate,
-                FormatAgentName(response.AgentId));
-        }
+    private static string NormalizeSuccessMessage(OrchestratorAgentResponse response)
+        => response.Content?.Trim() ?? string.Empty;
 
-        return content;
-    }
+    private static bool HasContent(string? content)
+        => !string.IsNullOrWhiteSpace(content);
 
     private static string FormatAgentName(string agentId)
     {

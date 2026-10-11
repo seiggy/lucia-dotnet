@@ -19,11 +19,6 @@ public sealed class ResultAggregatorOptions
     };
 
     /// <summary>
-    /// Template used when an agent succeeds but returns no content.
-    /// </summary>
-    public string DefaultSuccessTemplate { get; set; } = "{0} completed successfully.";
-
-    /// <summary>
     /// Fallback message when no responses are available.
     /// </summary>
     public string DefaultFallbackMessage { get; set; } = "I'm still working on that request.";
