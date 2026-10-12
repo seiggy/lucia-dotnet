@@ -1,6 +1,9 @@
 using FakeItEasy;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
+using lucia.HomeAssistant.Models;
+using lucia.HomeAssistant.Services;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.Logging;
@@ -14,6 +17,7 @@ namespace lucia.Tests.Timer;
 public sealed class TimerSkillTests
 {
     private readonly IEntityLocationService _entityLocationService = A.Fake<IEntityLocationService>();
+    private readonly IHomeAssistantClient _haClient = A.Fake<IHomeAssistantClient>();
     private readonly ScheduledTaskStore _taskStore = new();
     private readonly IScheduledTaskRepository _taskRepository = A.Fake<IScheduledTaskRepository>();
     private readonly FakeTimeProvider _timeProvider = new();
@@ -23,8 +27,18 @@ public sealed class TimerSkillTests
     public TimerSkillTests()
     {
         _timeProvider.SetUtcNow(new DateTimeOffset(2025, 7, 15, 12, 0, 0, TimeSpan.Zero));
-        _skill = new TimerSkill(_entityLocationService, _taskStore, _taskRepository, _timeProvider, _logger);
+        _skill = new TimerSkill(_entityLocationService, _haClient, _taskStore, _taskRepository, _timeProvider, _logger);
     }
+
+    private static HomeAssistantEntity MakeSatellite(string entityId) =>
+        new() { EntityId = entityId, FriendlyName = entityId.Split('.')[1] };
+
+    private static HomeAssistantState StateWithFeatures(string entityId, int supportedFeatures) =>
+        new()
+        {
+            EntityId = entityId,
+            Attributes = new Dictionary<string, object> { ["supported_features"] = supportedFeatures }
+        };
 
     [Fact]
     public async Task SetTimerAsync_ValidInput_CreatesTimerAndReturnsConfirmation()
@@ -230,6 +244,116 @@ public sealed class TimerSkillTests
             "office",
             A<IReadOnlyList<string>?>._,
             A<CancellationToken>.That.IsEqualTo(cts.Token)))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_LocationName_SatelliteSupportsAnnounce_ResolvedFromLiveState()
+    {
+        // The entity registry never carries supported_features, so capability must come from state.
+        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
+                "office", A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+                [MakeSatellite("assist_satellite.office_sat")]));
+
+        A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(StateWithFeatures("assist_satellite.office_sat", 3)));
+
+        var result = await _skill.SetTimerAsync(120, "Done!", "office");
+
+        Assert.Contains("set for", result);
+        A.CallTo(() => _taskRepository.UpsertAsync(
+                A<ScheduledTaskDocument>.That.Matches(d => d.EntityId == "assist_satellite.office_sat"),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_LocationName_SatelliteLacksAnnounce_ReturnsNotFound()
+    {
+        // features=2 (StartConversation only) — no Announce bit.
+        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
+                "office", A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+                [MakeSatellite("assist_satellite.office_sat")]));
+
+        A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(StateWithFeatures("assist_satellite.office_sat", 2)));
+
+        var result = await _skill.SetTimerAsync(120, "Done!", "office");
+
+        Assert.Contains("Could not find an assist_satellite device", result);
+        Assert.Equal(0, _skill.ActiveTimerCount);
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_LocationName_StateUnavailable_FallsBackToFirstSatellite()
+    {
+        // HA state fetch fails (e.g. transient network error) — fail open rather than reject.
+        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
+                "office", A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+                [MakeSatellite("assist_satellite.office_sat")]));
+
+        A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._))
+            .Throws<HttpRequestException>();
+
+        var result = await _skill.SetTimerAsync(120, "Done!", "office");
+
+        Assert.Contains("set for", result);
+        A.CallTo(() => _taskRepository.UpsertAsync(
+                A<ScheduledTaskDocument>.That.Matches(d => d.EntityId == "assist_satellite.office_sat"),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_LocationName_PrefersAnnounceCapableOverFirstCandidate()
+    {
+        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
+                "office", A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+            [
+                MakeSatellite("assist_satellite.office_incapable"),
+                MakeSatellite("assist_satellite.office_capable")
+            ]));
+
+        A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_incapable", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(StateWithFeatures("assist_satellite.office_incapable", 2)));
+        A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_capable", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(StateWithFeatures("assist_satellite.office_capable", 3)));
+
+        await _skill.SetTimerAsync(120, "Done!", "office");
+
+        A.CallTo(() => _taskRepository.UpsertAsync(
+                A<ScheduledTaskDocument>.That.Matches(d => d.EntityId == "assist_satellite.office_capable"),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_LocationName_PrefersUnverifiedOverVerifiedIncapable()
+    {
+        // Candidate A is confirmed incapable; candidate B's state is unreadable.
+        // An unverified satellite in the right area beats a known-bad one.
+        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
+                "office", A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+            [
+                MakeSatellite("assist_satellite.office_incapable"),
+                MakeSatellite("assist_satellite.office_unknown")
+            ]));
+
+        A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_incapable", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(StateWithFeatures("assist_satellite.office_incapable", 0)));
+        A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_unknown", A<CancellationToken>._))
+            .Throws<HttpRequestException>();
+
+        await _skill.SetTimerAsync(120, "Done!", "office");
+
+        A.CallTo(() => _taskRepository.UpsertAsync(
+                A<ScheduledTaskDocument>.That.Matches(d => d.EntityId == "assist_satellite.office_unknown"),
+                A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
 
