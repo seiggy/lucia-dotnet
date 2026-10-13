@@ -207,7 +207,7 @@ public sealed class FanControlSkillTests
             .Throws(new InvalidOperationException("boom"));
         var skill = await CreateSkillAsync(await CreateHomeAssistantAsync(), location);
 
-        Assert.Equal("Error searching for fan: boom", await skill.FindFanAsync("qzxv wvpp"));
+        Assert.Equal("Unable to search for fans. Please try again.", await skill.FindFanAsync("qzxv wvpp"));
     }
 
     // ── FindFansByAreaAsync ─────────────────────────────────────────────
@@ -290,7 +290,7 @@ public sealed class FanControlSkillTests
             .Throws(new InvalidOperationException("boom"));
         var skill = await CreateSkillAsync(ha, CreateLocation(Resolved(ResolutionStrategy.None)));
 
-        Assert.Equal("Error getting fan state: boom", await skill.GetFanStateAsync("fan.living_room"));
+        Assert.Equal("Unable to get the state of fan 'fan.living_room'. Please try again.", await skill.GetFanStateAsync("fan.living_room"));
     }
 
     // ── Control tools ───────────────────────────────────────────────────
@@ -399,11 +399,11 @@ public sealed class FanControlSkillTests
             .Throws(new InvalidOperationException("boom"));
         var skill = await CreateSkillAsync(ha, CreateLocation(Resolved(ResolutionStrategy.None)));
 
-        Assert.Equal("Failed to set fan speed: boom", await skill.SetFanSpeedAsync("fan.living_room", 40));
-        Assert.Equal("Failed to set fan state: boom", await skill.SetFanStateAsync("fan.living_room", "on"));
-        Assert.Equal("Failed to set fan direction: boom", await skill.SetFanDirectionAsync("fan.living_room", "forward"));
-        Assert.Equal("Failed to set fan oscillation: boom", await skill.SetFanOscillationAsync("fan.living_room", true));
-        Assert.Equal("Failed to set fan preset mode: boom", await skill.SetFanPresetModeAsync("fan.living_room", "auto"));
+        Assert.Equal("Unable to set fan speed. Please try again.", await skill.SetFanSpeedAsync("fan.living_room", 40));
+        Assert.Equal("Unable to set the fan state. Please try again.", await skill.SetFanStateAsync("fan.living_room", "on"));
+        Assert.Equal("Unable to set fan direction. Please try again.", await skill.SetFanDirectionAsync("fan.living_room", "forward"));
+        Assert.Equal("Unable to set fan oscillation. Please try again.", await skill.SetFanOscillationAsync("fan.living_room", true));
+        Assert.Equal("Unable to set the fan preset mode. Please try again.", await skill.SetFanPresetModeAsync("fan.living_room", "auto"));
     }
 
     [Fact]

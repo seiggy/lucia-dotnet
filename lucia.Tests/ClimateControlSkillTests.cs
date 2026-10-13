@@ -427,17 +427,18 @@ public sealed class ClimateControlSkillTests
             "Set swing mode for 'climate.living_room' to 'on'.");
 
     [Fact]
-    public async Task SetClimateTemperatureAsync_WhenHomeAssistantFails_ReturnsTheFailureText()
+    public async Task SetClimateTemperatureAsync_WhenHomeAssistantFails_ReturnsAGenericMessage()
     {
         var ha = A.Fake<IHomeAssistantClient>();
         A.CallTo(() => ha.CallServiceAsync(
                 A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
-            .Throws(new InvalidOperationException("boom"));
+            .Throws(new InvalidOperationException("secret connection string"));
         var skill = await CreateSkillAsync(ha, CreateLocation(Resolved(ResolutionStrategy.None)));
 
         var result = await skill.SetClimateTemperatureAsync("climate.living_room", 70);
 
-        Assert.Equal("Failed to set temperature for 'climate.living_room': boom", result);
+        Assert.Equal("Unable to set temperature for 'climate.living_room'. Please try again.", result);
+        Assert.DoesNotContain("secret", result);
     }
 
     [Fact]
@@ -454,14 +455,17 @@ public sealed class ClimateControlSkillTests
     }
 
     [Fact]
-    public async Task GetClimateStateAsync_WhenHomeAssistantFails_ReturnsTheFailureText()
+    public async Task GetClimateStateAsync_WhenHomeAssistantFails_ReturnsAGenericMessage()
     {
         var ha = A.Fake<IHomeAssistantClient>();
         A.CallTo(() => ha.GetEntityStateAsync("climate.living_room", A<CancellationToken>._))
-            .Throws(new InvalidOperationException("boom"));
+            .Throws(new InvalidOperationException("secret connection string"));
         var skill = await CreateSkillAsync(ha, CreateLocation(Resolved(ResolutionStrategy.None)));
 
-        Assert.Equal("Error getting state for 'climate.living_room': boom", await skill.GetClimateStateAsync("climate.living_room"));
+        var result = await skill.GetClimateStateAsync("climate.living_room");
+
+        Assert.Equal("Unable to get the state of 'climate.living_room'. Please try again.", result);
+        Assert.DoesNotContain("secret", result);
     }
 
     // ── Cache ───────────────────────────────────────────────────────────

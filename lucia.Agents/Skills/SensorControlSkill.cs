@@ -256,7 +256,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             SensorSearchFailures.Add(1);
             return $"No sensor found matching '{searchTerm}'. Available sensors: {string.Join(", ", _sensors.Items.Take(5).Select(s => s.FriendlyName))}";
-        }, onFailure: () => SensorSearchFailures.Add(1), duration: SensorSearchDurationMs, detail: searchTerm, includeExceptionMessage: false).ConfigureAwait(false);
+        }, onFailure: () => SensorSearchFailures.Add(1), duration: SensorSearchDurationMs, detail: searchTerm).ConfigureAwait(false);
     }
 
     [Description("Find all sensors in a specific area/room. Returns both regular sensors and binary sensors.")]
@@ -305,7 +305,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }, detail: areaName, includeExceptionMessage: false).ConfigureAwait(false);
+        }, detail: areaName).ConfigureAwait(false);
     }
 
     [Description("Get the current reading of a specific sensor entity. Use this for regular sensors (temperature, humidity, battery, power, etc.). Sensors are read-only.")]
@@ -323,7 +323,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             var device = _sensors.Items.FirstOrDefault(s => s.EntityId == entityId);
             return FormatSensorState(state, device);
-        }, detail: entityId, includeExceptionMessage: false).ConfigureAwait(false);
+        }, detail: entityId).ConfigureAwait(false);
     }
 
     [Description("Get the current state of a specific binary sensor entity. Binary sensors have on/off states (e.g., motion detected, door open/closed, window open). They are read-only.")]
@@ -357,7 +357,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString();
-        }, detail: entityId, includeExceptionMessage: false).ConfigureAwait(false);
+        }, detail: entityId).ConfigureAwait(false);
     }
 
     [Description("Get all sensors of a specific type in an area. Filter by device class to find specific kinds of sensors (e.g., temperature sensors, motion sensors, battery sensors).")]
@@ -417,7 +417,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }, detail: areaName, includeExceptionMessage: false).ConfigureAwait(false);
+        }, detail: areaName).ConfigureAwait(false);
     }
 
     private bool IsTrackedSensorEntity(string entityId)
