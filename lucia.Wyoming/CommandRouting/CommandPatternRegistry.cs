@@ -18,10 +18,19 @@ public sealed class CommandPatternRegistry
                 Templates = definition.Templates,
                 MinConfidence = definition.MinConfidence,
                 Priority = definition.Priority,
+                IsQuery = definition.IsQuery,
             })
             .OrderByDescending(static pattern => pattern.Priority)
             .ToList();
     }
 
     public IReadOnlyList<CommandPattern> GetAllPatterns() => _patterns;
+
+    /// <summary>Patterns that actuate devices; matched for command transcripts.</summary>
+    public IReadOnlyList<CommandPattern> GetCommandPatterns() =>
+        _patterns.Where(static pattern => !pattern.IsQuery).ToList();
+
+    /// <summary>Patterns that answer status questions; matched only for question transcripts.</summary>
+    public IReadOnlyList<CommandPattern> GetQueryPatterns() =>
+        _patterns.Where(static pattern => pattern.IsQuery).ToList();
 }

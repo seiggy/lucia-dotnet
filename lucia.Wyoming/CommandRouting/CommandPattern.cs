@@ -26,4 +26,10 @@ public sealed record CommandPattern
 
     /// <summary>Match priority (higher = preferred when multiple match).</summary>
     public int Priority { get; init; }
+
+    /// <summary>
+    /// Marks patterns that answer status questions ("is the front door locked").
+    /// Query patterns only match transcripts classified as status questions.
+    /// </summary>
+    public bool IsQuery { get; init; }
 }

@@ -13,4 +13,11 @@ public sealed record CommandPatternDefinition
     public float MinConfidence { get; init; } = 0.8f;
 
     public int Priority { get; init; }
+
+    /// <summary>
+    /// Marks patterns that answer status questions ("is the front door locked").
+    /// Query patterns only match transcripts classified as status questions; command
+    /// patterns never do, and vice versa.
+    /// </summary>
+    public bool IsQuery { get; init; }
 }

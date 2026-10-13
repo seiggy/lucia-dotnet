@@ -262,10 +262,13 @@ public sealed partial class ConversationCommandProcessor
                 .ConfigureAwait(false);
         }
 
-        // Render templated response
-        var renderResult = await _templateRenderer
-            .RenderWithTraceAsync(pattern.SkillId, pattern.Action, executionResult.Captures, ct)
-            .ConfigureAwait(false);
+        // Query patterns speak the skill's live answer directly (sensor readings, door states),
+        // because confirmation templates only interpolate captured values and cannot carry query results.
+        var renderResult = pattern.IsQuery
+            ? TemplateRenderResult.FromSkillResponse(pattern.SkillId, pattern.Action, executionResult.ResponseText ?? string.Empty)
+            : await _templateRenderer
+                .RenderWithTraceAsync(pattern.SkillId, pattern.Action, executionResult.Captures, ct)
+                .ConfigureAwait(false);
         var responseText = renderResult.Text;
 
         // Apply personality rewriting when enabled

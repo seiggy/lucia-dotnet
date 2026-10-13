@@ -31,6 +31,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     private static readonly IReadOnlyList<string> LightDomains = ["light", "switch"];
     private static readonly IReadOnlyList<string> ClimateDomains = ["climate"];
     private static readonly IReadOnlyList<string> SceneDomains = ["scene"];
+    private static readonly IReadOnlyList<string> CoverDomains = ["cover"];
     private const string UseCascadingResolverFeature = "UseCascadingResolver";
 
     private readonly IServiceProvider _serviceProvider;
@@ -134,6 +135,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
             ("LightControlSkill", "brightness") => ExecuteLightBrightnessAsync(route, context, collector, useCascadingResolver, ct),
             ("ClimateControlSkill", "set_temperature") => ExecuteClimateSetTemperatureAsync(route, context, collector, useCascadingResolver, ct),
             ("ClimateControlSkill", "adjust") => ExecuteClimateAdjustAsync(route, context, collector, useCascadingResolver, ct),
+            ("ClimateControlSkill", "state") => ExecuteClimateStateAsync(route, collector),
+            ("SecurityControlSkill", "status") => ExecuteSecurityStatusAsync(route, collector),
+            ("SecurityControlSkill", "cover") => ExecuteSecurityCoverAsync(route, context, collector, useCascadingResolver, ct),
             ("SceneControlSkill", "activate") => ExecuteSceneActivateAsync(route, context, collector, useCascadingResolver, ct),
             _ => throw new NotSupportedException(
                 $"No executor registered for skill '{skillId}' action '{action}'"),
@@ -238,7 +242,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var adjustment = direction switch
         {
-            "cooler" or "colder" => -DefaultComfortAdjustmentF,
+            "cooler" or "colder" or "cool" => -DefaultComfortAdjustmentF,
             _ => DefaultComfortAdjustmentF,
         };
 
@@ -248,6 +252,73 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
             nameof(ClimateControlSkill.SetClimateTemperatureAsync),
             new { entityId, temperature = newTemp },
             () => skill.SetClimateTemperatureAsync(entityId, newTemp)).ConfigureAwait(false);
+    }
+
+    private async Task<string> ExecuteClimateStateAsync(CommandRouteResult route, ToolCallCollector collector)
+    {
+        var skill = _serviceProvider.GetRequiredService<ClimateControlSkill>();
+        var captures = route.CapturedValues ?? new Dictionary<string, string>();
+
+        if (!captures.TryGetValue("area", out var area) || string.IsNullOrWhiteSpace(area))
+        {
+            throw new InvalidOperationException(
+                "No area was captured for the climate state query");
+        }
+
+        return await collector.RecordAsync(
+            nameof(ClimateControlSkill.GetAreaClimateSensorsAsync),
+            new { area },
+            () => skill.GetAreaClimateSensorsAsync(area)).ConfigureAwait(false);
+    }
+
+    private async Task<string> ExecuteSecurityStatusAsync(CommandRouteResult route, ToolCallCollector collector)
+    {
+        var skill = _serviceProvider.GetRequiredService<SecurityControlSkill>();
+        var captures = route.CapturedValues ?? new Dictionary<string, string>();
+
+        var area = captures.TryGetValue("area", out var areaValue) && !string.IsNullOrWhiteSpace(areaValue) ? areaValue : null;
+        var entity = captures.TryGetValue("entity", out var entityValue) && !string.IsNullOrWhiteSpace(entityValue) ? entityValue : null;
+
+        return await collector.RecordAsync(
+            nameof(SecurityControlSkill.GetSecurityStateAsync),
+            new { area, entityName = entity },
+            () => skill.GetSecurityStateAsync(area, entity)).ConfigureAwait(false);
+    }
+
+    private async Task<string> ExecuteSecurityCoverAsync(
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector, bool useCascadingResolver, CancellationToken ct)
+    {
+        var skill = _serviceProvider.GetRequiredService<SecurityControlSkill>();
+        var captures = route.CapturedValues ?? new Dictionary<string, string>();
+
+        var command = captures.GetValueOrDefault("action", "open");
+        var position = ParseCoverPosition(captures);
+
+        var resolvedIds = useCascadingResolver
+            ? await ResolveEntitiesWithCascadeAsync(
+                route, context, CoverDomains, skill.GetCurrentMatchOptions(), requireSingle: false, "security-agent", ct)
+                .ConfigureAwait(false)
+            : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), CoverDomains);
+
+        return await collector.RecordAsync(
+            nameof(SecurityControlSkill.ControlCoverAsync),
+            new { searchTerms = resolvedIds, command, position, preResolved = useCascadingResolver },
+            () => skill.ControlCoverAsync(resolvedIds, command, position, preResolved: useCascadingResolver)).ConfigureAwait(false);
+    }
+
+    private static int? ParseCoverPosition(IReadOnlyDictionary<string, string> captures)
+    {
+        if (!captures.TryGetValue("modifier", out var modifier) || string.IsNullOrWhiteSpace(modifier))
+        {
+            return null;
+        }
+
+        return modifier.Trim().ToLowerInvariant() switch
+        {
+            "a bit" or "a little" => 15,
+            "partway" or "halfway" => 50,
+            _ => null,
+        };
     }
 
     private async Task<string> ExecuteSceneActivateAsync(

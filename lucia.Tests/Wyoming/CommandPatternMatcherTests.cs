@@ -35,6 +35,33 @@ public sealed class CommandPatternMatcherTests
         MinConfidence = 0.6f,
     };
 
+    private static CommandPattern ComfortPattern => new()
+    {
+        Id = "climate-comfort",
+        SkillId = "ClimateControlSkill",
+        Action = "adjust",
+        Templates =
+        [
+            "make [it] {action:warmer|cooler|hotter|colder} [in] [the] {area}",
+            "{action:cool|warm} [off] [up] [the] {area}",
+        ],
+        MinConfidence = 0.85f,
+    };
+
+    private static CommandPattern SecurityStateQuery => new()
+    {
+        Id = "security-state",
+        SkillId = "SecurityControlSkill",
+        Action = "status",
+        Templates =
+        [
+            "is [the] {entity} {state:open|closed|locked|unlocked}",
+            "are [the] {entity} {state:open|closed|locked|unlocked}",
+        ],
+        MinConfidence = 0.6f,
+        IsQuery = true,
+    };
+
     [Fact]
     public void ExactMatch_TurnOnLights()
     {
@@ -236,6 +263,89 @@ public sealed class CommandPatternMatcherTests
 
         Assert.True(result.IsMatch, $"'{transcript}' should still match LightControlSkill");
     }
+
+    // Query phase: status questions match query patterns only
+
+    [Fact]
+    public void Match_StatusQuestion_MatchesQueryPattern()
+    {
+        var matcher = CreateMatcher(SecurityStateQuery);
+
+        var result = matcher.Match("are the garage doors open");
+
+        Assert.True(result.IsMatch, "'are the garage doors open' should reach the query pattern");
+        Assert.Equal("SecurityControlSkill", result.MatchedPattern!.SkillId);
+        Assert.Equal("garage doors", result.CapturedValues!["entity"]);
+    }
+
+    [Fact]
+    public void Match_StatusQuestionWithQuestionMark_MatchesQueryPattern()
+    {
+        var matcher = CreateMatcher(SecurityStateQuery);
+
+        var result = matcher.Match("is the front door locked?");
+
+        Assert.True(result.IsMatch, "'is the front door locked?' must not bail on the question mark");
+        Assert.Equal("front door", result.CapturedValues!["entity"]);
+    }
+
+    [Fact]
+    public void Match_StatusQuestion_DoesNotMatchCommandPatterns()
+    {
+        var matcher = CreateMatcher(LightPattern, SecurityStateQuery);
+
+        var result = matcher.Match("is the kitchen light on");
+
+        Assert.False(result.IsMatch, "'is the kitchen light on' has no query pattern and must not match command patterns");
+    }
+
+    [Fact]
+    public void Match_CommandUtterance_DoesNotMatchQueryPatterns()
+    {
+        var matcher = CreateMatcher(SecurityStateQuery);
+
+        var result = matcher.Match("open the garage doors");
+
+        Assert.False(result.IsMatch, "'open the garage doors' is a command and must not match query patterns");
+    }
+
+    // Comfort phrasing: cool/warm no longer bails to the LLM
+
+    [Fact]
+    public void Match_CoolOff_MatchesComfortPattern()
+    {
+        var matcher = CreateMatcher(ComfortPattern);
+
+        var result = matcher.Match("cool off the master bedroom");
+
+        Assert.True(result.IsMatch, "'cool off the master bedroom' should match (warm/cool are no longer bail tokens)");
+        Assert.Equal("cool", result.CapturedValues!["action"]);
+        Assert.Equal("master bedroom", result.CapturedValues["area"]);
+    }
+
+    [Fact]
+    public void Match_WarmUp_MatchesComfortPattern()
+    {
+        var matcher = CreateMatcher(ComfortPattern);
+
+        var result = matcher.Match("warm up the garage");
+
+        Assert.True(result.IsMatch, "'warm up the garage' should match (warm/cool are no longer bail tokens)");
+        Assert.Equal("warm", result.CapturedValues!["action"]);
+        Assert.Equal("garage", result.CapturedValues["area"]);
+    }
+
+    [Fact]
+    public void Match_MakeItWarmer_StillMatchesComfortPattern()
+    {
+        var matcher = CreateMatcher(ComfortPattern);
+
+        var result = matcher.Match("make it warmer in the office");
+
+        Assert.True(result.IsMatch);
+        Assert.Equal("warmer", result.CapturedValues!["action"]);
+        Assert.Equal("office", result.CapturedValues["area"]);
+    }
 }
 
 file sealed class TestPatternProvider(CommandPattern[] patterns) : ICommandPatternProvider
@@ -251,5 +361,6 @@ file sealed class TestPatternProvider(CommandPattern[] patterns) : ICommandPatte
             Templates = pattern.Templates.ToArray(),
             MinConfidence = pattern.MinConfidence,
             Priority = pattern.Priority,
+            IsQuery = pattern.IsQuery,
         }).ToList();
 }

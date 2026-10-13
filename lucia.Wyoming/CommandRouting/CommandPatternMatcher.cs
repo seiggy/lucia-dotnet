@@ -24,13 +24,20 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         }
 
         // Bail immediately when the transcript contains words that signal a complex
-        // intent the fast-path cannot safely handle (yes/no status questions,
-        // temporal scheduling, color control, or multi-step conjunctions).
-        // These fall to the LLM/orchestrator so read-only queries never mutate state.
-        if (ContainsBailSignalTokens(tokens) || transcript.Contains('?') || IsStatusQuestion(tokens))
+        // intent the fast-path cannot safely handle (temporal scheduling, color control,
+        // or multi-step conjunctions). These fall to the LLM/orchestrator.
+        if (ContainsBailSignalTokens(tokens))
         {
             return CommandRouteResult.NoMatch(Stopwatch.GetElapsedTime(startedAt));
         }
+
+        // Status questions may only match query patterns; commands may only match
+        // command patterns. The partition keeps "is the front door locked" from
+        // matching actuation templates and vice versa.
+        var isStatusQuestion = transcript.Contains('?') || IsStatusQuestion(tokens);
+        var candidatePatterns = isStatusQuestion
+            ? registry.GetQueryPatterns()
+            : registry.GetCommandPatterns();
 
         CommandPattern? matchedPattern = null;
         Dictionary<string, string>? capturedValues = null;
@@ -39,7 +46,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         var bestSpecificity = 0;
         var bestPriority = int.MinValue;
 
-        foreach (var pattern in registry.GetAllPatterns())
+        foreach (var pattern in candidatePatterns)
         {
             foreach (var template in pattern.Templates)
             {
@@ -580,8 +587,9 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         "tomorrow", "tonight", "later", "timer",
         "morning", "afternoon", "evening", "noon", "midnight", "bedtime",
         "sunrise", "sunset", "dawn", "dusk",
-        // Color
-        "red", "blue", "green", "warm", "cool", "color",
+        // Color. "warm" and "cool" are intentionally absent: they double as climate
+        // comfort verbs ("warm up the garage", "cool off the master bedroom").
+        "red", "blue", "green", "color",
         // Multi-step conjunctions
         "and", "then", "also",
     };

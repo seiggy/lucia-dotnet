@@ -36,7 +36,10 @@ public sealed class CommandPatternRouter : ICommandRouter
 
         var result = _matcher.Match(transcript);
 
-        if (result.IsMatch && result.Confidence < options.ConfidenceThreshold)
+        // The global confidence floor protects device actuation. Query patterns are read-only and
+        // already clear their own per-pattern MinConfidence inside the matcher, so the floor does
+        // not apply to them.
+        if (result.IsMatch && result.MatchedPattern!.IsQuery == false && result.Confidence < options.ConfidenceThreshold)
         {
             _logger.LogDebug(
                 "Match for '{Transcript}' below global threshold ({Confidence:F2} < {Threshold:F2}), treating as no match",

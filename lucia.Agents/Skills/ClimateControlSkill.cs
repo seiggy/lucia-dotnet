@@ -103,13 +103,26 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         new()
         {
             Id = "climate-comfort",
-            SkillId = "ClimateControlSkill",
+            SkillId = nameof(ClimateControlSkill),
             Action = "adjust",
             Templates =
             [
                 "make [it] {action:warmer|cooler|hotter|colder} [in] [the] {area}",
+                "{action:cool|warm} [off] [up] [the] {area}",
             ],
             MinConfidence = 0.85f,
+        },
+        new()
+        {
+            Id = "climate-state",
+            SkillId = nameof(ClimateControlSkill),
+            Action = "state",
+            Templates =
+            [
+                "what [is] the [current] temperature [in] [the] {area}",
+            ],
+            MinConfidence = 0.5f,
+            IsQuery = true,
         },
     ];
 

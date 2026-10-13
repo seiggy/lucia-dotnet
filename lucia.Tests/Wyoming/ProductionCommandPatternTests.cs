@@ -98,6 +98,68 @@ public sealed class ProductionCommandPatternTests
         Assert.Equal(value, result.CapturedValues["value"]);
     }
 
+    [Theory]
+    // Security state questions (query phase)
+    [InlineData("are the garage doors open")]
+    [InlineData("is the front door locked")]
+    [InlineData("what is the security status")]
+    [InlineData("what is the security status in the garage")]
+    // Climate state question (query phase)
+    [InlineData("what is the current temperature in the master bedroom")]
+    // Comfort phrasing previously blocked by the global warm/cool bail
+    [InlineData("cool off the master bedroom")]
+    [InlineData("warm up the garage")]
+    // Garage door control (cover domain parity with the custom agent)
+    [InlineData("open the garage doors")]
+    [InlineData("close daniels garage door")]
+    [InlineData("stop the garage door")]
+    [InlineData("open the garage door a bit")]
+    public async Task Route_WaveOnePhrases_MatchFastPath(string transcript)
+    {
+        var router = CreateRouter();
+
+        var result = await router.RouteAsync(transcript, CancellationToken.None);
+
+        Assert.True(result.IsMatch, $"'{transcript}' did not match (expected fast-path match)");
+    }
+
+    [Theory]
+    [InlineData("are the garage doors open", "SecurityControlSkill", "status", "entity", "garage doors")]
+    [InlineData("is the front door locked", "SecurityControlSkill", "status", "entity", "front door")]
+    [InlineData("close daniels garage door", "SecurityControlSkill", "cover", "entity", "daniels garage door")]
+    [InlineData("open the garage door a bit", "SecurityControlSkill", "cover", "modifier", "a bit")]
+    [InlineData("what is the current temperature in the master bedroom", "ClimateControlSkill", "state", "area", "master bedroom")]
+    [InlineData("cool off the master bedroom", "ClimateControlSkill", "adjust", "area", "master bedroom")]
+    public async Task Route_WaveOnePhrases_CaptureTheRightValues(
+        string transcript, string skillId, string action, string captureName, string expected)
+    {
+        var router = CreateRouter();
+
+        var result = await router.RouteAsync(transcript, CancellationToken.None);
+
+        Assert.True(result.IsMatch, $"'{transcript}' did not match");
+        Assert.Equal(skillId, result.MatchedPattern!.SkillId);
+        Assert.Equal(action, result.MatchedPattern.Action);
+        Assert.Equal(expected, result.CapturedValues![captureName]);
+    }
+
+    [Theory]
+    // Questions with no query pattern yet stay on the LLM path
+    [InlineData("is the kitchen light on")]
+    [InlineData("are the garage doors moving")]
+    [InlineData("what song is playing on the tv")]
+    [InlineData("when did you open the garage door")]
+    // Scheduling stays on the LLM path
+    [InlineData("set a timer for fifteen seconds")]
+    public async Task Route_WaveOnePhrasesWithNoPattern_DefersToAgent(string transcript)
+    {
+        var router = CreateRouter();
+
+        var result = await router.RouteAsync(transcript, CancellationToken.None);
+
+        Assert.False(result.IsMatch, $"'{transcript}' matched {result.MatchedTemplate}");
+    }
+
     private static CommandPatternRouter CreateRouter()
     {
         var light = new LightControlSkill(
@@ -114,7 +176,12 @@ public sealed class ProductionCommandPatternTests
             A.Fake<IHybridEntityMatcher>(),
             A.Fake<IOptionsMonitor<ClimateControlSkillOptions>>(),
             new ConfigurationBuilder().Build());
-        var matcher = new CommandPatternMatcher(new CommandPatternRegistry(new ICommandPatternProvider[] { light, climate }));
+        var security = new SecurityControlSkill(
+            A.Fake<IHomeAssistantClient>(),
+            NullLogger<SecurityControlSkill>.Instance,
+            A.Fake<IEntityLocationService>(),
+            A.Fake<IOptionsMonitor<SecurityControlSkillOptions>>());
+        var matcher = new CommandPatternMatcher(new CommandPatternRegistry(new ICommandPatternProvider[] { light, climate, security }));
 
         return new CommandPatternRouter(
             matcher,

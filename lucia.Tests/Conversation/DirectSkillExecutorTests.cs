@@ -571,6 +571,352 @@ public sealed class DirectSkillExecutorTests
             CreateContext());
     }
 
+    [Fact]
+    public async Task ExecuteAsync_ClimateState_ReturnsAreaSensorReadings()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var locationService = A.Fake<IEntityLocationService>();
+        var options = A.Fake<IOptionsMonitor<ClimateControlSkillOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new ClimateControlSkillOptions());
+
+        A.CallTo(() => locationService.SearchHierarchyAsync(
+                "master bedroom", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches = [],
+                EntityMatches = [],
+                ResolvedEntities = [new HomeAssistantEntity
+                {
+                    EntityId = "sensor.master_bedroom_temperature",
+                    FriendlyName = "Master Bedroom Temperature"
+                }],
+                ResolutionStrategy = ResolutionStrategy.Entity,
+                ResolutionReason = "Direct sensor match"
+            });
+        A.CallTo(() => haClient.GetEntityStateAsync("sensor.master_bedroom_temperature", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(new HomeAssistantState
+            {
+                EntityId = "sensor.master_bedroom_temperature",
+                State = "71.2",
+                Attributes = new Dictionary<string, object>
+                {
+                    ["unit_of_measurement"] = "\u00b0F",
+                    ["friendly_name"] = "Master Bedroom Temperature",
+                },
+            }));
+
+        var skill = new ClimateControlSkill(
+            haClient,
+            A.Fake<IEmbeddingProviderResolver>(),
+            A.Fake<ILogger<ClimateControlSkill>>(),
+            A.Fake<IDeviceCacheService>(),
+            locationService,
+            A.Fake<IHybridEntityMatcher>(),
+            options,
+            new ConfigurationBuilder().Build());
+        A.CallTo(() => _serviceProvider.GetService(typeof(ClimateControlSkill))).Returns(skill);
+
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.6f,
+            NormalizedTranscript = "what is the current temperature in the master bedroom",
+            MatchedPattern = new CommandPattern
+            {
+                Id = "climate-state",
+                SkillId = "ClimateControlSkill",
+                Action = "state",
+                Templates = ["what [is] the [current] temperature [in] [the] {area}"],
+                IsQuery = true,
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["area"] = "master bedroom"
+            }
+        };
+
+        var result = await _executor.ExecuteAsync(route, CreateContext());
+
+        Assert.True(result.Success, result.Error);
+        Assert.Contains("71.2", result.ResponseText);
+        Assert.Contains("master bedroom", result.ResponseText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SecurityStatus_EntityTargeted_ReturnsFormattedState()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var locationService = A.Fake<IEntityLocationService>();
+        var options = A.Fake<IOptionsMonitor<SecurityControlSkillOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new SecurityControlSkillOptions());
+
+        A.CallTo(() => locationService.SearchHierarchyAsync(
+                "front door", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Returns(new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches = [],
+                EntityMatches = [],
+                ResolvedEntities = [new HomeAssistantEntity
+                {
+                    EntityId = "lock.front_door",
+                    FriendlyName = "Front Door"
+                }],
+                ResolutionStrategy = ResolutionStrategy.Entity,
+                ResolutionReason = "Direct entity match"
+            });
+        A.CallTo(() => haClient.GetEntityStateAsync("lock.front_door", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(new HomeAssistantState
+            {
+                EntityId = "lock.front_door",
+                State = "locked",
+                Attributes = new Dictionary<string, object>
+                {
+                    ["friendly_name"] = "Front Door",
+                },
+            }));
+
+        var skill = new SecurityControlSkill(
+            haClient,
+            A.Fake<ILogger<SecurityControlSkill>>(),
+            locationService,
+            options);
+        A.CallTo(() => _serviceProvider.GetService(typeof(SecurityControlSkill))).Returns(skill);
+
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.6f,
+            NormalizedTranscript = "is the front door locked",
+            MatchedPattern = new CommandPattern
+            {
+                Id = "security-state",
+                SkillId = "SecurityControlSkill",
+                Action = "status",
+                Templates = ["is [the] {entity} [open|closed|locked|unlocked]"],
+                IsQuery = true,
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["entity"] = "front door"
+            }
+        };
+
+        var result = await _executor.ExecuteAsync(route, CreateContext());
+
+        Assert.True(result.Success, result.Error);
+        Assert.Contains("Front Door", result.ResponseText);
+        Assert.Contains("locked", result.ResponseText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SecurityCover_OpenDoors_CallsOpenCoverPerEntity()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var locationService = A.Fake<IEntityLocationService>();
+        var cascadingResolver = A.Fake<ICascadingEntityResolver>();
+        var featureManager = A.Fake<Microsoft.FeatureManagement.IFeatureManager>();
+        var options = A.Fake<IOptionsMonitor<SecurityControlSkillOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new SecurityControlSkillOptions());
+        A.CallTo(() => featureManager.IsEnabledAsync(A<string>._)).Returns(Task.FromResult(true));
+
+        A.CallTo(() => cascadingResolver.Resolve(
+                "open the garage doors",
+                A<string?>._,
+                A<string?>._,
+                A<IReadOnlyList<string>>.That.Matches(domains => domains.Count == 1 && domains[0] == "cover"),
+                A<string?>._,
+                A<CancellationToken>._))
+            .Returns(new CascadeResult
+            {
+                IsResolved = true,
+                ResolvedEntityIds = ["cover.garage_left", "cover.garage_right"]
+            });
+        A.CallTo(() => locationService.ExactMatchEntities("cover.garage_left", A<IReadOnlyList<string>>._))
+            .Returns([new HomeAssistantEntity { EntityId = "cover.garage_left", FriendlyName = "Left Garage Door" }]);
+        A.CallTo(() => locationService.ExactMatchEntities("cover.garage_right", A<IReadOnlyList<string>>._))
+            .Returns([new HomeAssistantEntity { EntityId = "cover.garage_right", FriendlyName = "Right Garage Door" }]);
+        A.CallTo(() => haClient.CallServiceAsync(
+                A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(Array.Empty<object>()));
+
+        var skill = new SecurityControlSkill(
+            haClient,
+            A.Fake<ILogger<SecurityControlSkill>>(),
+            locationService,
+            options);
+        A.CallTo(() => _serviceProvider.GetService(typeof(SecurityControlSkill))).Returns(skill);
+
+        var executor = new DirectSkillExecutor(
+            _serviceProvider,
+            locationService,
+            cascadingResolver,
+            featureManager,
+            A.Fake<ILogger<DirectSkillExecutor>>());
+
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.9f,
+            NormalizedTranscript = "open the garage doors",
+            MatchedPattern = new CommandPattern
+            {
+                Id = "security-cover",
+                SkillId = "SecurityControlSkill",
+                Action = "cover",
+                Templates = ["{action:open|close|stop} [the] {entity}"],
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["action"] = "open",
+                ["entity"] = "garage doors"
+            }
+        };
+
+        var result = await executor.ExecuteAsync(route, CreateContext());
+
+        Assert.True(result.Success, result.Error);
+        A.CallTo(() => haClient.CallServiceAsync(
+                "cover", "open_cover", A<string?>._, A<ServiceCallRequest>._, A<CancellationToken>._))
+            .MustHaveHappenedTwiceExactly();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_SecurityCover_PartialOpen_CallsSetCoverPosition()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var locationService = A.Fake<IEntityLocationService>();
+        var cascadingResolver = A.Fake<ICascadingEntityResolver>();
+        var featureManager = A.Fake<Microsoft.FeatureManagement.IFeatureManager>();
+        var options = A.Fake<IOptionsMonitor<SecurityControlSkillOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new SecurityControlSkillOptions());
+        A.CallTo(() => featureManager.IsEnabledAsync(A<string>._)).Returns(Task.FromResult(true));
+
+        A.CallTo(() => cascadingResolver.Resolve(
+                "open the garage door a bit",
+                A<string?>._,
+                A<string?>._,
+                A<IReadOnlyList<string>>.That.Matches(domains => domains.Count == 1 && domains[0] == "cover"),
+                A<string?>._,
+                A<CancellationToken>._))
+            .Returns(new CascadeResult
+            {
+                IsResolved = true,
+                ResolvedEntityIds = ["cover.garage_left"]
+            });
+        A.CallTo(() => locationService.ExactMatchEntities("cover.garage_left", A<IReadOnlyList<string>>._))
+            .Returns([new HomeAssistantEntity { EntityId = "cover.garage_left", FriendlyName = "Left Garage Door" }]);
+        A.CallTo(() => haClient.CallServiceAsync(
+                A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(Array.Empty<object>()));
+
+        var skill = new SecurityControlSkill(
+            haClient,
+            A.Fake<ILogger<SecurityControlSkill>>(),
+            locationService,
+            options);
+        A.CallTo(() => _serviceProvider.GetService(typeof(SecurityControlSkill))).Returns(skill);
+
+        var executor = new DirectSkillExecutor(
+            _serviceProvider,
+            locationService,
+            cascadingResolver,
+            featureManager,
+            A.Fake<ILogger<DirectSkillExecutor>>());
+
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.9f,
+            NormalizedTranscript = "open the garage door a bit",
+            MatchedPattern = new CommandPattern
+            {
+                Id = "security-cover",
+                SkillId = "SecurityControlSkill",
+                Action = "cover",
+                Templates = ["{action:open|close} [the] {entity} {modifier:a bit|a little|partway|halfway}"],
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["action"] = "open",
+                ["entity"] = "garage door",
+                ["modifier"] = "a bit"
+            }
+        };
+
+        var result = await executor.ExecuteAsync(route, CreateContext());
+
+        Assert.True(result.Success, result.Error);
+        A.CallTo(() => haClient.CallServiceAsync(
+                "cover", "set_cover_position", A<string?>._,
+                A<ServiceCallRequest>.That.Matches(request => HasCoverPosition(request, "15")),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ClimateAdjust_CoolDirection_LowersTemperature()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var options = A.Fake<IOptionsMonitor<ClimateControlSkillOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new ClimateControlSkillOptions());
+
+        A.CallTo(() => haClient.GetEntityStateAsync("climate.master_bedroom", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(new HomeAssistantState
+            {
+                EntityId = "climate.master_bedroom",
+                State = "heat",
+                Attributes = new Dictionary<string, object>
+                {
+                    ["current_temperature"] = 71.2,
+                },
+            }));
+
+        var skill = new ClimateControlSkill(
+            haClient,
+            A.Fake<IEmbeddingProviderResolver>(),
+            A.Fake<ILogger<ClimateControlSkill>>(),
+            A.Fake<IDeviceCacheService>(),
+            A.Fake<IEntityLocationService>(),
+            A.Fake<IHybridEntityMatcher>(),
+            options,
+            new ConfigurationBuilder().Build());
+        A.CallTo(() => _serviceProvider.GetService(typeof(ClimateControlSkill))).Returns(skill);
+
+        A.CallTo(() => _entityLocationService.ExactMatchEntities("climate.master_bedroom", A<IReadOnlyList<string>>._))
+            .Returns([new HomeAssistantEntity { EntityId = "climate.master_bedroom", FriendlyName = "Master Bedroom Thermostat" }]);
+
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.9f,
+            NormalizedTranscript = "cool off the master bedroom",
+            ResolvedEntityId = "climate.master_bedroom",
+            MatchedPattern = new CommandPattern
+            {
+                Id = "climate-comfort",
+                SkillId = "ClimateControlSkill",
+                Action = "adjust",
+                Templates = ["{action:cool|warm} [off] [up] [the] {area}"],
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["action"] = "cool",
+                ["area"] = "master bedroom"
+            }
+        };
+
+        var result = await _executor.ExecuteAsync(route, CreateContext());
+
+        Assert.True(result.Success, result.Error);
+        A.CallTo(() => haClient.CallServiceAsync(
+                "climate", "set_temperature", A<string?>._,
+                A<ServiceCallRequest>.That.Matches(request => HasTemperature(request, 68.2)),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
     private static void AssertNoServiceCalls(IHomeAssistantClient haClient) =>
         A.CallTo(() => haClient.CallServiceAsync(
                 A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
@@ -578,6 +924,15 @@ public sealed class DirectSkillExecutorTests
 
     private static bool HasExpectedThreshold(HybridMatchOptions? matchOptions) =>
         matchOptions is { Threshold: 0.77 };
+
+    private static bool HasCoverPosition(ServiceCallRequest request, string expectedPosition) =>
+        request.TryGetValue("position", out var position) &&
+        string.Equals(position?.ToString(), expectedPosition, StringComparison.Ordinal);
+
+    private static bool HasTemperature(ServiceCallRequest request, double expectedTemperature) =>
+        request.TryGetValue("temperature", out var value) &&
+        double.TryParse(value?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var temperature) &&
+        Math.Abs(temperature - expectedTemperature) < 0.01;
 
     private static ConversationContext CreateContext() => new()
     {
