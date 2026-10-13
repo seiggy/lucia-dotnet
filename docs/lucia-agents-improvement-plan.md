@@ -13,21 +13,25 @@ The first review used regex counts across four projects. For `lucia.Agents` two 
 
 Drop both from the target table. The 124 `catch (Exception)` figure holds and is analysed below.
 
-## Status (branch refactor/agents-phase0)
+## Status
 
-Done:
-- Phase 0: multi-class splits in lucia.Agents, cancellation filters on 101 broad catches, catch triage sheet, CA1031 as a suggestion.
-- Provider contract tests: one abstract contract per store interface, run on SQLite and PostgreSQL against the migrated schema (lucia.Tests/Data/Providers, 244+ tests).
-- Bugs those tests exposed and the fixes: SQLite task stats grouped by a nonexistent `agentId` (always empty); SQLite and Postgres let you regenerate a revoked API key (Mongo blocked it); duplicate response templates returned 500 on SQLite and Postgres because only Mongo's exception was caught (now `DuplicateResponseTemplateException`).
-- Phase 1, Mongo removal: all Mongo stores, the Mongo config provider, BSON attributes, packages, AppHost resource, `lucia.A2AHost`, compose stacks (now PostgreSQL), Helm chart and raw manifests (bundled PostgreSQL), CI, docs. `DataProvider:Store=MongoDB` now fails at startup with a clear message. The default store is SQLite.
+Merged in #288 (2026-10-13):
+- Phase 0: multi-class splits, cancellation filters on the broad catches, catch triage sheet, CA1031 as a suggestion.
+- Mongo removal across code, packages, AppHost, Compose, Helm, raw manifests, CI and docs. `lucia.A2AHost` is deleted. `DataProvider:Store=MongoDB` and any `mongodb://` connection string fail at startup.
+- Redis stores and caches moved to `lucia.Data/Redis`. `lucia.Agents` references no storage driver, and `AgentsDependencyTests` enforces it.
+- `EntityLocationService` split (see the design section below). 1,438 lines became about 650.
+- Provider contract tests on SQLite and PostgreSQL, and the bugs they found (SQLite task stats, revoked API key regeneration, duplicate response template exception).
+- Two code reviews and the PR review findings, all fixed.
 
-- Redis stores moved out of lucia.Agents into `lucia.Data/Redis` (task store, device, session and prompt caches, key-value cache), registered by `AddRedisCacheProviders()` next to `AddInMemoryCacheProviders()`. I used a folder, not a new project, because seven Dockerfiles list csproj files for their restore layer and a new project would need blind edits to all of them.
+Open issues from that work:
+- #289: entity searches other than the hierarchy search ignore per-agent visibility.
+- #290: `RedisLocationSnapshotStore` writes with `FireAndForget`, so the shared version can be bumped before the snapshot lands.
 
-Not done, found along the way:
-- `IConditionalSpeakerProfileStore.DeleteExpiredProvisionalAsync` has no provider contract test.
-- `lucia.Agents` no longer references Redis. `EntityLocationService` talks to `ILocationSnapshotStore` and `IVisibilityConfigStore`, and `AgentsDependencyTests` fails if a storage driver comes back.
-- The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.
-- RELEASE_NOTES needs a breaking-change entry: MongoDB removed, re-run setup, new compose env (`POSTGRES_PASSWORD`), Helm values (`bundledPostgres`, no `mongodb`/`a2aAgents`).
+In progress (branch `refactor/agents-skills-base`): the skills base. `ClimateControlSkill` is the pilot.
+- Characterization tests pin its tool output (30 tests).
+- `ToolRunner` replaces the per-tool try/catch. `AttributeParser` replaces the two copies of the string-list parser (Climate and Fan). `SkillEntityIndex<T>` owns the embedding generator, cached items, refresh lock and staleness check.
+- Climate went from 918 to 652 lines. Its constructor still takes 8 parameters.
+- Fan, Sensor and Security have not moved yet. Light and Scene already sit under 400 lines and use no device cache.
 
 ## EntityLocationService split design
 
