@@ -19,13 +19,15 @@ public static partial class ToolRunner
     /// <param name="onFailure">Runs on failure, for failure counters.</param>
     /// <param name="duration">Records how long the tool took, whether or not it failed.</param>
     /// <param name="detail">Extra context for the log only, such as the search term.</param>
+    /// <param name="durationTag">Tag added to the duration measurement, such as the operation name.</param>
     public static async Task<string> RunAsync(
         ILogger logger,
         string failure,
         Func<Task<string>> body,
         Action? onFailure = null,
         Histogram<double>? duration = null,
-        string? detail = null)
+        string? detail = null,
+        KeyValuePair<string, object?>? durationTag = null)
     {
         var start = Stopwatch.GetTimestamp();
         try
@@ -40,7 +42,15 @@ public static partial class ToolRunner
         }
         finally
         {
-            duration?.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            if (durationTag is { } tag)
+            {
+                duration?.Record(elapsedMs, tag);
+            }
+            else
+            {
+                duration?.Record(elapsedMs);
+            }
         }
     }
 

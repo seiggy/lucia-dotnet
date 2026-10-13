@@ -94,4 +94,37 @@ public sealed class ToolRunnerTests
 
         Assert.Single(recorded);
     }
+
+    [Fact]
+    public async Task RunAsync_TagsTheDuration()
+    {
+        using var meter = new Meter("tool-runner-tag-tests");
+        var histogram = meter.CreateHistogram<double>("tool.duration");
+        var tags = new List<string?>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Meter == meter)
+            {
+                l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<double>((_, _, measurementTags, _) =>
+        {
+            foreach (var tag in measurementTags)
+            {
+                tags.Add($"{tag.Key}={tag.Value}");
+            }
+        });
+        listener.Start();
+
+        await ToolRunner.RunAsync(
+            NullLogger.Instance,
+            "Error doing it",
+            () => Task.FromResult("ok"),
+            duration: histogram,
+            durationTag: new("operation", "arm_alarm"));
+
+        Assert.Equal(["operation=arm_alarm"], tags);
+    }
 }

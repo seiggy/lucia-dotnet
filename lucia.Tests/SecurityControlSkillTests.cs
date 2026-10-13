@@ -170,6 +170,56 @@ public sealed class SecurityControlSkillTests
         Assert.Contains("locked", result, StringComparison.OrdinalIgnoreCase);
     }
 
+    public static TheoryData<string, string> FailureMessages => new()
+    {
+        { "arm", "Unable to arm the alarm right now." },
+        { "disarm", "Unable to disarm the alarm right now." },
+        { "lock", "Unable to lock the requested door right now." },
+        { "unlock", "Unable to unlock the requested door right now." },
+        { "status", "Unable to retrieve security status right now." },
+    };
+
+    private static Task<string> Invoke(SecurityControlSkill skill, string tool) => tool switch
+    {
+        "arm" => skill.ArmAlarm("downstairs", null),
+        "disarm" => skill.DisarmAlarm("downstairs", null),
+        "lock" => skill.LockDoor("entryway", null),
+        "unlock" => skill.UnlockDoor("entryway", null, null),
+        _ => skill.GetSecurityStatus("downstairs"),
+    };
+
+    private static SecurityControlSkill CreateSkillWhoseLookupThrows(Exception exception)
+    {
+        var locationService = A.Fake<IEntityLocationService>();
+        A.CallTo(() => locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Throws(exception);
+
+        return new SecurityControlSkill(
+            A.Fake<IHomeAssistantClient>(),
+            NullLogger<SecurityControlSkill>.Instance,
+            locationService,
+            new TestOptionsMonitor<SecurityControlSkillOptions>(new SecurityControlSkillOptions()));
+    }
+
+    [Theory]
+    [MemberData(nameof(FailureMessages))]
+    public async Task Tools_WhenTheLookupFails_ReturnAGenericMessage(string tool, string expected)
+    {
+        var skill = CreateSkillWhoseLookupThrows(new InvalidOperationException("secret connection string"));
+
+        Assert.Equal(expected, await Invoke(skill, tool));
+    }
+
+    [Theory]
+    [MemberData(nameof(FailureMessages))]
+    public async Task Tools_WhenCancelled_Propagate(string tool, string _)
+    {
+        var skill = CreateSkillWhoseLookupThrows(new OperationCanceledException());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => Invoke(skill, tool));
+    }
+
     private static HierarchicalSearchResult CreateSearchResult(params HomeAssistantEntity[] entities)
     {
         return new HierarchicalSearchResult
