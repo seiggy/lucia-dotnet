@@ -53,6 +53,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
     // within a single agent invocation (planning → tool execution → summary)
     private readonly List<TracedMessage> _accumulatedMessages = [];
     private readonly List<TracedToolCall> _accumulatedToolCalls = [];
+    private readonly HashSet<ChatMessage> _toolResultScannedMessages = [];
     private List<string>? _availableToolsSnapshot;
     private double _totalElapsedMs;
     private int _roundCount;
@@ -61,6 +62,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
     {
         _accumulatedMessages.Clear();
         _accumulatedToolCalls.Clear();
+        _toolResultScannedMessages.Clear();
         _availableToolsSnapshot = null;
         _totalElapsedMs = 0;
         _roundCount = 0;
@@ -96,6 +98,15 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                 Role = msg.Role.Value,
                 Content = ExtractTextContent(msg)
             });
+        }
+
+        // Tool results arrive in the *next* round's request. Attach any
+        // FunctionResultContent found on not-yet-seen request messages to the
+        // matching captured tool call (identity-based dedup: MessageId can be null).
+        foreach (var msg in requestMessages)
+        {
+            if (_toolResultScannedMessages.Add(msg))
+                AttachToolResultsFromMessage(msg);
         }
 
         var startTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -285,6 +296,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                     toolCalls.Add(new TracedToolCall
                     {
                         ToolName = fc.Name,
+                        CallId = fc.CallId,
                         Arguments = fc.Arguments is not null
                             ? JsonSerializer.Serialize(fc.Arguments)
                             : null
@@ -298,7 +310,8 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                         : null;
 
                     // Try to attach result to the matching tool call
-                    var matchingCall = toolCalls.LastOrDefault(tc => tc.ToolName == fr.CallId || tc.Result is null);
+                    var matchingCall = toolCalls.LastOrDefault(tc => tc.Result is null && tc.CallId is not null && tc.CallId == fr.CallId)
+                        ?? toolCalls.LastOrDefault(tc => tc.Result is null);
                     if (matchingCall is not null)
                     {
                         matchingCall.Result = truncatedResult;
@@ -308,11 +321,41 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                         toolCalls.Add(new TracedToolCall
                         {
                             ToolName = fr.CallId,
+                            CallId = fr.CallId,
                             Result = truncatedResult
                         });
                     }
                     break;
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Attaches any tool results found on a request message to the matching
+    /// captured tool call. Tool results are only visible in the request of the
+    /// round that follows the call, so without this their Result stays null.
+    /// </summary>
+    private void AttachToolResultsFromMessage(ChatMessage message)
+    {
+        if (message.Contents is not { Count: > 0 })
+            return;
+
+        foreach (var content in message.Contents)
+        {
+            if (content is not FunctionResultContent fr)
+                continue;
+
+            var resultText = fr.Result?.ToString();
+            var truncatedResult = resultText is not null
+                ? resultText[..Math.Min(2000, resultText.Length)]
+                : null;
+
+            var target = _accumulatedToolCalls.LastOrDefault(tc => tc.Result is null && tc.CallId is not null && tc.CallId == fr.CallId)
+                ?? _accumulatedToolCalls.LastOrDefault(tc => tc.Result is null);
+            if (target is not null)
+            {
+                target.Result = truncatedResult;
             }
         }
     }

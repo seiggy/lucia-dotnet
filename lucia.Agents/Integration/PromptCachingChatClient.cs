@@ -91,7 +91,7 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
             // Cache the initial planning decision (tool selection only)
             try
             {
-                var data = ExtractCacheData(response);
+                var data = ExtractCacheData(response, options);
                 if (data is not null)
                 {
                     data.NormalizedPrompt = StripVolatileFields(ExtractLastUserText(messageList))
@@ -236,7 +236,7 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         };
     }
 
-    private static CachedChatResponseData? ExtractCacheData(ChatResponse response)
+    private static CachedChatResponseData? ExtractCacheData(ChatResponse response, ChatOptions? options)
     {
         if (response.Messages is not { Count: > 0 })
             return null;
@@ -273,11 +273,33 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         if (functionCalls is null)
             return null;
 
+        // Never cache decisions that reference tools the agent did not register.
+        // A model returning a mangled or abbreviated tool name would otherwise
+        // poison the cache and replay the broken call for identical queries.
+        var registeredNames = GetRegisteredToolNames(options);
+        if (registeredNames is not null && functionCalls.Any(fc => !registeredNames.Contains(fc.Name)))
+            return null;
+
         return new CachedChatResponseData
         {
             FunctionCalls = functionCalls,
             ModelId = response.ModelId
         };
+    }
+
+    private static HashSet<string>? GetRegisteredToolNames(ChatOptions? options)
+    {
+        if (options?.Tools is not { Count: > 0 })
+            return null;
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tool in options.Tools)
+        {
+            if (tool is AIFunction fn && !string.IsNullOrWhiteSpace(fn.Name))
+                names.Add(fn.Name);
+        }
+
+        return names.Count > 0 ? names : null;
     }
 
     private static string ComputeSha256(string input)
