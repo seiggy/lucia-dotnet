@@ -114,7 +114,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
         SceneListRequests.Add(1);
         using var activity = ActivitySource.StartActivity();
 
-        try
+        return await ToolRunner.RunAsync(_logger, "Unable to list scenes. Please try again.", async () =>
         {
             var states = await _homeAssistantClient.GetStatesAsync(cancellationToken).ConfigureAwait(false);
             var scenes = states
@@ -134,12 +134,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             sb.AppendLine(string.Join(Environment.NewLine, scenes));
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error listing scenes");
-            return $"Error listing scenes: {ex.Message}";
-        }
+        }).ConfigureAwait(false);
     }
 
     [Description("Find scenes in a specific area/room. Use the area name (e.g., 'living room', 'bedroom', 'kitchen').")]
@@ -150,7 +145,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        try
+        return await ToolRunner.RunAsync(_logger, $"Unable to search for scenes in '{areaName}'. Please try again.", async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, cancellationToken).ConfigureAwait(false);
@@ -171,12 +166,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             }
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error finding scenes in area: {AreaName}", areaName);
-            return $"Error searching for scenes in '{areaName}': {ex.Message}";
-        }
+        }, detail: areaName).ConfigureAwait(false);
     }
 
     [Description("Activate a Home Assistant scene by entity ID. Use scene.ENTITY_ID format (e.g., scene.movie_mode, scene.romantic).")]
@@ -185,11 +175,10 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
         CancellationToken cancellationToken = default)
     {
         SceneActivateRequests.Add(1);
-        var start = Stopwatch.GetTimestamp();
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        try
+        return await ToolRunner.RunAsync(_logger, $"Unable to activate scene '{entityId}'. Please try again.", async () =>
         {
             var entityIdNorm = entityId.StartsWith("scene.", StringComparison.OrdinalIgnoreCase)
                 ? entityId
@@ -203,18 +192,10 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             await _homeAssistantClient.CallServiceAsync("scene", "turn_on", request: request, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
 
-            var durationMs = (Stopwatch.GetTimestamp() - start) * 1000.0 / Stopwatch.Frequency;
-            SceneActivateDurationMs.Record(durationMs);
             activity?.SetStatus(ActivityStatusCode.Ok);
             _logger.LogInformation("Activated scene {EntityId}", entityIdNorm);
             return $"Scene '{entityIdNorm}' activated successfully.";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            SceneActivateFailures.Add(1);
-            _logger.LogError(ex, "Error activating scene {EntityId}", entityId);
-            return $"Error activating scene '{entityId}': {ex.Message}";
-        }
+        }, onFailure: () => SceneActivateFailures.Add(1), duration: SceneActivateDurationMs, detail: entityId).ConfigureAwait(false);
     }
 
     private static string GetFriendlyName(HomeAssistantState state)
