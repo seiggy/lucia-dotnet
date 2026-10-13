@@ -27,15 +27,14 @@ Open issues from that work:
 - #289: entity searches other than the hierarchy search ignore per-agent visibility.
 - #290: `RedisLocationSnapshotStore` writes with `FireAndForget`, so the shared version can be bumped before the snapshot lands.
 
-In progress (branch `refactor/agents-skills-base`): the skills base. Climate, Fan and Sensor now use it.
-- Characterization tests pin each skill's tool output (30 Climate, 32 Fan, 29 Sensor).
+Done on branch `refactor/agents-skills-base`: the skills base. All seven skills in `lucia.Agents` and `MusicPlaybackSkill` use it.
+- Characterization tests pin each skill's tool output (30 Climate, 32 Fan, 29 Sensor, 14 Scene, 17 List, 15 Light, plus failure and cancellation cases for Security and Music).
 - `ToolRunner` replaces the per-tool try/catch. `AttributeParser` replaces the two copies of the string-list parser. `SkillEntityIndex<T>` owns the embedding generator, cached items, refresh lock and staleness check.
-- Line counts: Climate 918 to 651, Fan 797 to 607, Sensor 652 to 567. Constructors are unchanged (8, 7 and 7 parameters).
+- Line counts: Climate 918 to 651, Fan 797 to 607, Sensor 652 to 567, Scene 226 to 207, List 155 to 130, Light 383 to 361, Security 640 to 590. Constructors are unchanged (7 to 8 parameters).
 - The per-skill loader keeps the domain part: read the shared device cache, build one device from a Home Assistant state, write the cache back.
-- Not moved yet: Security (640 lines, no device cache, so only `ToolRunner` applies). Light and Scene already sit under 400 lines.
-- Open decision: Climate and Fan still return `ex.Message` to the model, Sensor returns fixed messages, and Security still returns `ex.Message`. `ToolRunner.includeExceptionMessage` makes each one a one-argument change.
+- Decision: a failed tool returns a fixed message and logs the exception. `ex.Message` can hold connection strings and addresses, so it never reaches the model. `ToolRunner` has no flag for it.
+- Not moved: the Timer, Alarm and Scheduler skills (their catch blocks are best-effort persistence warnings, not tool failures) and the `searxng` and `brave-search` plugins (out of scope for now, they still return `ex.Message`).
 - The 500-line target is out of reach with these helpers. The state formatters, device builders and command patterns stay in each skill.
-
 ## EntityLocationService split design
 
 Status: done. The facade went from 1,438 to about 600 lines, backed by `LocationSearchService`, `LocationSnapshotLoader`, `EntityEmbeddingJob` and the two store interfaces. `InMemoryEntityLocationService` is gone. In-memory mode registers `InProcessLocationSnapshotStore` and persists visibility through `ConfigStoreVisibilityConfigStore`, so visibility now survives restarts without Redis.
