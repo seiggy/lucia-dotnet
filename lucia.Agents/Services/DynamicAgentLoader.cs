@@ -12,7 +12,7 @@ namespace lucia.Agents.Services;
 /// Background service that connects MCP tool servers and registers dynamic agents
 /// on startup. Runs after the built-in agents are initialized.
 /// </summary>
-public sealed class DynamicAgentLoader : BackgroundService
+public sealed class DynamicAgentLoader : BackgroundService, IDynamicAgentLoader
 {
     private readonly IAgentDefinitionRepository _repository;
     private readonly IMcpToolRegistry _toolRegistry;

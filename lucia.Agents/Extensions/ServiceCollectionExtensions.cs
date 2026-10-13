@@ -222,6 +222,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
         builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
         builder.Services.AddSingleton<DynamicAgentLoader>();
+        builder.Services.AddSingleton<IDynamicAgentLoader>(sp => sp.GetRequiredService<DynamicAgentLoader>());
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DynamicAgentLoader>());
 
         // Register model provider system
