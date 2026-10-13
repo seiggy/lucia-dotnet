@@ -193,10 +193,9 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.term", searchTerm);
-        var start = Stopwatch.GetTimestamp();
         ClimateSearchRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, "Error searching for climate device", async () =>
         {
             if (_embeddingService is null)
             {
@@ -204,21 +203,11 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
                 return "Embedding provider not available for climate search.";
             }
 
-            var opts = _options.CurrentValue;
-            var matchOptions = new HybridMatchOptions
-            {
-                Threshold = opts.HybridSimilarityThreshold,
-                EmbeddingWeight = opts.EmbeddingWeight,
-                ScoreDropoffRatio = opts.ScoreDropoffRatio,
-                DisagreementPenalty = opts.DisagreementPenalty,
-                EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
-            };
-
             var matches = await _entityMatcher.FindMatchesAsync(
                 searchTerm,
                 (IReadOnlyList<ClimateEntity>)_cachedDevices,
                 _embeddingService,
-                matchOptions).ConfigureAwait(false);
+                GetCurrentMatchOptions()).ConfigureAwait(false);
 
             if (matches.Count > 0)
             {
@@ -283,17 +272,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             ClimateSearchFailures.Add(1);
             return $"No climate device or area found matching '{searchTerm}'. Available devices: {string.Join(", ", _cachedDevices.Take(5).Select(d => d.FriendlyName))}";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error finding climate device for search term: {SearchTerm}", searchTerm);
-            ClimateSearchFailures.Add(1);
-            return $"Error searching for climate device: {ex.Message}";
-        }
-        finally
-        {
-            ClimateSearchDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        }, onFailure: () => ClimateSearchFailures.Add(1), duration: ClimateSearchDurationMs, detail: searchTerm).ConfigureAwait(false);
     }
 
     [Description("Find all climate/HVAC devices in a specific area")]
@@ -308,7 +287,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        try
+        return await ToolRunner.RunAsync(_logger, "Error searching for climate devices in area", async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
@@ -342,12 +321,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error finding climate devices in area: {AreaName}", areaName);
-            return $"Error searching for climate devices in area: {ex.Message}";
-        }
+        }, detail: areaName).ConfigureAwait(false);
     }
 
     [Description("Get the current state of a specific climate/HVAC device including temperature, mode, and target temperature")]
@@ -357,7 +331,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        try
+        return await ToolRunner.RunAsync(_logger, $"Error getting state for '{entityId}'", async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -365,12 +339,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             var device = _cachedDevices.FirstOrDefault(d => d.EntityId == entityId);
             return FormatClimateState(state, device);
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error getting climate state for {EntityId}", entityId);
-            return $"Error getting state for '{entityId}': {ex.Message}";
-        }
+        }).ConfigureAwait(false);
     }
 
     [Description("Find temperature and humidity sensors in a specific area/room. Returns sensor entity IDs and their current readings.")]
@@ -380,7 +349,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        try
+        return await ToolRunner.RunAsync(_logger, "Error searching for climate sensors in area", async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), (IReadOnlyList<string>)["sensor"], CancellationToken.None).ConfigureAwait(false);
@@ -410,12 +379,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error finding climate sensors in area: {AreaName}", areaName);
-            return $"Error searching for climate sensors in area: {ex.Message}";
-        }
+        }, detail: areaName).ConfigureAwait(false);
     }
 
     [Description("Get the current reading of a specific sensor entity (e.g., temperature or humidity sensor). Sensors are read-only.")]
@@ -425,7 +389,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        try
+        return await ToolRunner.RunAsync(_logger, $"Error getting state for '{entityId}'", async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -441,234 +405,93 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return result;
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error getting sensor state for {EntityId}", entityId);
-            return $"Error getting state for '{entityId}': {ex.Message}";
-        }
+        }).ConfigureAwait(false);
     }
 
     [Description("Set the target temperature for a climate/HVAC device")]
-    public async Task<string> SetClimateTemperatureAsync(
+    public Task<string> SetClimateTemperatureAsync(
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The target temperature in the device's native unit")] double temperature)
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("temperature", temperature);
-        var start = Stopwatch.GetTimestamp();
-        ClimateControlRequests.Add(1);
-
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                EntityId = entityId,
-                ["temperature"] = temperature
-            };
-
-            await _homeAssistantClient.CallServiceAsync("climate", "set_temperature", request: request).ConfigureAwait(false);
-
-            _logger.LogInformation("Set temperature for {EntityId} to {Temperature}", entityId, temperature);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set target temperature for '{entityId}' to {temperature}°.";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error setting temperature for {EntityId}", entityId);
-            ClimateControlFailures.Add(1);
-            return $"Failed to set temperature for '{entityId}': {ex.Message}";
-        }
-        finally
-        {
-            ClimateControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
+        => CallClimateServiceAsync(
+            "set_temperature", entityId, "temperature", temperature, "temperature",
+            $"Set target temperature for '{entityId}' to {temperature}°.");
 
     [Description("Set the HVAC mode for a climate device (e.g., heat, cool, auto, off, heat_cool, dry, fan_only)")]
-    public async Task<string> SetClimateHvacModeAsync(
+    public Task<string> SetClimateHvacModeAsync(
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The HVAC mode to set (heat, cool, auto, off, heat_cool, dry, fan_only)")] string hvacMode)
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("hvac_mode", hvacMode);
-        var start = Stopwatch.GetTimestamp();
-        ClimateControlRequests.Add(1);
-
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                EntityId = entityId,
-                ["hvac_mode"] = hvacMode
-            };
-
-            await _homeAssistantClient.CallServiceAsync("climate", "set_hvac_mode", request: request).ConfigureAwait(false);
-
-            _logger.LogInformation("Set HVAC mode for {EntityId} to {HvacMode}", entityId, hvacMode);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set HVAC mode for '{entityId}' to '{hvacMode}'.";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error setting HVAC mode for {EntityId}", entityId);
-            ClimateControlFailures.Add(1);
-            return $"Failed to set HVAC mode for '{entityId}': {ex.Message}";
-        }
-        finally
-        {
-            ClimateControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
+        => CallClimateServiceAsync(
+            "set_hvac_mode", entityId, "hvac_mode", hvacMode, "HVAC mode",
+            $"Set HVAC mode for '{entityId}' to '{hvacMode}'.");
 
     [Description("Set the fan mode on a climate/HVAC device (e.g., auto, low, medium, high).")]
-    public async Task<string> SetClimateFanModeAsync(
+    public Task<string> SetClimateFanModeAsync(
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The fan mode to set (e.g., auto, low, medium, high, on)")] string fanMode)
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("fan_mode", fanMode);
-        var start = Stopwatch.GetTimestamp();
-        ClimateControlRequests.Add(1);
-
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                EntityId = entityId,
-                ["fan_mode"] = fanMode
-            };
-
-            await _homeAssistantClient.CallServiceAsync("climate", "set_fan_mode", request: request).ConfigureAwait(false);
-
-            _logger.LogInformation("Set fan mode for {EntityId} to {FanMode}", entityId, fanMode);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set fan mode for '{entityId}' to '{fanMode}'.";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error setting fan mode for {EntityId}", entityId);
-            ClimateControlFailures.Add(1);
-            return $"Failed to set fan mode for '{entityId}': {ex.Message}";
-        }
-        finally
-        {
-            ClimateControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
+        => CallClimateServiceAsync(
+            "set_fan_mode", entityId, "fan_mode", fanMode, "fan mode",
+            $"Set fan mode for '{entityId}' to '{fanMode}'.");
 
     [Description("Set the target humidity on a climate device that supports humidity control.")]
-    public async Task<string> SetClimateHumidityAsync(
+    public Task<string> SetClimateHumidityAsync(
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The target humidity percentage (30-99)")] int humidity)
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("humidity", humidity);
-        var start = Stopwatch.GetTimestamp();
-        ClimateControlRequests.Add(1);
-
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                EntityId = entityId,
-                ["humidity"] = humidity
-            };
-
-            await _homeAssistantClient.CallServiceAsync("climate", "set_humidity", request: request).ConfigureAwait(false);
-
-            _logger.LogInformation("Set humidity for {EntityId} to {Humidity}%", entityId, humidity);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set target humidity for '{entityId}' to {humidity}%.";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error setting humidity for {EntityId}", entityId);
-            ClimateControlFailures.Add(1);
-            return $"Failed to set humidity for '{entityId}': {ex.Message}";
-        }
-        finally
-        {
-            ClimateControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
+        => CallClimateServiceAsync(
+            "set_humidity", entityId, "humidity", humidity, "humidity",
+            $"Set target humidity for '{entityId}' to {humidity}%.");
 
     [Description("Set the preset mode on a climate device (e.g., none, sleep, eco, away).")]
-    public async Task<string> SetClimatePresetModeAsync(
+    public Task<string> SetClimatePresetModeAsync(
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The preset mode to set (e.g., 'none', 'sleep', 'eco', 'away')")] string presetMode)
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("preset_mode", presetMode);
-        var start = Stopwatch.GetTimestamp();
-        ClimateControlRequests.Add(1);
-
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                EntityId = entityId,
-                ["preset_mode"] = presetMode
-            };
-
-            await _homeAssistantClient.CallServiceAsync("climate", "set_preset_mode", request: request).ConfigureAwait(false);
-
-            _logger.LogInformation("Set preset mode for {EntityId} to {PresetMode}", entityId, presetMode);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set preset mode for '{entityId}' to '{presetMode}'.";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error setting preset mode for {EntityId}", entityId);
-            ClimateControlFailures.Add(1);
-            return $"Failed to set preset mode for '{entityId}': {ex.Message}";
-        }
-        finally
-        {
-            ClimateControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
+        => CallClimateServiceAsync(
+            "set_preset_mode", entityId, "preset_mode", presetMode, "preset mode",
+            $"Set preset mode for '{entityId}' to '{presetMode}'.");
 
     [Description("Set the swing mode on a climate device (e.g., on, off, or a specific position).")]
-    public async Task<string> SetClimateSwingModeAsync(
+    public Task<string> SetClimateSwingModeAsync(
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The swing mode to set (e.g., 'on', 'off', 'Auto', 'Position 1')")] string swingMode)
+        => CallClimateServiceAsync(
+            "set_swing_mode", entityId, "swing_mode", swingMode, "swing mode",
+            $"Set swing mode for '{entityId}' to '{swingMode}'.");
+
+    /// <summary>
+    /// Calls one <c>climate</c> service with a single data field. Every control tool differs only in the
+    /// service name, the field, and the wording.
+    /// </summary>
+    private async Task<string> CallClimateServiceAsync(
+        string service,
+        string entityId,
+        string dataKey,
+        object value,
+        string what,
+        string successMessage)
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("swing_mode", swingMode);
-        var start = Stopwatch.GetTimestamp();
+        activity?.SetTag(dataKey, value);
         ClimateControlRequests.Add(1);
 
-        try
-        {
-            var request = new ServiceCallRequest
+        return await ToolRunner.RunAsync(
+            _logger,
+            $"Failed to set {what} for '{entityId}'",
+            async () =>
             {
-                EntityId = entityId,
-                ["swing_mode"] = swingMode
-            };
+                var request = new ServiceCallRequest
+                {
+                    EntityId = entityId,
+                    [dataKey] = value
+                };
 
-            await _homeAssistantClient.CallServiceAsync("climate", "set_swing_mode", request: request).ConfigureAwait(false);
+                await _homeAssistantClient.CallServiceAsync("climate", service, request: request).ConfigureAwait(false);
 
-            _logger.LogInformation("Set swing mode for {EntityId} to {SwingMode}", entityId, swingMode);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set swing mode for '{entityId}' to '{swingMode}'.";
-        }
-        catch (Exception ex) when (!ex.IsCancellation())
-        {
-            _logger.LogError(ex, "Error setting swing mode for {EntityId}", entityId);
-            ClimateControlFailures.Add(1);
-            return $"Failed to set swing mode for '{entityId}': {ex.Message}";
-        }
-        finally
-        {
-            ClimateControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+                _logger.LogInformation("Set {What} for {EntityId} to {Value}", what, entityId, value);
+                activity?.SetStatus(ActivityStatusCode.Ok);
+                return successMessage;
+            },
+            onFailure: () => ClimateControlFailures.Add(1),
+            duration: ClimateControlDurationMs).ConfigureAwait(false);
     }
 
     private static string FormatClimateState(HomeAssistantState state, ClimateEntity? device)
