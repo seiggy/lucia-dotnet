@@ -9,6 +9,7 @@ using lucia.Agents.Skills.Models;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
+using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -196,6 +197,61 @@ public class MusicPlaybackSkillTests
 
         Assert.Equal(expected, await InvokeControl(tool));
     }
+
+    [Theory]
+    [InlineData("artist")]
+    [InlineData("album")]
+    [InlineData("song")]
+    [InlineData("genre")]
+    public async Task PlayTools_WhenThePlayerLookupFails_ReturnAGenericMessage(string tool)
+    {
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Throws(new InvalidOperationException("secret connection string"));
+
+        var response = await InvokePlay(tool);
+
+        Assert.Equal("Unable to start playback on 'Satellite1 Kitchen'. Please try again.", response);
+    }
+
+    [Theory]
+    [InlineData("artist")]
+    [InlineData("album")]
+    [InlineData("song")]
+    [InlineData("genre")]
+    public async Task PlayTools_WhenTheirCallerCancels_Propagate(string tool)
+    {
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Throws(new OperationCanceledException(cancelled.Token));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => InvokePlay(tool, cancelled.Token));
+    }
+
+    [Theory]
+    [InlineData("artist", "PlayArtistAsync")]
+    [InlineData("album", "PlayAlbumAsync")]
+    [InlineData("song", "PlaySongAsync")]
+    [InlineData("genre", "PlayGenreAsync")]
+    public async Task PlayTools_EachGetTheirOwnSpan(string tool, string expectedName)
+    {
+        using var recorder = new ActivityRecorder("Lucia.Skills.MusicPlayback");
+        var player = $"span-{tool}";
+
+        await InvokePlay(tool, playerName: player);
+
+        Assert.Equal(expectedName, recorder.WithTag("player.name", player)?.OperationName);
+    }
+
+    private Task<string> InvokePlay(string tool, CancellationToken cancellationToken = default, string playerName = "Satellite1 Kitchen") => tool switch
+    {
+        "artist" => _skill.PlayArtistAsync(playerName, "Queen", cancellationToken: cancellationToken),
+        "album" => _skill.PlayAlbumAsync(playerName, "Jazz", cancellationToken: cancellationToken),
+        "song" => _skill.PlaySongAsync(playerName, "Bohemian Rhapsody", cancellationToken: cancellationToken),
+        _ => _skill.PlayGenreAsync(playerName, "Lo-fi", cancellationToken: cancellationToken),
+    };
 
     private void ConfigureDefaultLocationService()
     {

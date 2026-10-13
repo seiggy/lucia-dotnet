@@ -177,20 +177,20 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
     public async Task<string> FindClimateDeviceAsync(
         [Description("Name or description of the climate device (e.g., 'living room thermostat', 'downstairs HVAC', 'bedroom climate')")] string searchTerm)
     {
-        await _devices.EnsureCurrentAsync().ConfigureAwait(false);
-
-        if (_devices.Items.IsEmpty)
-        {
-            ClimateSearchFailures.Add(1);
-            return "No climate devices available in the system.";
-        }
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.term", searchTerm);
         ClimateSearchRequests.Add(1);
 
         return await ToolRunner.RunAsync(_logger, activity, "Unable to search for climate devices. Please try again.", async () =>
         {
+            await _devices.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_devices.Items.IsEmpty)
+            {
+                ClimateSearchFailures.Add(1);
+                return "No climate devices available in the system.";
+            }
+
             var embeddings = _devices.Embeddings;
             if (embeddings is null)
             {
@@ -274,16 +274,16 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
     public async Task<string> FindClimateDevicesByAreaAsync(
         [Description("The area/room name to search (e.g., 'living room', 'upstairs', 'basement')")] string areaName)
     {
-        await _devices.EnsureCurrentAsync().ConfigureAwait(false);
-
-        if (_devices.Items.IsEmpty)
-            return "No climate devices available in the system.";
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
         return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(FindClimateDevicesByAreaAsync)), "Unable to search for climate devices in that area. Please try again.", async () =>
         {
+            await _devices.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_devices.Items.IsEmpty)
+                return "No climate devices available in the system.";
+
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
             var locationEntities = hierarchyResult.ResolvedEntities;

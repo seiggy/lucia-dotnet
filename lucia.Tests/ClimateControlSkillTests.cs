@@ -213,6 +213,32 @@ public sealed class ClimateControlSkillTests
     }
 
     [Fact]
+    public async Task FindClimateDeviceAsync_NoClimateEntities_StillEmitsASpanWithTheElapsedTime()
+    {
+        using var recorder = new ActivityRecorder("Lucia.Skills.ClimateControl");
+        var skill = await CreateSkillAsync(new FakeHomeAssistantClient(), CreateLocation(Resolved(ResolutionStrategy.None)));
+
+        await skill.FindClimateDeviceAsync("empty-home-span-1");
+
+        var activity = recorder.WithTag("search.term", "empty-home-span-1");
+        Assert.NotNull(activity);
+        Assert.NotNull(activity.GetTagItem("elapsed_ms"));
+    }
+
+    [Fact]
+    public async Task FindClimateDevicesByAreaAsync_NoClimateEntities_StillEmitsASpanWithTheElapsedTime()
+    {
+        using var recorder = new ActivityRecorder("Lucia.Skills.ClimateControl");
+        var skill = await CreateSkillAsync(new FakeHomeAssistantClient(), CreateLocation(Resolved(ResolutionStrategy.None)));
+
+        Assert.Equal("No climate devices available in the system.", await skill.FindClimateDevicesByAreaAsync("empty-home-span-2"));
+
+        var activity = recorder.WithTag("search.area", "empty-home-span-2");
+        Assert.NotNull(activity);
+        Assert.NotNull(activity.GetTagItem("elapsed_ms"));
+    }
+
+    [Fact]
     public async Task FindClimateDeviceAsync_NoEmbeddingProvider_ReportsNoDevices()
     {
         var ha = await CreateHomeAssistantAsync();

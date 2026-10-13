@@ -167,20 +167,20 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
     public async Task<string> FindSensorAsync(
         [Description("Name or description of the sensor (e.g., 'living room temperature', 'front door', 'motion sensor', 'battery level')")] string searchTerm)
     {
-        await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
-
-        if (_sensors.Items.IsEmpty)
-        {
-            SensorSearchFailures.Add(1);
-            return "No sensors available in the system.";
-        }
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.term", searchTerm);
         SensorSearchRequests.Add(1);
 
         return await ToolRunner.RunAsync(_logger, activity, SensorSearchErrorMessage, async () =>
         {
+            await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_sensors.Items.IsEmpty)
+            {
+                SensorSearchFailures.Add(1);
+                return "No sensors available in the system.";
+            }
+
             var embeddings = _sensors.Embeddings;
             if (embeddings is null)
             {
@@ -264,16 +264,16 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
     public async Task<string> FindSensorsByAreaAsync(
         [Description("The area/room name to search (e.g., 'living room', 'garage', 'kitchen')")] string areaName)
     {
-        await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
-
-        if (_sensors.Items.IsEmpty)
-            return "No sensors available in the system.";
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
         return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(FindSensorsByAreaAsync)), AreaSensorSearchErrorMessage, async () =>
         {
+            await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_sensors.Items.IsEmpty)
+                return "No sensors available in the system.";
+
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
             var locationEntities = hierarchyResult.ResolvedEntities;
@@ -366,17 +366,17 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         [Description("The area/room name to search (e.g., 'living room', 'kitchen')")] string areaName,
         [Description("Optional device class filter (e.g., 'temperature', 'humidity', 'motion', 'door', 'window', 'battery', 'power', 'illuminance'). Leave empty to return all sensors in the area.")] string? deviceClass = null)
     {
-        await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
-
-        if (_sensors.Items.IsEmpty)
-            return "No sensors available in the system.";
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
         activity?.SetTag("filter.device_class", deviceClass ?? "none");
 
         return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(GetAreaSensorsAsync)), AreaSensorSearchErrorMessage, async () =>
         {
+            await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_sensors.Items.IsEmpty)
+                return "No sensors available in the system.";
+
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
 

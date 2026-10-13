@@ -134,7 +134,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             sb.AppendLine(string.Join(Environment.NewLine, scenes));
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }).ConfigureAwait(false);
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Find scenes in a specific area/room. Use the area name (e.g., 'living room', 'bedroom', 'kitchen').")]
@@ -166,7 +166,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             }
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }, detail: areaName).ConfigureAwait(false);
+        }, detail: areaName, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Activate a Home Assistant scene by entity ID. Use scene.ENTITY_ID format (e.g., scene.movie_mode, scene.romantic).")]
@@ -195,7 +195,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             activity?.SetStatus(ActivityStatusCode.Ok);
             _logger.LogInformation("Activated scene {EntityId}", entityIdNorm);
             return $"Scene '{entityIdNorm}' activated successfully.";
-        }, onFailure: () => SceneActivateFailures.Add(1), duration: SceneActivateDurationMs, detail: entityId).ConfigureAwait(false);
+        }, onFailure: () => SceneActivateFailures.Add(1), duration: SceneActivateDurationMs, detail: entityId, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private static string GetFriendlyName(HomeAssistantState state)

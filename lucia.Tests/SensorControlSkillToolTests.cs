@@ -155,6 +155,21 @@ public sealed class SensorControlSkillToolTests
     }
 
     [Fact]
+    public async Task SensorLookups_WithNoSensors_StillEmitASpanWithTheElapsedTime()
+    {
+        using var recorder = new ActivityRecorder("Lucia.Skills.SensorControl");
+        var skill = await CreateSkillAsync(new FakeHomeAssistantClient(), CreateLocation(Resolved(ResolutionStrategy.None)));
+
+        await skill.FindSensorAsync("empty-home-span-3");
+        await skill.FindSensorsByAreaAsync("empty-home-span-4");
+        await skill.GetAreaSensorsAsync("empty-home-span-5");
+
+        Assert.NotNull(recorder.WithTag("search.term", "empty-home-span-3")?.GetTagItem("elapsed_ms"));
+        Assert.NotNull(recorder.WithTag("search.area", "empty-home-span-4")?.GetTagItem("elapsed_ms"));
+        Assert.NotNull(recorder.WithTag("search.area", "empty-home-span-5")?.GetTagItem("elapsed_ms"));
+    }
+
+    [Fact]
     public async Task FindSensorAsync_NoNameMatchButAreaResolves_ListsTheAreasSensors()
     {
         var skill = await CreateLoadedSkillAsync(

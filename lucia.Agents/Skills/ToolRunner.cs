@@ -25,6 +25,10 @@ public static partial class ToolRunner
     /// <param name="duration">Records how long the tool took, whether or not it failed.</param>
     /// <param name="detail">Extra context for the log only, such as the search term.</param>
     /// <param name="durationTag">Tag added to the duration measurement, such as the operation name.</param>
+    /// <param name="cancellationToken">
+    /// The caller's token. With one, only a cancellation of that token propagates, and any other cancellation,
+    /// such as an internal timeout, is a failure. Without one, <see cref="ExceptionExtensions.IsCancellation"/> decides.
+    /// </param>
     /// <param name="metrics">Counts the request and the failure and records the duration, all tagged with the tool.</param>
     public static async Task<string> RunAsync(
         ILogger logger,
@@ -35,7 +39,8 @@ public static partial class ToolRunner
         Histogram<double>? duration = null,
         string? detail = null,
         KeyValuePair<string, object?>? durationTag = null,
-        ToolMetrics? metrics = null)
+        ToolMetrics? metrics = null,
+        CancellationToken cancellationToken = default)
     {
         metrics?.Started();
         var start = Stopwatch.GetTimestamp();
@@ -43,7 +48,7 @@ public static partial class ToolRunner
         {
             return await body().ConfigureAwait(false);
         }
-        catch (Exception ex) when (!ex.IsCancellation())
+        catch (Exception ex) when (!IsCallerCancellation(ex, cancellationToken))
         {
             LogFailure(logger, ex, failure, detail);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
@@ -74,8 +79,14 @@ public static partial class ToolRunner
         ToolMetrics metrics,
         string failure,
         Func<Task<string>> body,
-        string? detail = null)
-        => RunAsync(logger, activity, failure, body, detail: detail, metrics: metrics);
+        string? detail = null,
+        CancellationToken cancellationToken = default)
+        => RunAsync(logger, activity, failure, body, detail: detail, metrics: metrics, cancellationToken: cancellationToken);
+
+    private static bool IsCallerCancellation(Exception exception, CancellationToken cancellationToken)
+        => cancellationToken.CanBeCanceled
+            ? exception is OperationCanceledException && cancellationToken.IsCancellationRequested
+            : exception.IsCancellation();
 
     [LoggerMessage(Level = LogLevel.Error, Message = "{Failure} (detail: {Detail})")]
     private static partial void LogFailure(ILogger logger, Exception exception, string failure, string? detail);

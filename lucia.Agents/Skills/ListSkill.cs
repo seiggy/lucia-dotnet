@@ -59,7 +59,7 @@ public sealed class ListSkill : IAgentSkill
                 return "Item name cannot be empty.";
             await _ha.CallServiceAsync("shopping_list", "add_item", request: new ServiceCallRequest { { "name", itemName.Trim() } }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return $"Added '{itemName.Trim()}' to the shopping list.";
-        }).ConfigureAwait(false);
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Add an item to a Home Assistant todo list. entityId is the todo entity (e.g. todo.grocery, todo.personal_tasks).")]
@@ -78,7 +78,7 @@ public sealed class ListSkill : IAgentSkill
                 eid = "todo." + eid;
             await _ha.CallServiceAsync("todo", "add_item", request: new ServiceCallRequest { { "entity_id", eid }, { "item", itemName.Trim() } }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return $"Added '{itemName.Trim()}' to todo list {eid}.";
-        }).ConfigureAwait(false);
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("List all items on the Home Assistant shopping list.")]
@@ -94,7 +94,7 @@ public sealed class ListSkill : IAgentSkill
             foreach (var i in items)
                 sb.AppendLine($"- {(i.Complete ? "[done] " : "")}{i.Name}");
             return sb.ToString().TrimEnd();
-        }).ConfigureAwait(false);
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("List todo list entities available in Home Assistant (e.g. todo.grocery).")]
@@ -107,7 +107,7 @@ public sealed class ListSkill : IAgentSkill
             if (ids.Length == 0)
                 return "No todo lists found in Home Assistant. Add the Local todo integration to create lists.";
             return "Available todo lists: " + string.Join(", ", ids);
-        }).ConfigureAwait(false);
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("List items on a specific Home Assistant todo list. Use entityId from ListTodoEntitiesAsync.")]
@@ -128,6 +128,6 @@ public sealed class ListSkill : IAgentSkill
             foreach (var i in items)
                 sb.AppendLine($"- {(i.Status == "completed" ? "[done] " : "")}{i.Summary}");
             return sb.ToString().TrimEnd();
-        }, detail: entityId).ConfigureAwait(false);
+        }, detail: entityId, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

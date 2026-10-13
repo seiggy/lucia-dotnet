@@ -68,6 +68,40 @@ public sealed class ToolRunnerTests
         Assert.StartsWith("Error doing it", result);
     }
 
+    [Fact]
+    public async Task RunAsync_WithAToken_PropagatesCancellationOnlyWhenThatTokenIsCancelled()
+    {
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => ToolRunner.RunAsync(
+            NullLogger.Instance,
+            null,
+            "Error doing it",
+            () => throw new OperationCanceledException(cancelled.Token),
+            cancellationToken: cancelled.Token));
+    }
+
+    [Fact]
+    public async Task RunAsync_WithAToken_TreatsAnInternalTimeoutAsAFailure()
+    {
+        using var caller = new CancellationTokenSource();
+        using var internalTimeout = new CancellationTokenSource();
+        await internalTimeout.CancelAsync();
+        var failures = 0;
+
+        var result = await ToolRunner.RunAsync(
+            NullLogger.Instance,
+            null,
+            "Error doing it",
+            () => throw new OperationCanceledException(internalTimeout.Token),
+            onFailure: () => failures++,
+            cancellationToken: caller.Token);
+
+        Assert.Equal("Error doing it", result);
+        Assert.Equal(1, failures);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
