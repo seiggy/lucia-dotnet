@@ -27,11 +27,14 @@ Open issues from that work:
 - #289: entity searches other than the hierarchy search ignore per-agent visibility.
 - #290: `RedisLocationSnapshotStore` writes with `FireAndForget`, so the shared version can be bumped before the snapshot lands.
 
-In progress (branch `refactor/agents-skills-base`): the skills base. `ClimateControlSkill` is the pilot.
-- Characterization tests pin its tool output (30 tests).
-- `ToolRunner` replaces the per-tool try/catch. `AttributeParser` replaces the two copies of the string-list parser (Climate and Fan). `SkillEntityIndex<T>` owns the embedding generator, cached items, refresh lock and staleness check.
-- Climate went from 918 to 652 lines. Its constructor still takes 8 parameters.
-- Fan, Sensor and Security have not moved yet. Light and Scene already sit under 400 lines and use no device cache.
+In progress (branch `refactor/agents-skills-base`): the skills base. Climate, Fan and Sensor now use it.
+- Characterization tests pin each skill's tool output (30 Climate, 32 Fan, 29 Sensor).
+- `ToolRunner` replaces the per-tool try/catch. `AttributeParser` replaces the two copies of the string-list parser. `SkillEntityIndex<T>` owns the embedding generator, cached items, refresh lock and staleness check.
+- Line counts: Climate 918 to 651, Fan 797 to 607, Sensor 652 to 567. Constructors are unchanged (8, 7 and 7 parameters).
+- The per-skill loader keeps the domain part: read the shared device cache, build one device from a Home Assistant state, write the cache back.
+- Not moved yet: Security (640 lines, no device cache, so only `ToolRunner` applies). Light and Scene already sit under 400 lines.
+- Open decision: Climate and Fan still return `ex.Message` to the model, Sensor returns fixed messages, and Security still returns `ex.Message`. `ToolRunner.includeExceptionMessage` makes each one a one-argument change.
+- The 500-line target is out of reach with these helpers. The state formatters, device builders and command patterns stay in each skill.
 
 ## EntityLocationService split design
 
