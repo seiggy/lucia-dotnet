@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -25,17 +24,13 @@ namespace lucia.Agents.Skills;
 public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingProviderResolver _embeddingResolver;
-    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingService;
     private readonly ILogger<ClimateControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
     private readonly IHybridEntityMatcher _entityMatcher;
     private readonly IOptionsMonitor<ClimateControlSkillOptions> _options;
     private readonly int _comfortAdjustmentF;
-    private ImmutableArray<ClimateEntity> _cachedDevices = [];
-    private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
-    private readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private readonly SkillEntityIndex<ClimateEntity> _devices;
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.ClimateControl", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.ClimateControl", "1.0.0");
@@ -59,13 +54,19 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         IConfiguration configuration)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingResolver = embeddingResolver;
         _logger = logger;
         _deviceCache = deviceCache;
         _locationService = locationService;
         _entityMatcher = entityMatcher;
         _options = options;
         _comfortAdjustmentF = configuration.GetValue("ClimateAgent:ComfortAdjustmentF", 3);
+        _devices = new SkillEntityIndex<ClimateEntity>(
+            embeddingResolver,
+            logger,
+            "climate",
+            LoadDevicesAsync,
+            () => TimeSpan.FromMinutes(options.CurrentValue.CacheRefreshMinutes),
+            CacheRefreshDurationMs);
     }
 
     public IList<AITool> GetTools()
@@ -151,26 +152,19 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
     {
         _logger.LogInformation("Initializing ClimateControlSkill and caching climate entities...");
 
-        _embeddingService = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
-        if (_embeddingService is null)
-        {
-            _logger.LogWarning("No embedding provider configured — climate semantic search will not be available.");
+        await _devices.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (_devices.Embeddings is null)
             return;
-        }
 
-        await RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("ClimateControlSkill initialized with {DeviceCount} climate entities", _cachedDevices.Length);
+        _logger.LogInformation("ClimateControlSkill initialized with {DeviceCount} climate entities", _devices.Items.Length);
     }
 
     /// <summary>
     /// Re-resolves the embedding generator using the specified provider name.
     /// Called by the owning agent when the embedding configuration changes.
     /// </summary>
-    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
-    {
-        _embeddingService = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("ClimateControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
-    }
+    public Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+        => _devices.UpdateEmbeddingProviderAsync(providerName, cancellationToken);
 
     [Description("Get the configured comfort adjustment in degrees Fahrenheit used for relative temperature changes like 'I'm cold' or 'I'm hot'")]
     public string GetComfortAdjustment()
@@ -182,9 +176,9 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
     public async Task<string> FindClimateDeviceAsync(
         [Description("Name or description of the climate device (e.g., 'living room thermostat', 'downstairs HVAC', 'bedroom climate')")] string searchTerm)
     {
-        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
+        await _devices.EnsureCurrentAsync().ConfigureAwait(false);
 
-        if (_cachedDevices.IsEmpty)
+        if (_devices.Items.IsEmpty)
         {
             ClimateSearchFailures.Add(1);
             return "No climate devices available in the system.";
@@ -196,7 +190,8 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
         return await ToolRunner.RunAsync(_logger, "Error searching for climate device", async () =>
         {
-            if (_embeddingService is null)
+            var embeddings = _devices.Embeddings;
+            if (embeddings is null)
             {
                 ClimateSearchFailures.Add(1);
                 return "Embedding provider not available for climate search.";
@@ -204,8 +199,8 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             var matches = await _entityMatcher.FindMatchesAsync(
                 searchTerm,
-                (IReadOnlyList<ClimateEntity>)_cachedDevices,
-                _embeddingService,
+                (IReadOnlyList<ClimateEntity>)_devices.Items,
+                embeddings,
                 GetCurrentMatchOptions()).ConfigureAwait(false);
 
             if (matches.Count > 0)
@@ -249,7 +244,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             if (hierarchyResult.ResolutionStrategy != ResolutionStrategy.None && locationEntities.Count > 0)
             {
                 var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var areaDevices = _cachedDevices.Where(d => matchedEntityIds.Contains(d.EntityId)).ToList();
+                var areaDevices = _devices.Items.Where(d => matchedEntityIds.Contains(d.EntityId)).ToList();
 
                 if (areaDevices.Count > 0)
                 {
@@ -270,7 +265,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             }
 
             ClimateSearchFailures.Add(1);
-            return $"No climate device or area found matching '{searchTerm}'. Available devices: {string.Join(", ", _cachedDevices.Take(5).Select(d => d.FriendlyName))}";
+            return $"No climate device or area found matching '{searchTerm}'. Available devices: {string.Join(", ", _devices.Items.Take(5).Select(d => d.FriendlyName))}";
         }, onFailure: () => ClimateSearchFailures.Add(1), duration: ClimateSearchDurationMs, detail: searchTerm).ConfigureAwait(false);
     }
 
@@ -278,9 +273,9 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
     public async Task<string> FindClimateDevicesByAreaAsync(
         [Description("The area/room name to search (e.g., 'living room', 'upstairs', 'basement')")] string areaName)
     {
-        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
+        await _devices.EnsureCurrentAsync().ConfigureAwait(false);
 
-        if (_cachedDevices.IsEmpty)
+        if (_devices.Items.IsEmpty)
             return "No climate devices available in the system.";
 
         using var activity = ActivitySource.StartActivity();
@@ -296,7 +291,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             if (hierarchyResult.ResolutionStrategy == ResolutionStrategy.None || locationEntities.Count == 0)
             {
-                var availableAreas = _cachedDevices
+                var availableAreas = _devices.Items
                     .Where(d => !string.IsNullOrEmpty(d.Area))
                     .Select(d => d.Area!)
                     .Distinct();
@@ -304,7 +299,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             }
 
             var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var areaDevices = _cachedDevices.Where(d => matchedEntityIds.Contains(d.EntityId)).ToList();
+            var areaDevices = _devices.Items.Where(d => matchedEntityIds.Contains(d.EntityId)).ToList();
             if (!areaDevices.Any())
                 return $"No climate devices found in the matched location for '{areaName}'.";
 
@@ -336,7 +331,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             if (state is null)
                 return $"Climate device '{entityId}' not found.";
 
-            var device = _cachedDevices.FirstOrDefault(d => d.EntityId == entityId);
+            var device = _devices.Items.FirstOrDefault(d => d.EntityId == entityId);
             return FormatClimateState(state, device);
         }).ConfigureAwait(false);
     }
@@ -546,150 +541,111 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         return sb.ToString();
     }
 
-    private async Task RefreshCacheAsync(CancellationToken cancellationToken = default)
+    private async Task<IReadOnlyList<ClimateEntity>> LoadDevicesAsync(
+        IEmbeddingGenerator<string, Embedding<float>> embeddings,
+        CancellationToken cancellationToken)
     {
-        if (_embeddingService is null)
+        using var activity = ActivitySource.StartActivity("RefreshCacheAsync");
+
+        var cached = await TryLoadFromDeviceCacheAsync(cancellationToken).ConfigureAwait(false);
+        if (cached is not null)
         {
-            _logger.LogWarning("Skipping climate cache refresh — no embedding provider available.");
-            return;
+            _logger.LogInformation("Loaded {Count} climate devices from Redis cache", cached.Count);
+            return cached;
         }
 
-        using var activity = ActivitySource.StartActivity();
-        var start = Stopwatch.GetTimestamp();
+        _logger.LogDebug("Refreshing climate cache from Home Assistant...");
+
+        var allStates = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
+
+        var devices = new List<ClimateEntity>();
+        foreach (var state in allStates.Where(s => s.EntityId.StartsWith("climate.")))
+            devices.Add(await BuildDeviceAsync(state, embeddings, cancellationToken).ConfigureAwait(false));
+
+        await StoreInDeviceCacheAsync(devices, cancellationToken).ConfigureAwait(false);
+        return devices;
+    }
+
+    /// <summary>Device data only. Areas come from <see cref="IEntityLocationService"/>. Returns null unless every device has its embedding.</summary>
+    private async Task<List<ClimateEntity>?> TryLoadFromDeviceCacheAsync(CancellationToken cancellationToken)
+    {
+        var cached = await _deviceCache.GetCachedClimateDevicesAsync(cancellationToken).ConfigureAwait(false);
+        if (cached is null)
+            return null;
+
+        foreach (var device in cached)
+        {
+            var embedding = await _deviceCache.GetEmbeddingAsync($"climate:{device.EntityId}", cancellationToken).ConfigureAwait(false);
+            if (embedding is null)
+                return null;
+
+            device.NameEmbedding = embedding;
+        }
+
+        foreach (var device in cached.Where(d => d.PhoneticKeys.Length == 0))
+            device.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(device.FriendlyName);
+
+        return cached;
+    }
+
+    private async Task<ClimateEntity> BuildDeviceAsync(
+        HomeAssistantState entity,
+        IEmbeddingGenerator<string, Embedding<float>> embeddings,
+        CancellationToken cancellationToken)
+    {
+        var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
+            ? nameObj?.ToString() ?? entity.EntityId
+            : entity.EntityId;
+
+        double? minTemp = null, maxTemp = null;
+        if (entity.Attributes.TryGetValue("min_temp", out var minObj) && double.TryParse(minObj?.ToString(), out var min))
+            minTemp = min;
+        if (entity.Attributes.TryGetValue("max_temp", out var maxObj) && double.TryParse(maxObj?.ToString(), out var max))
+            maxTemp = max;
+
+        double? minHumidity = null, maxHumidity = null;
+        if (entity.Attributes.TryGetValue("min_humidity", out var minHumObj) && double.TryParse(minHumObj?.ToString(), out var minH))
+            minHumidity = minH;
+        if (entity.Attributes.TryGetValue("max_humidity", out var maxHumObj) && double.TryParse(maxHumObj?.ToString(), out var maxH))
+            maxHumidity = maxH;
+
+        var supportedFeatures = 0;
+        if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
+            supportedFeatures = feat;
+
+        return new ClimateEntity
+        {
+            EntityId = entity.EntityId,
+            FriendlyName = friendlyName,
+            NameEmbedding = await embeddings.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false),
+            PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
+            Area = _locationService.GetAreaForEntity(entity.EntityId)?.Name,
+            HvacModes = AttributeParser.ParseStringList(entity.Attributes, "hvac_modes"),
+            FanModes = AttributeParser.ParseStringList(entity.Attributes, "fan_modes"),
+            SwingModes = AttributeParser.ParseStringList(entity.Attributes, "swing_modes"),
+            PresetModes = AttributeParser.ParseStringList(entity.Attributes, "preset_modes"),
+            MinTemp = minTemp,
+            MaxTemp = maxTemp,
+            MinHumidity = minHumidity,
+            MaxHumidity = maxHumidity,
+            SupportedFeatures = supportedFeatures
+        };
+    }
+
+    /// <summary>A failed write must not discard devices that were just loaded, so it only logs.</summary>
+    private async Task StoreInDeviceCacheAsync(List<ClimateEntity> devices, CancellationToken cancellationToken)
+    {
         try
         {
-            // Try Redis cache first (device data only — areas come from IEntityLocationService)
-            var cached = await _deviceCache.GetCachedClimateDevicesAsync(cancellationToken).ConfigureAwait(false);
-            if (cached is not null)
-            {
-                var allEmbeddingsFound = true;
-                foreach (var device in cached)
-                {
-                    var embedding = await _deviceCache.GetEmbeddingAsync($"climate:{device.EntityId}", cancellationToken).ConfigureAwait(false);
-                    if (embedding is not null)
-                    {
-                        device.NameEmbedding = embedding;
-                    }
-                    else
-                    {
-                        allEmbeddingsFound = false;
-                        break;
-                    }
-                }
+            await _deviceCache.SetCachedClimateDevicesAsync(devices, TimeSpan.FromMinutes(30), cancellationToken).ConfigureAwait(false);
+            foreach (var device in devices.Where(d => d.NameEmbedding is not null))
+                await _deviceCache.SetEmbeddingAsync($"climate:{device.EntityId}", device.NameEmbedding!, TimeSpan.FromHours(24), cancellationToken).ConfigureAwait(false);
 
-                if (allEmbeddingsFound)
-                {
-                    foreach (var device in cached)
-                    {
-                        if (device.PhoneticKeys.Length == 0)
-                            device.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(device.FriendlyName);
-                    }
-
-                    _cachedDevices = [.. cached];
-                    Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
-                    _logger.LogInformation("Loaded {Count} climate devices from Redis cache", cached.Count);
-                    return;
-                }
-            }
-
-            _logger.LogDebug("Refreshing climate cache from Home Assistant...");
-
-            var allStates = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
-
-            var climateEntities = allStates
-                .Where(s => s.EntityId.StartsWith("climate."))
-                .ToList();
-
-            var newDevices = new List<ClimateEntity>();
-
-            foreach (var entity in climateEntities)
-            {
-                var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
-                    ? nameObj?.ToString() ?? entity.EntityId
-                    : entity.EntityId;
-
-                var hvacModes = AttributeParser.ParseStringList(entity.Attributes, "hvac_modes");
-                var fanModes = AttributeParser.ParseStringList(entity.Attributes, "fan_modes");
-                var swingModes = AttributeParser.ParseStringList(entity.Attributes, "swing_modes");
-                var presetModes = AttributeParser.ParseStringList(entity.Attributes, "preset_modes");
-
-                double? minTemp = null, maxTemp = null;
-                if (entity.Attributes.TryGetValue("min_temp", out var minObj) && double.TryParse(minObj?.ToString(), out var min))
-                    minTemp = min;
-                if (entity.Attributes.TryGetValue("max_temp", out var maxObj) && double.TryParse(maxObj?.ToString(), out var max))
-                    maxTemp = max;
-
-                double? minHumidity = null, maxHumidity = null;
-                if (entity.Attributes.TryGetValue("min_humidity", out var minHumObj) && double.TryParse(minHumObj?.ToString(), out var minH))
-                    minHumidity = minH;
-                if (entity.Attributes.TryGetValue("max_humidity", out var maxHumObj) && double.TryParse(maxHumObj?.ToString(), out var maxH))
-                    maxHumidity = maxH;
-
-                var supportedFeatures = 0;
-                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
-                    supportedFeatures = feat;
-
-                // Resolve area from the shared entity location service
-                var areaInfo = _locationService.GetAreaForEntity(entity.EntityId);
-
-                var embedding = await _embeddingService.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                newDevices.Add(new ClimateEntity
-                {
-                    EntityId = entity.EntityId,
-                    FriendlyName = friendlyName,
-                    NameEmbedding = embedding,
-                    PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
-                    Area = areaInfo?.Name,
-                    HvacModes = hvacModes,
-                    FanModes = fanModes,
-                    SwingModes = swingModes,
-                    PresetModes = presetModes,
-                    MinTemp = minTemp,
-                    MaxTemp = maxTemp,
-                    MinHumidity = minHumidity,
-                    MaxHumidity = maxHumidity,
-                    SupportedFeatures = supportedFeatures
-                });
-            }
-
-            _cachedDevices = [.. newDevices];
-            Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
-
-            var ttl = TimeSpan.FromMinutes(30);
-            var embedTtl = TimeSpan.FromHours(24);
-            await _deviceCache.SetCachedClimateDevicesAsync(newDevices, ttl, cancellationToken).ConfigureAwait(false);
-            foreach (var device in newDevices.Where(d => d.NameEmbedding is not null))
-                await _deviceCache.SetEmbeddingAsync($"climate:{device.EntityId}", device.NameEmbedding!, embedTtl, cancellationToken).ConfigureAwait(false);
-
-            _logger.LogInformation("Cached {Count} climate devices", newDevices.Count);
+            _logger.LogInformation("Cached {Count} climate devices", devices.Count);
         }
         catch (Exception ex) when (!ex.IsCancellation())
         {
-            _logger.LogError(ex, "Error refreshing climate cache");
-        }
-        finally
-        {
-            CacheRefreshDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
-
-    private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
-    {
-        var cacheRefreshInterval = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
-        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
-        {
-            if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-                return;
-            try
-            {
-                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
-                    await RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _refreshLock.Release();
-            }
+            _logger.LogError(ex, "Error caching climate devices");
         }
     }
 }

@@ -516,6 +516,20 @@ public sealed class ClimateControlSkillTests
     }
 
     [Fact]
+    public async Task InitializeAsync_WhenTheDeviceCacheWriteFails_StillUsesTheLoadedDevices()
+    {
+        var real = await CreateHomeAssistantAsync();
+        var deviceCache = CreateEmptyDeviceCache();
+        A.CallTo(() => deviceCache.SetCachedClimateDevicesAsync(A<List<ClimateEntity>>._, A<TimeSpan>._, A<CancellationToken>._))
+            .Throws(new InvalidOperationException("cache down"));
+        var skill = await CreateSkillAsync(real, CreateLocation(Resolved(ResolutionStrategy.None)), deviceCache);
+
+        var result = await skill.FindClimateDeviceAsync("Living Room Thermostat");
+
+        Assert.Equal($"Found climate device: {LivingRoomLine}", result);
+    }
+
+    [Fact]
     public async Task InitializeAsync_WithAnIncompleteDeviceCache_ReloadsFromHomeAssistant()
     {
         var real = await CreateHomeAssistantAsync();
