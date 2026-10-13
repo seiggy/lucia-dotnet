@@ -178,7 +178,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         AlarmRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to arm the alarm right now.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to arm the alarm right now.", async () =>
         {
             var alarms = await ResolveEntitiesAsync(["alarm_control_panel"], area, null).ConfigureAwait(false);
             if (alarms.Count == 0)
@@ -221,7 +221,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         AlarmRequests.Add(1, [new KeyValuePair<string, object?>("action", "disarm")]);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to disarm the alarm right now.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to disarm the alarm right now.", async () =>
         {
             var alarms = await ResolveEntitiesAsync(["alarm_control_panel"], area, null).ConfigureAwait(false);
             if (alarms.Count == 0)
@@ -271,7 +271,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         LockRequests.Add(1, [new KeyValuePair<string, object?>("action", "lock")]);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to lock the requested door right now.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to lock the requested door right now.", async () =>
         {
             var locks = await ResolveEntitiesAsync(["lock"], area, entityName).ConfigureAwait(false);
             if (locks.Count == 0)
@@ -319,7 +319,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         LockRequests.Add(1, [new KeyValuePair<string, object?>("action", "unlock")]);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to unlock the requested door right now.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to unlock the requested door right now.", async () =>
         {
             var locks = await ResolveEntitiesAsync(["lock"], area, entityName).ConfigureAwait(false);
             if (locks.Count == 0)
@@ -358,7 +358,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.area", area);
         StatusRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to retrieve security status right now.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to retrieve security status right now.", async () =>
         {
             var statusDomains = GetStatusDomains();
             var entities = await ResolveEntitiesAsync(statusDomains, area, null).ConfigureAwait(false);

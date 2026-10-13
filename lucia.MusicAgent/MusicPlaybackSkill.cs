@@ -349,7 +349,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
             return $"MusicAssistant player '{playerName}' was not found.";
         }
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to start shuffle playback on '{player.FriendlyName}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, null, $"Unable to start shuffle playback on '{player.FriendlyName}'. Please try again.", async () =>
         {
             var uris = await GetRandomTrackUrisAsync(_config.CurrentValue.IntegrationId, trackSeedCount, cancellationToken).ConfigureAwait(false);
 
@@ -375,7 +375,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
         activity?.SetTag("player.friendly_name", player.FriendlyName);
         PlaybackRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to start playback on '{player.FriendlyName}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to start playback on '{player.FriendlyName}'. Please try again.", async () =>
         {
             payload.EntityId = player.EntityId;
             await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", parameters: null, payload, cancellationToken).ConfigureAwait(false);

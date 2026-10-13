@@ -11,6 +11,11 @@ namespace lucia.Agents.Skills;
 public static partial class ToolRunner
 {
     /// <param name="logger">Receives the full exception.</param>
+    /// <param name="activity">
+    /// The tool's span, or null when nothing listens. A failure sets its status to Error with the exception
+    /// message, and it always gets the elapsed time as the <c>elapsed_ms</c> tag. Telemetry keeps the detail
+    /// the model does not see.
+    /// </param>
     /// <param name="failure">
     /// The complete message returned to the model on failure. It must not carry exception details, which
     /// can hold connection strings, paths and addresses. The log gets the exception.
@@ -22,6 +27,7 @@ public static partial class ToolRunner
     /// <param name="durationTag">Tag added to the duration measurement, such as the operation name.</param>
     public static async Task<string> RunAsync(
         ILogger logger,
+        Activity? activity,
         string failure,
         Func<Task<string>> body,
         Action? onFailure = null,
@@ -37,12 +43,14 @@ public static partial class ToolRunner
         catch (Exception ex) when (!ex.IsCancellation())
         {
             LogFailure(logger, ex, failure, detail);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             onFailure?.Invoke();
             return failure;
         }
         finally
         {
             var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            activity?.SetTag("elapsed_ms", elapsedMs);
             if (durationTag is { } tag)
             {
                 duration?.Record(elapsedMs, tag);

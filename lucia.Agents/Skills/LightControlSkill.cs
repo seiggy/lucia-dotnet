@@ -167,7 +167,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
         activity?.SetTag("search.terms", string.Join(", ", searchTerms));
         LightStateQueries.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to get the light states. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to get the light states. Please try again.", async () =>
         {
             var matchOptions = GetCurrentMatchOptions();
             var allEntities = new Dictionary<string, HomeAssistantEntity>(StringComparer.OrdinalIgnoreCase);
@@ -241,7 +241,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
 
         LightControlRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to control the lights. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to control the lights. Please try again.", async () =>
         {
             var allEntities = new Dictionary<string, HomeAssistantEntity>(StringComparer.OrdinalIgnoreCase);
 

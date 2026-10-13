@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using lucia.Agents.Skills;
 using lucia.Tests.TestDoubles;
@@ -14,7 +15,7 @@ public sealed class ToolRunnerTests
         var failures = 0;
 
         var result = await ToolRunner.RunAsync(
-            NullLogger.Instance, "Error doing it", () => Task.FromResult("done"), onFailure: () => failures++);
+            NullLogger.Instance, null, "Error doing it", () => Task.FromResult("done"), onFailure: () => failures++);
 
         Assert.Equal("done", result);
         Assert.Equal(0, failures);
@@ -26,7 +27,7 @@ public sealed class ToolRunnerTests
         var failures = 0;
 
         var result = await ToolRunner.RunAsync(
-            NullLogger.Instance,
+            NullLogger.Instance, null,
             "Unable to get the state of 'x'. Please try again.",
             () => throw new InvalidOperationException("secret connection string"),
             onFailure: () => failures++);
@@ -41,7 +42,7 @@ public sealed class ToolRunnerTests
         var logger = new RecordingLogger();
         var exception = new InvalidOperationException("secret connection string");
 
-        await ToolRunner.RunAsync(logger, "Error doing it", () => throw exception, detail: "kitchen");
+        await ToolRunner.RunAsync(logger, null, "Error doing it", () => throw exception, detail: "kitchen");
 
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Error, entry.Level);
@@ -53,14 +54,14 @@ public sealed class ToolRunnerTests
     public async Task RunAsync_CallerCancellation_Propagates()
     {
         await Assert.ThrowsAsync<OperationCanceledException>(() => ToolRunner.RunAsync(
-            NullLogger.Instance, "Error doing it", () => throw new OperationCanceledException()));
+            NullLogger.Instance, null, "Error doing it", () => throw new OperationCanceledException()));
     }
 
     [Fact]
     public async Task RunAsync_TimeoutShapedCancellation_IsAFailure()
     {
         var result = await ToolRunner.RunAsync(
-            NullLogger.Instance,
+            NullLogger.Instance, null,
             "Error doing it",
             () => throw new TaskCanceledException("timed out", new TimeoutException("request timed out")));
 
@@ -87,7 +88,7 @@ public sealed class ToolRunnerTests
         listener.Start();
 
         await ToolRunner.RunAsync(
-            NullLogger.Instance,
+            NullLogger.Instance, null,
             "Error doing it",
             () => fails ? throw new InvalidOperationException("boom") : Task.FromResult("ok"),
             duration: histogram);
@@ -119,12 +120,53 @@ public sealed class ToolRunnerTests
         listener.Start();
 
         await ToolRunner.RunAsync(
-            NullLogger.Instance,
+            NullLogger.Instance, null,
             "Error doing it",
             () => Task.FromResult("ok"),
             duration: histogram,
             durationTag: new("operation", "arm_alarm"));
 
         Assert.Equal(["operation=arm_alarm"], tags);
+    }
+
+    private static ActivityListener ListenTo(ActivitySource source)
+    {
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = s => s == source,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+        };
+        ActivitySource.AddActivityListener(listener);
+        return listener;
+    }
+
+    [Fact]
+    public async Task RunAsync_Failure_MarksTheActivityAsErroredAndTagsTheElapsedTime()
+    {
+        using var source = new ActivitySource("tool-runner-activity-failure");
+        using var listener = ListenTo(source);
+        using var activity = source.StartActivity("tool");
+
+        await ToolRunner.RunAsync(
+            NullLogger.Instance, activity, "Error doing it", () => throw new InvalidOperationException("boom"));
+
+        Assert.NotNull(activity);
+        Assert.Equal(ActivityStatusCode.Error, activity.Status);
+        Assert.Equal("boom", activity.StatusDescription);
+        Assert.Contains(activity.TagObjects, tag => tag.Key == "elapsed_ms");
+    }
+
+    [Fact]
+    public async Task RunAsync_Success_TagsTheElapsedTimeAndLeavesTheStatusAlone()
+    {
+        using var source = new ActivitySource("tool-runner-activity-success");
+        using var listener = ListenTo(source);
+        using var activity = source.StartActivity("tool");
+
+        await ToolRunner.RunAsync(NullLogger.Instance, activity, "Error doing it", () => Task.FromResult("ok"));
+
+        Assert.NotNull(activity);
+        Assert.Equal(ActivityStatusCode.Unset, activity.Status);
+        Assert.Contains(activity.TagObjects, tag => tag.Key == "elapsed_ms");
     }
 }

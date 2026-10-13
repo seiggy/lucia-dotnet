@@ -178,7 +178,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         activity?.SetTag("search.term", searchTerm);
         SensorSearchRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, SensorSearchErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, SensorSearchErrorMessage, async () =>
         {
             var embeddings = _sensors.Embeddings;
             if (embeddings is null)
@@ -271,7 +271,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        return await ToolRunner.RunAsync(_logger, AreaSensorSearchErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, AreaSensorSearchErrorMessage, async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
@@ -315,7 +315,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        return await ToolRunner.RunAsync(_logger, SensorStateErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, SensorStateErrorMessage, async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -333,7 +333,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        return await ToolRunner.RunAsync(_logger, BinarySensorStateErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, BinarySensorStateErrorMessage, async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -374,7 +374,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         activity?.SetTag("search.area", areaName);
         activity?.SetTag("filter.device_class", deviceClass ?? "none");
 
-        return await ToolRunner.RunAsync(_logger, AreaSensorSearchErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, AreaSensorSearchErrorMessage, async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);

@@ -188,7 +188,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         activity?.SetTag("search.term", searchTerm);
         ClimateSearchRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to search for climate devices. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to search for climate devices. Please try again.", async () =>
         {
             var embeddings = _devices.Embeddings;
             if (embeddings is null)
@@ -281,7 +281,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to search for climate devices in that area. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to search for climate devices in that area. Please try again.", async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
@@ -325,7 +325,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to get the state of '{entityId}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to get the state of '{entityId}'. Please try again.", async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -343,7 +343,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to search for climate sensors in that area. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to search for climate sensors in that area. Please try again.", async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), (IReadOnlyList<string>)["sensor"], CancellationToken.None).ConfigureAwait(false);
@@ -383,7 +383,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to get the state of '{entityId}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to get the state of '{entityId}'. Please try again.", async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -469,6 +469,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
         return await ToolRunner.RunAsync(
             _logger,
+            activity,
             $"Unable to set {what} for '{entityId}'. Please try again.",
             async () =>
             {

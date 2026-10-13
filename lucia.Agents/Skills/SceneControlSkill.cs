@@ -114,7 +114,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
         SceneListRequests.Add(1);
         using var activity = ActivitySource.StartActivity();
 
-        return await ToolRunner.RunAsync(_logger, "Unable to list scenes. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to list scenes. Please try again.", async () =>
         {
             var states = await _homeAssistantClient.GetStatesAsync(cancellationToken).ConfigureAwait(false);
             var scenes = states
@@ -145,7 +145,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to search for scenes in '{areaName}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to search for scenes in '{areaName}'. Please try again.", async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, cancellationToken).ConfigureAwait(false);
@@ -178,7 +178,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to activate scene '{entityId}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to activate scene '{entityId}'. Please try again.", async () =>
         {
             var entityIdNorm = entityId.StartsWith("scene.", StringComparison.OrdinalIgnoreCase)
                 ? entityId

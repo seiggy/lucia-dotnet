@@ -138,7 +138,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         activity?.SetTag("search_term", searchTerm);
         FanControlRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to search for fans. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to search for fans. Please try again.", async () =>
         {
             await _index.EnsureCurrentAsync().ConfigureAwait(false);
 
@@ -208,7 +208,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         activity?.SetTag("area_name", areaName);
         FanControlRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to search for fans in that area. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to search for fans in that area. Please try again.", async () =>
         {
             await _index.EnsureCurrentAsync().ConfigureAwait(false);
 
@@ -257,7 +257,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         activity?.SetTag("entity_id", entityId);
         FanControlRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to get the state of fan '{entityId}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to get the state of fan '{entityId}'. Please try again.", async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -280,7 +280,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         activity?.SetTag("state", state);
         FanControlRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to set the fan state. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to set the fan state. Please try again.", async () =>
         {
             var service = state.Equals("on", StringComparison.OrdinalIgnoreCase) ? "turn_on" : "turn_off";
             var request = new ServiceCallRequest { EntityId = entityId };
@@ -334,7 +334,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         activity?.SetTag(dataKey, value);
         FanControlRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, $"Unable to set fan {what}. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to set fan {what}. Please try again.", async () =>
         {
             var request = new ServiceCallRequest
             {
@@ -360,7 +360,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         activity?.SetTag("preset_mode", presetMode);
         FanControlRequests.Add(1);
 
-        return await ToolRunner.RunAsync(_logger, "Unable to set the fan preset mode. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to set the fan preset mode. Please try again.", async () =>
         {
             await _index.EnsureCurrentAsync().ConfigureAwait(false);
             var fan = _index.Items.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));

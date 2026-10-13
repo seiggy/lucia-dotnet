@@ -50,7 +50,7 @@ public sealed class ListSkill : IAgentSkill
         CancellationToken cancellationToken = default)
     {
         using var _ = ActivitySource.StartActivity();
-        return await ToolRunner.RunAsync(_logger, "Unable to add to the shopping list. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, null, "Unable to add to the shopping list. Please try again.", async () =>
         {
             if (string.IsNullOrWhiteSpace(itemName))
                 return "Item name cannot be empty.";
@@ -66,7 +66,7 @@ public sealed class ListSkill : IAgentSkill
         CancellationToken cancellationToken = default)
     {
         using var _ = ActivitySource.StartActivity();
-        return await ToolRunner.RunAsync(_logger, "Unable to add to the todo list. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, null, "Unable to add to the todo list. Please try again.", async () =>
         {
             if (string.IsNullOrWhiteSpace(entityId) || string.IsNullOrWhiteSpace(itemName))
                 return "Entity ID and item name are required.";
@@ -82,7 +82,7 @@ public sealed class ListSkill : IAgentSkill
     public async Task<string> ListShoppingItemsAsync(CancellationToken cancellationToken = default)
     {
         using var _ = ActivitySource.StartActivity();
-        return await ToolRunner.RunAsync(_logger, "Unable to list the shopping items. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, null, "Unable to list the shopping items. Please try again.", async () =>
         {
             var items = await _ha.GetShoppingListItemsAsync(cancellationToken).ConfigureAwait(false);
             if (items.Length == 0)
@@ -98,7 +98,7 @@ public sealed class ListSkill : IAgentSkill
     public async Task<string> ListTodoEntitiesAsync(CancellationToken cancellationToken = default)
     {
         using var _ = ActivitySource.StartActivity();
-        return await ToolRunner.RunAsync(_logger, "Unable to list the todo lists. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, null, "Unable to list the todo lists. Please try again.", async () =>
         {
             var ids = await _ha.GetTodoListEntityIdsAsync(cancellationToken).ConfigureAwait(false);
             if (ids.Length == 0)
@@ -113,7 +113,7 @@ public sealed class ListSkill : IAgentSkill
         CancellationToken cancellationToken = default)
     {
         using var _ = ActivitySource.StartActivity();
-        return await ToolRunner.RunAsync(_logger, "Unable to list the todo items. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, null, "Unable to list the todo items. Please try again.", async () =>
         {
             var eid = entityId.Trim();
             if (!eid.StartsWith("todo.", StringComparison.OrdinalIgnoreCase))
