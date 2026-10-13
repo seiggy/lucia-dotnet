@@ -25,6 +25,7 @@ public static partial class ToolRunner
     /// <param name="duration">Records how long the tool took, whether or not it failed.</param>
     /// <param name="detail">Extra context for the log only, such as the search term.</param>
     /// <param name="durationTag">Tag added to the duration measurement, such as the operation name.</param>
+    /// <param name="metrics">Counts the request and the failure and records the duration, all tagged with the tool.</param>
     public static async Task<string> RunAsync(
         ILogger logger,
         Activity? activity,
@@ -33,8 +34,10 @@ public static partial class ToolRunner
         Action? onFailure = null,
         Histogram<double>? duration = null,
         string? detail = null,
-        KeyValuePair<string, object?>? durationTag = null)
+        KeyValuePair<string, object?>? durationTag = null,
+        ToolMetrics? metrics = null)
     {
+        metrics?.Started();
         var start = Stopwatch.GetTimestamp();
         try
         {
@@ -45,12 +48,14 @@ public static partial class ToolRunner
             LogFailure(logger, ex, failure, detail);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             onFailure?.Invoke();
+            metrics?.Failed();
             return failure;
         }
         finally
         {
             var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             activity?.SetTag("elapsed_ms", elapsedMs);
+            metrics?.RecordDuration(elapsedMs);
             if (durationTag is { } tag)
             {
                 duration?.Record(elapsedMs, tag);
@@ -61,6 +66,16 @@ public static partial class ToolRunner
             }
         }
     }
+
+    /// <summary>Runs a tool that reports through <see cref="ToolMetrics"/> and has no other callbacks.</summary>
+    public static Task<string> RunAsync(
+        ILogger logger,
+        Activity? activity,
+        ToolMetrics metrics,
+        string failure,
+        Func<Task<string>> body,
+        string? detail = null)
+        => RunAsync(logger, activity, failure, body, detail: detail, metrics: metrics);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "{Failure} (detail: {Detail})")]
     private static partial void LogFailure(ILogger logger, Exception exception, string failure, string? detail);

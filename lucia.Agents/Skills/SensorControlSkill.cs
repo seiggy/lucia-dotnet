@@ -44,6 +44,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
     private static readonly Counter<long> SensorSearchFailures = Meter.CreateCounter<long>("sensor.search.failures");
     private static readonly Histogram<double> SensorSearchDurationMs = Meter.CreateHistogram<double>("sensor.search.duration", "ms");
     private static readonly Histogram<double> CacheRefreshDurationMs = Meter.CreateHistogram<double>("sensor.cache.refresh.duration", "ms");
+    private static readonly ToolMetrics LookupMetrics = ToolMetrics.Create(Meter, "sensor.lookup", "sensor lookup");
 
     public SensorControlSkill(
         IHomeAssistantClient homeAssistantClient,
@@ -271,7 +272,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        return await ToolRunner.RunAsync(_logger, activity, AreaSensorSearchErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(FindSensorsByAreaAsync)), AreaSensorSearchErrorMessage, async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
@@ -315,7 +316,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        return await ToolRunner.RunAsync(_logger, activity, SensorStateErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(GetSensorStateAsync)), SensorStateErrorMessage, async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -333,7 +334,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        return await ToolRunner.RunAsync(_logger, activity, BinarySensorStateErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(GetBinarySensorStateAsync)), BinarySensorStateErrorMessage, async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
@@ -374,7 +375,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         activity?.SetTag("search.area", areaName);
         activity?.SetTag("filter.device_class", deviceClass ?? "none");
 
-        return await ToolRunner.RunAsync(_logger, activity, AreaSensorSearchErrorMessage, async () =>
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(GetAreaSensorsAsync)), AreaSensorSearchErrorMessage, async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);

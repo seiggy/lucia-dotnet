@@ -149,6 +149,54 @@ public class MusicPlaybackSkillTests
             () => _skill.PlayShuffleAsync("Satellite1 Kitchen", 10));
     }
 
+    public static TheoryData<string, string> ControlFailures => new()
+    {
+        { "stop", "Unable to stop playback on 'Satellite1 Kitchen'. Please try again." },
+        { "volume", "Unable to set the volume on 'Satellite1 Kitchen'. Please try again." },
+        { "up", "Unable to turn up the volume on 'Satellite1 Kitchen'. Please try again." },
+        { "down", "Unable to turn down the volume on 'Satellite1 Kitchen'. Please try again." },
+    };
+
+    private Task<string> InvokeControl(string tool) => tool switch
+    {
+        "stop" => _skill.StopMusicAsync("Satellite1 Kitchen"),
+        "volume" => _skill.SetVolumeAsync("Satellite1 Kitchen", 40),
+        "up" => _skill.VolumeUpAsync("Satellite1 Kitchen"),
+        _ => _skill.VolumeDownAsync("Satellite1 Kitchen"),
+    };
+
+    [Theory]
+    [MemberData(nameof(ControlFailures))]
+    public async Task ControlTools_WhenHomeAssistantFails_ReturnAGenericMessage(string tool, string expected)
+    {
+        ThrowFromEveryServiceCall(new InvalidOperationException("secret connection string"));
+        await _skill.InitializeAsync();
+
+        Assert.Equal(expected, await InvokeControl(tool));
+    }
+
+    [Theory]
+    [MemberData(nameof(ControlFailures))]
+    public async Task ControlTools_WhenCancelled_Propagate(string tool, string _)
+    {
+        ThrowFromEveryServiceCall(new OperationCanceledException());
+        await _skill.InitializeAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => InvokeControl(tool));
+    }
+
+    [Theory]
+    [InlineData("stop", "Stopped playback on 'Satellite1 Kitchen'.")]
+    [InlineData("volume", "Set volume to 40% on 'Satellite1 Kitchen'.")]
+    [InlineData("up", "Turned up the volume on 'Satellite1 Kitchen'.")]
+    [InlineData("down", "Turned down the volume on 'Satellite1 Kitchen'.")]
+    public async Task ControlTools_ReportSuccess(string tool, string expected)
+    {
+        await _skill.InitializeAsync();
+
+        Assert.Equal(expected, await InvokeControl(tool));
+    }
+
     private void ConfigureDefaultLocationService()
     {
         var kitchenPlayer = new HomeAssistantEntity

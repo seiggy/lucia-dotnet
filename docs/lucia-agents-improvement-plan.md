@@ -32,6 +32,7 @@ Done on branch `refactor/agents-skills-base`: the skills base. All seven skills 
 - `ToolRunner` replaces the per-tool try/catch. `AttributeParser` replaces the two copies of the string-list parser. `SkillEntityIndex<T>` owns the embedding generator, cached items, refresh lock and staleness check.
 - Line counts: Climate 918 to 651, Fan 797 to 607, Sensor 652 to 567, Scene 226 to 207, List 155 to 130, Light 383 to 361, Security 640 to 590. Constructors are unchanged (7 to 8 parameters).
 - The per-skill loader keeps the domain part: read the shared device cache, build one device from a Home Assistant state, write the cache back.
+- Telemetry: `ToolRunner` sets the span status and `elapsed_ms`, and `ToolMetrics` gives each tool request, failure and duration metrics with a `tool` tag. Tools that had none (Climate lookups, Sensor lookups, Scene, List, Music control) now report through it. `ServiceDefaults` exports `Lucia.Skills.*`.
 - Decision: a failed tool returns a fixed message and logs the exception. `ex.Message` can hold connection strings and addresses, so it never reaches the model. `ToolRunner` has no flag for it.
 - Not moved: the Timer, Alarm and Scheduler skills (their catch blocks are best-effort persistence warnings, not tool failures) and the `searxng` and `brave-search` plugins (out of scope for now, they still return `ex.Message`).
 - The 500-line target is out of reach with these helpers. The state formatters, device builders and command patterns stay in each skill.

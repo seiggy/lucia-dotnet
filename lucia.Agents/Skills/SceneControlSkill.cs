@@ -28,7 +28,8 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.SceneControl", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.SceneControl", "1.0.0");
-    private static readonly Counter<long> SceneListRequests = Meter.CreateCounter<long>("scene.list.requests", "{count}", "Number of scene list requests.");
+    private static readonly ToolMetrics ListMetrics = ToolMetrics.Create(Meter, "scene.list", "scene list");
+    private static readonly ToolMetrics SearchMetrics = ToolMetrics.Create(Meter, "scene.search", "scene search");
     private static readonly Counter<long> SceneActivateRequests = Meter.CreateCounter<long>("scene.activate.requests", "{count}", "Number of scene activate requests.");
     private static readonly Counter<long> SceneActivateFailures = Meter.CreateCounter<long>("scene.activate.failures", "{count}", "Number of failed scene activations.");
     private static readonly Histogram<double> SceneActivateDurationMs = Meter.CreateHistogram<double>("scene.activate.duration", "ms", "Duration of scene activation.");
@@ -111,10 +112,9 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
     public async Task<string> ListScenesAsync(
         CancellationToken cancellationToken = default)
     {
-        SceneListRequests.Add(1);
         using var activity = ActivitySource.StartActivity();
 
-        return await ToolRunner.RunAsync(_logger, activity, "Unable to list scenes. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, ListMetrics.ForTool(nameof(ListScenesAsync)), "Unable to list scenes. Please try again.", async () =>
         {
             var states = await _homeAssistantClient.GetStatesAsync(cancellationToken).ConfigureAwait(false);
             var scenes = states
@@ -145,7 +145,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        return await ToolRunner.RunAsync(_logger, activity, $"Unable to search for scenes in '{areaName}'. Please try again.", async () =>
+        return await ToolRunner.RunAsync(_logger, activity, SearchMetrics.ForTool(nameof(FindScenesByAreaAsync)), $"Unable to search for scenes in '{areaName}'. Please try again.", async () =>
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, cancellationToken).ConfigureAwait(false);

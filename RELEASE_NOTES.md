@@ -58,9 +58,15 @@ any storage driver.
   and addresses. The exception is logged instead.
 - Fan lookups and Music playback no longer swallow caller cancellation.
 - A home with no fans no longer queries Home Assistant for fans on every request.
+- OpenTelemetry now exports every `Lucia.Skills.*` meter and activity source. Only Light and Music were
+  registered before, so Climate, Fan, Sensor, Security and Scene telemetry never left the process.
 
 ## Added
 
+- Tool telemetry for the skills that had none. Climate, Sensor, Scene, List and Music tools now report
+  request, failure and duration metrics tagged with `tool` (for example `climate.lookup.requests`,
+  `list.failures`, `music.control.duration`) and set the span status to Error with the exception
+  message on failure. Every skill tool's span gets an `elapsed_ms` tag.
 - Response template store for SQLite and PostgreSQL.
 - `IKeyValueCache` with in-memory and Redis implementations. The API key and
   speaker profile caches work with either cache provider on both databases.
