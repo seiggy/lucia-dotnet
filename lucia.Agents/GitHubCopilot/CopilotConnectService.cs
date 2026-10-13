@@ -59,7 +59,7 @@ public sealed class CopilotConnectService
             _logger.LogInformation("Copilot CLI returned {ModelCount} models", result.Count);
             return new CopilotConnectResult(true, $"Connected. Found {result.Count} available models.", result);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Failed to connect to GitHub Copilot CLI");
             return new CopilotConnectResult(false, $"Failed to connect: {ex.Message}", []);

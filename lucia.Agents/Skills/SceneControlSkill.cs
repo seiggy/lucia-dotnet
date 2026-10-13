@@ -135,7 +135,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error listing scenes");
             return $"Error listing scenes: {ex.Message}";
@@ -172,7 +172,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error finding scenes in area: {AreaName}", areaName);
             return $"Error searching for scenes in '{areaName}': {ex.Message}";
@@ -209,7 +209,7 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommand
             _logger.LogInformation("Activated scene {EntityId}", entityIdNorm);
             return $"Scene '{entityIdNorm}' activated successfully.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             SceneActivateFailures.Add(1);
             _logger.LogError(ex, "Error activating scene {EntityId}", entityId);

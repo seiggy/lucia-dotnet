@@ -6,7 +6,7 @@
 
 ## Overview
 
-This directory contains Docker configurations for deploying Lucia Agent Host in containerized environments. The default configuration runs in **standalone mode** — all agents (Music, Timer, Orchestrator) embedded in a single process with Redis and MongoDB. No `.env` file is required; a built-in setup wizard handles all user configuration on first launch.
+This directory contains Docker configurations for deploying Lucia Agent Host in containerized environments. The default configuration runs in **standalone mode** — all agents (Music, Timer, Orchestrator) embedded in a single process with Redis and PostgreSQL. Set `POSTGRES_PASSWORD` (environment or `.env`); a built-in setup wizard handles all other configuration on first launch.
 
 ## Directory Structure
 
@@ -29,7 +29,7 @@ See also:
 
 - `.env.example` — Environment variables reference (in project root). Only needed for Aspire dev or advanced overrides, not for Docker Compose.
 - `redis:8.2-alpine` — Official Redis image used (no custom Dockerfile needed)
-- `mongo:8.0` — Official MongoDB image for config, traces, and tasks storage
+- `postgres:17-alpine` — Official PostgreSQL image for config, traces, and tasks storage
 
 ## Quick Start
 
@@ -56,7 +56,7 @@ docker compose logs -f lucia
 
 ### 2. Complete Setup
 
-Open `http://localhost:7233` in your browser. The setup wizard guides you through connecting your LLM provider and Home Assistant instance. All configuration is persisted to MongoDB.
+Open `http://localhost:7233` in your browser. The setup wizard guides you through connecting your LLM provider and Home Assistant instance. All configuration is persisted to PostgreSQL.
 
 ### 3. Verify
 
@@ -96,12 +96,12 @@ See [DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md) for the shared capabiliti
 - Persistence: AOF enabled, 256MB max memory
 - Resources: CPU ≤ 1, Memory ≤ 512MB
 
-### mongo
+### postgres
 
-- Image: `mongo:8.0`
-- Port: `127.0.0.1:27017` (MongoDB protocol)
-- Health: `mongosh ping`
-- Databases: `luciatraces`, `luciaconfig`, `luciatasks`
+- Image: `postgres:17-alpine`
+- Port: not published (reachable as `lucia-postgres:5432` on `lucia-network`)
+- Health: `pg_isready`
+- Databases: `luciatraces`, `luciaconfig`, `luciatasks` (created by `postgres-init/01-create-databases.sql` on first start)
 - Resources: CPU ≤ 1, Memory ≤ 512MB
 
 ### Networks
@@ -111,7 +111,7 @@ See [DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md) for the shared capabiliti
 ### Volumes
 
 - `lucia-redis-data` — Persistent Redis data store
-- `lucia-mongo-data` — Persistent MongoDB data store
+- `lucia-postgres-data` — Persistent PostgreSQL data store
 - `lucia-models` — Writable storage for STT/VAD/wake-word/speech-enhancement/speaker-embedding ONNX models — populated at runtime via HuggingFace CLI
 - `lucia-voice-data` — Voice recordings under `/app/data/voice-clips`; speaker embeddings remain in the persistent configuration database
 
@@ -119,7 +119,7 @@ See [DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md) for the shared capabiliti
 
 |           Mode           |     Value    |                                     Description                                          |
 | ------------------------ | ------------ | ---------------------------------------------------------------------------------------- |
-| **Standalone** (default) | `standalone` | All agents embedded in AgentHost. Single container + Redis + MongoDB.                    |
+| **Standalone** (default) | `standalone` | All agents embedded in AgentHost. Single container + Redis + PostgreSQL.                 |
 | **Mesh**                 | `mesh`       | Agents run as separate A2A containers. Set `Deployment__Mode=mesh` on the lucia service. |
 
 Standalone mode is the default. External A2A agents can still connect to a standalone AgentHost. See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
@@ -128,7 +128,7 @@ Standalone mode is the default. External A2A agents can still connect to a stand
 
 ### Setup Wizard (Default)
 
-All user-facing configuration is handled by the setup wizard on first launch at `http://localhost:7233`. Settings are stored in MongoDB and persist across restarts. No `.env` file needed.
+All user-facing configuration is handled by the setup wizard on first launch at `http://localhost:7233`. Settings are stored in PostgreSQL and persist across restarts. No `.env` file needed.
 
 ### Environment Variable Overrides
 
@@ -186,7 +186,7 @@ docker compose logs --tail=100 lucia
 docker compose ps
 curl http://localhost:7233/health
 docker compose exec lucia-redis redis-cli PING
-docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
+docker compose exec lucia-postgres pg_isready -U postgres
 ```
 
 ### Restart Services
@@ -208,9 +208,10 @@ docker compose down -v        # Stop and remove volumes (destructive!)
 ### Backup/Restore
 
 ```bash
-# Backup MongoDB
-docker compose exec lucia-mongo mongodump --out /tmp/backup
-docker cp lucia-mongo:/tmp/backup ./backup/mongo-$(date +%Y%m%d)
+# Backup PostgreSQL
+docker compose exec lucia-postgres sh -c 'for db in luciaconfig luciatraces luciatasks; do pg_dump -U postgres -Fc $db > /tmp/$db.dump; done'
+mkdir -p ./backup/postgres-$(date +%Y%m%d)
+docker cp lucia-postgres:/tmp/. ./backup/postgres-$(date +%Y%m%d)/
 
 # Backup Redis
 docker run --rm -v lucia-redis-data:/data -v ./backup:/backup \
@@ -234,7 +235,7 @@ docker compose logs lucia
 ```bash
 docker compose ps               # Container running?
 curl -v http://localhost:7233    # Port reachable?
-docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"  # MongoDB healthy?
+docker compose exec lucia-postgres pg_isready -U postgres  # PostgreSQL healthy?
 ```
 
 ### Home Assistant connection fails
@@ -265,7 +266,7 @@ The `docker-compose.yml` includes security hardening by default:
 - ✅ Read-only filesystem with tmpfs mounts
 - ✅ `no-new-privileges` security option
 - ✅ Dropped capabilities (`NET_RAW`, `SYS_PTRACE`, `SYS_ADMIN`)
-- ✅ No secrets in environment (setup wizard stores to MongoDB)
+- ✅ No secrets in environment (setup wizard stores to PostgreSQL)
 
 **For remote access**, use a reverse proxy (nginx, Caddy) with authentication, a VPN, or Cloudflare Tunnel. Do not bind to `0.0.0.0` without authentication.
 
@@ -307,7 +308,7 @@ The `Dockerfile.agenthost-jetson` and `docker-compose.jetson.yml` are optimized 
 | **Speech Pipeline** | ✅ Enabled (Wyoming + ONNX) | ❌ Disabled (ExcludeSpeech=true) |
 | **Model Storage** | ~585MB voice models | None |
 | **Redis Max Memory** | 256MB | 128MB |
-| **MongoDB Max Memory** | 512MB | 256MB |
+| **PostgreSQL Max Memory** | 512MB | 256MB |
 | **AgentHost CPU/Memory** | 2 CPU / 1GB | 1.5 CPU / 512MB |
 | **Total RAM Needed** | ~2.5GB | ~1.5GB |
 
@@ -327,7 +328,7 @@ After starting services, open `http://localhost:7233` and complete the setup wiz
 2. Connect your Home Assistant instance
 3. Configure home automation preferences
 
-All settings persist to MongoDB across restarts.
+All settings persist to PostgreSQL across restarts.
 
 ## Next Steps
 

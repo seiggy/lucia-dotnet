@@ -13,7 +13,7 @@ public sealed record ApiKeyCreateResponse
     public required string Key { get; init; }
 
     /// <summary>
-    /// The MongoDB document ID for management operations (revoke, regenerate).
+    /// The document ID for management operations (revoke, regenerate).
     /// </summary>
     public required string Id { get; init; }
 

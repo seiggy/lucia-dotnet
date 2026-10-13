@@ -2,8 +2,8 @@ namespace lucia.Agents.Configuration.UserConfiguration;
 
 /// <summary>
 /// Configurable options for <see cref="Skills.ClimateControlSkill"/>.
-/// Stored in MongoDB configuration under the <c>ClimateControlSkill</c> section
-/// and hot-reloaded via <see cref="MongoConfigurationProvider"/>.
+/// Stored in the configuration store under the <c>ClimateControlSkill</c> section
+/// and hot-reloaded by the configuration provider.
 /// </summary>
 public sealed class ClimateControlSkillOptions
 {

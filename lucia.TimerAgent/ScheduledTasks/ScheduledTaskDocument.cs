@@ -1,16 +1,14 @@
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.TimerAgent.ScheduledTasks;
 
 /// <summary>
-/// MongoDB-persistable representation of a scheduled task.
+/// Persistable representation of a scheduled task.
 /// Used for persisting active tasks and recovering them on startup.
 /// Stored in the "scheduled_tasks" collection.
 /// </summary>
 public sealed class ScheduledTaskDocument
 {
-    /// <summary>Unique task instance ID (MongoDB _id).</summary>
-    [BsonId]
+    /// <summary>Unique task instance ID (primary key).</summary>
     public required string Id { get; init; }
 
     /// <summary>A2A task ID for external status tracking.</summary>

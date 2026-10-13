@@ -14,13 +14,22 @@ def render(*values):
 
 default = render()
 assert default.returncode == 0, default.stderr
-assert 'DataProvider__Store: "MongoDB"' in default.stdout
-assert 'mongodb://' in default.stdout
-assert 'wait-for-postgres' not in default.stdout
-assert 'secretKeyRef:' not in default.stdout
+assert 'DataProvider__Store: "PostgreSQL"' in default.stdout
+assert 'mongo' not in default.stdout.lower()
+assert 'name: lucia-postgres' in default.stdout and 'kind: StatefulSet' in default.stdout
+assert 'nc -z "$POSTGRES_HOST" "$POSTGRES_PORT"' in default.stdout
+assert 'POSTGRES_HOST' in default.stdout and 'value: "lucia-postgres"' in default.stdout
+assert 'ConnectionStrings__luciaconfig' in default.stdout
+assert 'Password=' in default.stdout.split("kind: Secret", 1)[1].split("---", 1)[0]
+
+custom_port = render("bundledPostgres.service.port=5433")
+assert custom_port.returncode == 0, custom_port.stderr
+secret = custom_port.stdout.split("kind: Secret", 1)[1].split("---", 1)[0]
+assert "Port=5433;" in secret and "Port=5432;" not in secret
+assert 'value: "5433"' in custom_port.stdout
 
 postgres = [
-    "postgres.enabled=true", "mongodb.enabled=false",
+    "postgres.enabled=true", "bundledPostgres.enabled=false",
     "postgres.host=postgres-rw.example.svc", "postgres.existingSecret=lucia-db",
 ]
 keys = {
@@ -34,11 +43,11 @@ documents = result.stdout.split("---")
 config = next(document for document in documents if "\nkind: ConfigMap\n" in document)
 deployments = [document for document in documents if "\nkind: Deployment\n" in document
                and "configMapRef:" in document]
-assert len(deployments) == 2, "Expected AgentHost and default-enabled Timer Agent deployments"
-deployment = next(document for document in deployments if "wait-for-postgres" in document)
+assert len(deployments) == 1, "Expected only the AgentHost deployment"
+deployment = deployments[0]
 assert 'DataProvider__Store: "PostgreSQL"' in config
 assert "ConnectionStrings__lucia" not in config
-assert "wait-for-mongodb" not in deployment
+
 assert 'nc -z "$POSTGRES_HOST" "$POSTGRES_PORT"' in deployment
 for consumer in deployments:
     for database, key in keys.items():
@@ -47,18 +56,11 @@ for consumer in deployments:
         fragment = consumer.split(marker, 1)[1].split("- name:", 1)[0]
         assert "secretKeyRef:" in fragment and 'name: "lucia-db"' in fragment
         assert f'key: "{key}"' in fragment
-assert result.stdout.count('secretKeyRef:') == 6
-assert "kind: StatefulSet" not in "".join(
-    document for document in documents if "mongodb" in document
-)
-
-without_timer = render(*postgres, "a2aAgents.timerAgent.enabled=false")
-assert without_timer.returncode == 0, without_timer.stderr
-assert without_timer.stdout.count('secretKeyRef:') == 3
-assert "name: lucia-timer-agent" not in without_timer.stdout
+assert result.stdout.count('secretKeyRef:') == 3
+assert not any("name: lucia-postgres" in document and "kind: StatefulSet" in document for document in documents), "external mode must not render the bundled server"
 
 for override, message in (
-    ("mongodb.enabled=true", "cannot both be true"),
+    ("bundledPostgres.enabled=true", "cannot both be true"),
     ("postgres.existingSecret=", "postgres.existingSecret is required"),
     ("postgres.host=", "postgres.host is required"),
     ("postgres.port=0", "postgres.port must be"),

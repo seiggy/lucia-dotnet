@@ -1,4 +1,4 @@
-﻿using System.Data.Common;
+using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 
 namespace lucia.Agents.Extensions;
@@ -126,12 +126,3 @@ public class ChatClientConnectionInfo
     }
 }
 
-public enum ClientChatProvider
-{
-    Unknown,
-    Ollama,
-    OpenAI,
-    ONNX,
-    AzureOpenAI,
-    AzureAIInference,
-}

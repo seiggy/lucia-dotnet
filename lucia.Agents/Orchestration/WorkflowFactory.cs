@@ -107,7 +107,7 @@ public sealed class WorkflowFactory
                 resolved.Add(aiAgent);
                 _logger.LogDebug("Resolved local AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(ex, "Failed to resolve AIAgent from ILuciaAgent {Type}", luciaAgent.GetType().Name);
             }
@@ -118,7 +118,7 @@ public sealed class WorkflowFactory
         // Do NOT wrap them as A2AAgent here (AsAIAgent creates an internal HttpClient
         // that bypasses Aspire service discovery).
 
-        // Resolve dynamic agents (user-defined via MCP) — lazily built from latest Mongo definition
+        // Resolve dynamic agents (user-defined via MCP) — lazily built from latest stored definition
         if (_dynamicAgentProvider is null) return resolved.AsReadOnly();
         
         foreach (var dynamicAgent in _dynamicAgentProvider.GetAllAgents())
@@ -269,7 +269,7 @@ public sealed class WorkflowFactory
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(ex, "Failed to resolve personality model '{ModelConnectionName}', personality rewriting disabled for this request",
                     personalityOpts.ModelConnectionName);

@@ -7,13 +7,13 @@ namespace lucia.Agents.Extensions;
 
 /// <summary>
 /// Extension methods for seeding <see cref="AgentDefinition"/> documents
-/// for built-in agents that are registered via DI but not yet present in MongoDB.
+/// for built-in agents that are registered via DI but not yet present in the store.
 /// </summary>
 public static class AgentDefinitionSeedExtensions
 {
     /// <summary>
     /// Ensures every <paramref name="agents"/> entry has a corresponding
-    /// <see cref="AgentDefinition"/> in MongoDB. Existing definitions are
+    /// <see cref="AgentDefinition"/> in the store. Existing definitions are
     /// never overwritten, preserving user customizations.
     /// </summary>
     /// <param name="isRemote">

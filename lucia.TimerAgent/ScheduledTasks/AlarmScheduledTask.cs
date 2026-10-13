@@ -1,3 +1,4 @@
+using lucia.Agents;
 using System.Diagnostics;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
@@ -204,7 +205,7 @@ public sealed class AlarmScheduledTask : IScheduledTask
                     await AnnounceFallbackAsync(haClient, resolvedEntity, ct).ConfigureAwait(false);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 logger.LogWarning(ex,
                     "Alarm {AlarmId} playback iteration failed — retrying after interval",
@@ -240,7 +241,7 @@ public sealed class AlarmScheduledTask : IScheduledTask
                 request: request,
                 cancellationToken: ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             logger.LogWarning(ex, "Failed to set volume to {Volume} on {Entity}", volume, entity);
         }

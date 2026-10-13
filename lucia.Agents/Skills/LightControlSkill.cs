@@ -218,7 +218,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error getting light states for: {SearchTerms}", string.Join(", ", searchTerms));
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
@@ -366,7 +366,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error controlling lights for: {SearchTerms}", string.Join(", ", searchTerms));
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);

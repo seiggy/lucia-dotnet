@@ -208,7 +208,7 @@ public sealed class RouterExecutor : Executor
             var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
             await _promptCache.CacheRoutingDecisionAsync(cacheMessages, parsed, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Failed to cache routing decision");
         }

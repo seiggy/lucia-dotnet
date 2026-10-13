@@ -1,3 +1,95 @@
+# Release notes - 1.6.0 (unreleased)
+
+This section tracks changes for the next release. Move the date and final
+version here when it ships.
+
+## Overview
+
+MongoDB support is gone. Lucia now stores its data in SQLite or PostgreSQL, and
+the container, Compose and Helm deployments use PostgreSQL by default. The
+`lucia.Agents` project also had a structural cleanup and no longer depends on
+any storage driver.
+
+## Breaking changes
+
+- **MongoDB is removed.** There is no export or migration path. Setting
+  `DataProvider:Store=MongoDB` now fails at startup with a clear error. Re-run
+  setup against SQLite or PostgreSQL.
+- **Default stores changed.** A bare `lucia.AgentHost` uses SQLite. The Aspire
+  AppHost uses PostgreSQL.
+- **Compose requires `POSTGRES_PASSWORD`.** The Compose files start PostgreSQL
+  with `postgres-init` SQL instead of MongoDB, and refuse to start without it.
+- **Helm and raw Kubernetes manifests.** The chart adds `bundledPostgres`
+  (a StatefulSet with a generated-password Secret) next to the external
+  `postgres` values. Remove any `mongodb` and `a2aAgents` values from your
+  overrides. The raw manifests add `07-postgres.yaml`. The default is now the
+  standalone deployment, and the A2A and timer pods are gone.
+- **`lucia.A2AHost` is deleted.** It was deprecated and has no remaining users.
+- **Mongo-only settings are removed** from the dashboard and config schema
+  (trace capture database and collection names, task archive names, the speaker
+  profile database name, and the config and API key collection constants).
+
+## Upgrading from 1.5.x
+
+1. Pick SQLite or PostgreSQL. Set `DataProvider:Store` explicitly. Old Compose and
+   Kubernetes files never set it and relied on the MongoDB default, so a stale file now fails
+   at startup if it still sets `DataProvider:Store=MongoDB` or any `mongodb://` or
+   `mongodb+srv://` connection string. Replace them.
+2. Docker Compose users set `POSTGRES_PASSWORD` in `.env`.
+3. Helm users drop `mongodb` and `a2aAgents` values. If you render with Argo CD or Flux, set
+   `bundledPostgres.auth.password` so the Secret stays stable between syncs.
+4. Raw manifest users apply the new `07-postgres.yaml`. The AgentHost Deployment runs one
+   replica, which the standalone mode requires.
+5. Re-run setup. Mongo data is not migrated.
+
+## Fixes
+
+- SQLite task statistics now count tasks per agent. The query read a field that
+  did not exist.
+- Regenerating a revoked API key now fails on SQLite and PostgreSQL instead of
+  silently reviving it.
+- Creating a duplicate response template raises `DuplicateResponseTemplateException`
+  on every provider. Only the MongoDB exception was handled before.
+- Entity visibility settings (exposed-only mode and per-agent filters) now
+  persist across restarts when Redis is not in use. They are stored in the
+  SQLite or PostgreSQL configuration store.
+
+## Added
+
+- Response template store for SQLite and PostgreSQL.
+- `IKeyValueCache` with in-memory and Redis implementations. The API key and
+  speaker profile caches work with either cache provider on both databases.
+- A provider contract test suite that runs every store interface against SQLite
+  and PostgreSQL.
+
+## Internal
+
+- `EntityLocationService` shrank from 1,438 to about 600 lines. Search,
+  registry loading and embedding generation moved into `LocationSearchService`,
+  `LocationSnapshotLoader` and `EntityEmbeddingJob`. Persistence sits behind
+  `ILocationSnapshotStore` and `IVisibilityConfigStore`. One service now serves
+  both cache providers, and `InMemoryEntityLocationService` is removed.
+- Redis stores and caches moved from `lucia.Agents` to `lucia.Data/Redis`.
+  `lucia.Agents` no longer references `Aspire.StackExchange.Redis`, and a test
+  fails if a storage driver is referenced again.
+- About 90 broad `catch` blocks no longer swallow cancellation. They use
+  `Exception.IsCancellation()`, which still treats an `HttpClient` timeout as a failure to handle.
+- `CachedApiKeyService` no longer caches invalid keys, so unauthenticated requests cannot fill the
+  shared cache.
+  If the cache rejects the invalidation after a revoke, that instance validates against the store
+  for the next five minutes instead of trusting cached keys.
+- Turning on exposed-only entity loading during a reload now reloads again, so the entity list can
+  no longer keep unexposed entities.
+- Entity visibility fails closed. If Home Assistant cannot return its exposed-entity list, or Redis
+  cannot return the saved visibility settings, the load fails and keeps the previous snapshot. Before,
+  Lucia loaded every entity or reset the settings to their defaults.
+- Entities with an empty agent allow-list are hidden from every search, with or without a domain filter.
+- Visibility updates run one at a time on a copy of the settings, so concurrent edits no longer race.
+- Every `.cs` file now holds one class.
+- In-memory `ExactMatchArea` now matches display names only, like the Redis
+  version.
+
+---
 # Release notes - 1.4.0
 
 **Release date:** September 1, 2026

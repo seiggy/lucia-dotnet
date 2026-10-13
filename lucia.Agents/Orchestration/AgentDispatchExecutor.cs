@@ -213,7 +213,7 @@ public sealed class AgentDispatchExecutor : Executor
                 return text;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Failed to generate clarification prompt via LLM; using fallback.");
         }
@@ -310,7 +310,7 @@ public sealed class AgentDispatchExecutor : Executor
             activity?.SetTag("agent.execution_time_ms", response.ExecutionTimeMs);
             return response;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Agent '{AgentId}' execution failed.", agentId);
             activity?.SetTag("agent.result", "exception");

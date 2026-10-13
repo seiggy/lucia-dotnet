@@ -2,7 +2,7 @@ namespace lucia.Data;
 
 /// <summary>
 /// Configuration for selecting data provider backends.
-/// Allows switching between Redis/MongoDB (full) and InMemory/SQLite (lightweight) modes.
+/// Allows switching between Redis/PostgreSQL (full) and InMemory/SQLite (lightweight) modes.
 /// </summary>
 public sealed class DataProviderOptions
 {
@@ -16,9 +16,9 @@ public sealed class DataProviderOptions
 
     /// <summary>
     /// Persistent store for configuration, traces, tasks, and repositories.
-    /// Default: MongoDB. Use SQLite for lightweight/mono-container deployments.
+    /// Default: SQLite, which suits lightweight/mono-container deployments. Use PostgreSQL for a shared server.
     /// </summary>
-    public StoreProviderType Store { get; set; } = StoreProviderType.MongoDB;
+    public StoreProviderType Store { get; set; } = StoreProviderType.SQLite;
 
     /// <summary>
     /// SQLite database file path. Only used when Store is SQLite.

@@ -19,7 +19,7 @@ namespace lucia.AgentHost.Apis;
 ///      so only the person who generated the key can proceed.
 ///   3. Post-complete: OnboardingMiddleware returns 403 for every /api/setup/*
 ///      request, permanently disabling the wizard. Users who lose their key
-///      must reset MongoDB storage — there is no anonymous recovery path.
+///      must reset storage — there is no anonymous recovery path.
 /// </summary>
 public static class SetupApi
 {
@@ -188,7 +188,7 @@ public static class SetupApi
         IConfigStoreWriter configStore,
         IHttpClientFactory httpClientFactory,
         IEntityLocationService entityLocationService,
-        ILogger<ConfigStoreWriter> logger,
+        ILogger<IConfigStoreWriter> logger,
         HttpContext httpContext)
     {
         var connected = false;

@@ -33,6 +33,17 @@ public sealed class LocationSnapshot
         EntityById = entityById;
     }
 
+    public static LocationSnapshot Create(
+        ImmutableArray<FloorInfo> floors,
+        ImmutableArray<AreaInfo> areas,
+        ImmutableArray<HomeAssistantEntity> entities) => new(
+        floors,
+        areas,
+        entities,
+        floors.ToImmutableDictionary(f => f.FloorId, StringComparer.OrdinalIgnoreCase),
+        areas.ToImmutableDictionary(a => a.AreaId, StringComparer.OrdinalIgnoreCase),
+        entities.ToImmutableDictionary(e => e.EntityId, StringComparer.OrdinalIgnoreCase));
+
     public ImmutableArray<FloorInfo> Floors { get; }
     public ImmutableArray<AreaInfo> Areas { get; }
     public ImmutableArray<HomeAssistantEntity> Entities { get; }

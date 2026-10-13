@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 namespace lucia.Agents.Integration;
 
 /// <summary>
-/// Resolves an <see cref="IChatClient"/> from the MongoDB-backed model provider system.
+/// Resolves an <see cref="IChatClient"/> from the database-backed model provider system.
 /// Caches resolved clients by provider ID to avoid repeated construction.
 /// Falls back to the "default-chat" built-in provider when no provider name is specified.
 /// </summary>

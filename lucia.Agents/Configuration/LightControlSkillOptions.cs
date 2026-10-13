@@ -2,8 +2,8 @@ namespace lucia.Agents.Configuration;
 
 /// <summary>
 /// Configurable options for <see cref="Skills.LightControlSkill"/>.
-/// Stored in MongoDB configuration under the <c>LightControlSkill</c> section
-/// and hot-reloaded via <see cref="MongoConfigurationProvider"/>.
+/// Stored in the configuration store under the <c>LightControlSkill</c> section
+/// and hot-reloaded by the configuration provider.
 /// </summary>
 public sealed class LightControlSkillOptions
 {

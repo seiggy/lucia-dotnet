@@ -1,13 +1,14 @@
+using lucia.Agents;
 using System.Text.Json;
+using lucia.Agents.Abstractions;
 using Microsoft.Extensions.Logging;
-using StackExchange.Redis;
 
 namespace lucia.Wyoming.Diarization;
 
 /// <summary>
-/// Redis-cached decorator for ISpeakerProfileStore. Reads enrolled profiles from
-/// Redis cache (~1ms) instead of MongoDB (~500ms+). Cache is refreshed on writes
-/// and expires after a configurable TTL.
+/// Cached decorator for ISpeakerProfileStore. Reads enrolled profiles from an
+/// <see cref="IKeyValueCache"/> (in-memory or Redis) instead of the database. The cache is
+/// invalidated on writes and entries expire after a fixed TTL.
 /// </summary>
 public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
@@ -21,20 +22,20 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
     };
 
     private readonly ISpeakerProfileStore _inner;
-    private readonly IDatabase _redis;
+    private readonly IKeyValueCache _cache;
     private readonly ILogger<CachedSpeakerProfileStore> _logger;
 
     public CachedSpeakerProfileStore(
         ISpeakerProfileStore inner,
-        IConnectionMultiplexer redis,
+        IKeyValueCache cache,
         ILogger<CachedSpeakerProfileStore> logger)
     {
         ArgumentNullException.ThrowIfNull(inner);
-        ArgumentNullException.ThrowIfNull(redis);
+        ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(logger);
 
         _inner = inner;
-        _redis = redis.GetDatabase();
+        _cache = cache;
         _logger = logger;
     }
 
@@ -42,17 +43,17 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
     {
         try
         {
-            var cached = await _redis.StringGetAsync(EnrolledCacheKey).ConfigureAwait(false);
-            if (cached.HasValue)
+            var cached = await _cache.GetAsync(EnrolledCacheKey, ct).ConfigureAwait(false);
+            if (cached is not null)
             {
-                var profiles = JsonSerializer.Deserialize<List<SpeakerProfile>>(cached.ToString(), JsonOptions);
+                var profiles = JsonSerializer.Deserialize<List<SpeakerProfile>>(cached, JsonOptions);
                 if (profiles is not null)
                     return profiles;
             }
         }
-        catch (RedisException ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
-            _logger.LogDebug(ex, "Redis cache miss for enrolled profiles, falling back to store");
+            _logger.LogDebug(ex, "Cache miss for enrolled profiles, falling back to store");
         }
 
         var result = await _inner.GetEnrolledProfilesAsync(ct).ConfigureAwait(false);
@@ -63,11 +64,11 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
             try
             {
                 var json = JsonSerializer.Serialize(result, JsonOptions);
-                await _redis.StringSetAsync(EnrolledCacheKey, json, CacheTtl).ConfigureAwait(false);
+                await _cache.SetAsync(EnrolledCacheKey, json, CacheTtl).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to cache enrolled profiles in Redis");
+                _logger.LogDebug(ex, "Failed to cache enrolled profiles");
             }
         }, CancellationToken.None);
 
@@ -78,11 +79,14 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
     {
         try
         {
-            var cached = await _redis.StringGetAsync(ProfileKeyPrefix + id).ConfigureAwait(false);
-            if (cached.HasValue)
-                return JsonSerializer.Deserialize<SpeakerProfile>(cached.ToString(), JsonOptions);
+            var cached = await _cache.GetAsync(ProfileKeyPrefix + id, ct).ConfigureAwait(false);
+            if (cached is not null)
+                return JsonSerializer.Deserialize<SpeakerProfile>(cached, JsonOptions);
         }
-        catch (RedisException) { /* fall through */ }
+        catch (Exception ex) when (!ex.IsCancellation())
+        {
+            _logger.LogDebug(ex, "Speaker profile cache read failed, falling back to store");
+        }
 
         return await _inner.GetAsync(id, ct).ConfigureAwait(false);
     }
@@ -146,9 +150,10 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, ICondition
     {
         try
         {
-            await _redis.KeyDeleteAsync(EnrolledCacheKey).ConfigureAwait(false);
+            await _cache.RemoveAsync(EnrolledCacheKey).ConfigureAwait(false);
         }
-        catch (RedisException ex)
+        // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+        catch (Exception ex)
         {
             _logger.LogDebug(ex, "Failed to invalidate enrolled profiles cache");
         }

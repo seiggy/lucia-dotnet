@@ -2,8 +2,8 @@ namespace lucia.Agents.Configuration.UserConfiguration;
 
 /// <summary>
 /// Configurable options for <see cref="Skills.SensorControlSkill"/>.
-/// Stored in MongoDB configuration under the <c>SensorControlSkill</c> section
-/// and hot-reloaded via <see cref="MongoConfigurationProvider"/>.
+/// Stored in the configuration store under the <c>SensorControlSkill</c> section
+/// and hot-reloaded by the configuration provider.
 /// </summary>
 public sealed class SensorControlSkillOptions
 {

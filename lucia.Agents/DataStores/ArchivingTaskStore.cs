@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace lucia.Agents.DataStores;
 
 /// <summary>
-/// Decorator around <see cref="ITaskStore"/> that archives tasks to MongoDB
+/// Decorator around <see cref="ITaskStore"/> that archives tasks to the task archive
 /// when they reach a terminal state (Completed, Failed, Canceled).
 /// </summary>
 public sealed class ArchivingTaskStore : ITaskStore
@@ -65,10 +65,10 @@ public sealed class ArchivingTaskStore : ITaskStore
             await _archive.ArchiveTaskAsync(task, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Archived task {TaskId} with status {Status}.", taskId, task.Status.State);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             // Fire-and-forget: archive failure should not break the primary flow
-            _logger.LogError(ex, "Failed to archive task {TaskId} to MongoDB.", taskId);
+            _logger.LogError(ex, "Failed to archive task {TaskId} to the task archive.", taskId);
         }
     }
 }

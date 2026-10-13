@@ -2,7 +2,7 @@ namespace lucia.TimerAgent.ScheduledTasks;
 
 /// <summary>
 /// Persistence interface for scheduled task documents.
-/// Backed by MongoDB for durable storage across restarts.
+/// Backed by a database for durable storage across restarts.
 /// </summary>
 public interface IScheduledTaskRepository
 {

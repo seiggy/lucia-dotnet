@@ -3,7 +3,7 @@ using Microsoft.Extensions.Hosting;
 namespace lucia.Wyoming.Models;
 
 /// <summary>
-/// Loads persisted model preferences from MongoDB during application startup,
+/// Loads persisted model preferences during application startup,
 /// ensuring that user-selected STT engine and model choices survive reboots.
 /// </summary>
 public sealed class ModelPreferenceInitializer(ModelManager modelManager) : IHostedService

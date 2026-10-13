@@ -16,10 +16,10 @@
 - **Orchestration:** Sequential & Fan-out/Fan-in custom orchestration workflow
 
 ### Database
-- **Primary:** Redis + MongoDB (runtime)
-- **Lightweight Options:** SQLite and PostgreSQL via direct ADO.NET providers (`Microsoft.Data.Sqlite`, `Npgsql`)
-- **Runtime Usage:** Redis for session/task persistence; MongoDB for traces, config overrides, and task records
-- **Storage:** MongoDB databases `luciatraces`, `luciaconfig`, `luciatasks`
+- **Primary:** Redis + PostgreSQL (runtime)
+- **Lightweight Option:** SQLite (default store) via `Microsoft.Data.Sqlite`; PostgreSQL via `Npgsql`
+- **Runtime Usage:** Redis for session/task persistence; PostgreSQL or SQLite for traces, config overrides, and task records
+- **Storage:** databases `luciatraces`, `luciaconfig`, `luciatasks` (separate PostgreSQL databases or SQLite files)
 
 ## Agent Stack
 

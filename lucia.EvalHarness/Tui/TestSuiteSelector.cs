@@ -29,8 +29,3 @@ public static class TestSuiteSelector
         };
     }
 }
-
-/// <summary>
-/// Selected test scope. When <see cref="MaxCasesPerAgent"/> is null, all cases run.
-/// </summary>
-public sealed record TestSuiteChoice(int? MaxCasesPerAgent);

@@ -12,10 +12,4 @@ public sealed class DiarizationOptions
     public string SegmentationModelPath { get; set; } = "";
     public string EmbeddingModelPath { get; set; } = "";
     public float SpeakerThreshold { get; set; } = 0.35f;
-
-    /// <summary>
-    /// MongoDB database name for persistent speaker profile storage.
-    /// Used only when a MongoDB connection is available; otherwise profiles are stored in memory.
-    /// </summary>
-    public string ProfileStoreDatabaseName { get; set; } = "luciawyoming";
 }

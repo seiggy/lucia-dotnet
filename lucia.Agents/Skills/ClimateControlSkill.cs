@@ -284,7 +284,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             ClimateSearchFailures.Add(1);
             return $"No climate device or area found matching '{searchTerm}'. Available devices: {string.Join(", ", _cachedDevices.Take(5).Select(d => d.FriendlyName))}";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error finding climate device for search term: {SearchTerm}", searchTerm);
             ClimateSearchFailures.Add(1);
@@ -343,7 +343,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error finding climate devices in area: {AreaName}", areaName);
             return $"Error searching for climate devices in area: {ex.Message}";
@@ -366,7 +366,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             var device = _cachedDevices.FirstOrDefault(d => d.EntityId == entityId);
             return FormatClimateState(state, device);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error getting climate state for {EntityId}", entityId);
             return $"Error getting state for '{entityId}': {ex.Message}";
@@ -411,7 +411,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error finding climate sensors in area: {AreaName}", areaName);
             return $"Error searching for climate sensors in area: {ex.Message}";
@@ -442,7 +442,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error getting sensor state for {EntityId}", entityId);
             return $"Error getting state for '{entityId}': {ex.Message}";
@@ -474,7 +474,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set target temperature for '{entityId}' to {temperature}°.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error setting temperature for {EntityId}", entityId);
             ClimateControlFailures.Add(1);
@@ -511,7 +511,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set HVAC mode for '{entityId}' to '{hvacMode}'.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error setting HVAC mode for {EntityId}", entityId);
             ClimateControlFailures.Add(1);
@@ -548,7 +548,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set fan mode for '{entityId}' to '{fanMode}'.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error setting fan mode for {EntityId}", entityId);
             ClimateControlFailures.Add(1);
@@ -585,7 +585,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set target humidity for '{entityId}' to {humidity}%.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error setting humidity for {EntityId}", entityId);
             ClimateControlFailures.Add(1);
@@ -622,7 +622,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set preset mode for '{entityId}' to '{presetMode}'.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error setting preset mode for {EntityId}", entityId);
             ClimateControlFailures.Add(1);
@@ -659,7 +659,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set swing mode for '{entityId}' to '{swingMode}'.";
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error setting swing mode for {EntityId}", entityId);
             ClimateControlFailures.Add(1);
@@ -842,7 +842,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
 
             _logger.LogInformation("Cached {Count} climate devices", newDevices.Count);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error refreshing climate cache");
         }

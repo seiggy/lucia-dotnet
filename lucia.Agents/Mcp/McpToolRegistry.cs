@@ -10,7 +10,7 @@ namespace lucia.Agents.Mcp;
 
 /// <summary>
 /// Manages MCP client connections and exposes a tool catalog for dynamic agents.
-/// Connects to MCP servers defined in MongoDB, caches clients, and resolves
+/// Connects to MCP servers defined in the store, caches clients, and resolves
 /// individual tools by serverId + toolName.
 ///
 /// MCP stdio server processes are long-lived — they are spawned without a
@@ -45,7 +45,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             {
                 await ConnectServerAsync(server.Id, ct).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(ex, "Failed to connect MCP server {ServerId} during initialization — will retry", server.Id);
                 failedServers.Add(server);
@@ -64,7 +64,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
                 {
                     await ConnectServerAsync(server.Id, ct).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (!ex.IsCancellation())
                 {
                     _logger.LogWarning(ex, "Failed to connect MCP server {ServerId} on retry", server.Id);
                 }
@@ -156,6 +156,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             {
                 await entry.Client.DisposeAsync().ConfigureAwait(false);
             }
+            // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error disposing MCP client for {ServerId}", serverId);
@@ -250,6 +251,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
                 _logger.LogInformation("Shutting down MCP server {ServerId}...", kvp.Key);
                 await kvp.Value.Client.DisposeAsync().ConfigureAwait(false);
             }
+            // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error disposing MCP client for {ServerId}", kvp.Key);

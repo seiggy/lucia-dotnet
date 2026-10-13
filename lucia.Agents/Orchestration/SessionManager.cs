@@ -117,7 +117,7 @@ public sealed class SessionManager
 
             await _taskStore.SaveTaskAsync(taskId, task, cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception e)
+        catch (Exception e) when (!e.IsCancellation())
         {
             _logger.LogError(e, "Error attempting to update the task status.");
         }

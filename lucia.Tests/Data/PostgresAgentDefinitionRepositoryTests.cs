@@ -1,4 +1,3 @@
-using DotNet.Testcontainers.Builders;
 using FakeItEasy;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Agents;
@@ -10,35 +9,34 @@ using lucia.Data.PostgreSQL;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
+using Testcontainers.PostgreSql;
 
 namespace lucia.Tests.Data;
 
 public sealed class PostgresAgentDefinitionRepositoryTests
 {
-    private const ushort PostgresPort = 5432;
+    private const string ApplicationName = "agent-definition-repository-test";
+
+    // PostgreSqlBuilder waits for the final server. A hand-rolled pg_isready check also passes against
+    // the temporary init server, and connections made in that window are reset during authentication.
+    private static PostgreSqlContainer CreateContainer() => new PostgreSqlBuilder("postgres:17-alpine")
+        .WithDatabase("luciaconfig")
+        .WithUsername("postgres")
+        .WithPassword("postgres")
+        .Build();
+
+    private static string BuildConnectionString(PostgreSqlContainer container) =>
+        new NpgsqlConnectionStringBuilder(container.GetConnectionString())
+        {
+            ApplicationName = ApplicationName,
+        }.ConnectionString;
 
     [Fact, Trait("Category", "Integration")]
     public async Task UpsertAgentDefinitionAsync_DelayedWriterAdvancesMicrosecondMarkerPastCommittedWinner()
     {
-        await using var container = new ContainerBuilder("postgres:17-alpine")
-            .WithEnvironment("POSTGRES_DB", "luciaconfig")
-            .WithEnvironment("POSTGRES_PASSWORD", "postgres")
-            .WithPortBinding(PostgresPort, true)
-            .WithWaitStrategy(Wait.ForUnixContainer()
-                .UntilCommandIsCompleted("pg_isready", "-U", "postgres", "-d", "luciaconfig"))
-            .Build();
+        await using var container = CreateContainer();
         await container.StartAsync();
-
-        var connectionString = new NpgsqlConnectionStringBuilder
-        {
-            Host = container.Hostname,
-            Port = container.GetMappedPublicPort(PostgresPort),
-            Database = "luciaconfig",
-            Username = "postgres",
-            Password = "postgres",
-            ApplicationName = "agent-definition-repository-test",
-            SslMode = SslMode.Disable,
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(container);
 
         await using var connectionFactory = new PostgresConnectionFactory(connectionString);
         await using (var connection = await connectionFactory.CreateConnectionAsync())
@@ -107,25 +105,9 @@ public sealed class PostgresAgentDefinitionRepositoryTests
     [Fact, Trait("Category", "Integration")]
     public async Task UpsertAgentDefinitionAsync_ConflictingInsertAborts_AssignsMarkerAfterWaitAndBecomesVisible()
     {
-        await using var container = new ContainerBuilder("postgres:17-alpine")
-            .WithEnvironment("POSTGRES_DB", "luciaconfig")
-            .WithEnvironment("POSTGRES_PASSWORD", "postgres")
-            .WithPortBinding(PostgresPort, true)
-            .WithWaitStrategy(Wait.ForUnixContainer()
-                .UntilCommandIsCompleted("pg_isready", "-U", "postgres", "-d", "luciaconfig"))
-            .Build();
+        await using var container = CreateContainer();
         await container.StartAsync();
-
-        var connectionString = new NpgsqlConnectionStringBuilder
-        {
-            Host = container.Hostname,
-            Port = container.GetMappedPublicPort(PostgresPort),
-            Database = "luciaconfig",
-            Username = "postgres",
-            Password = "postgres",
-            ApplicationName = "agent-definition-repository-test",
-            SslMode = SslMode.Disable,
-        }.ConnectionString;
+        var connectionString = BuildConnectionString(container);
 
         await using var connectionFactory = new PostgresConnectionFactory(connectionString);
         await using var blocker = await connectionFactory.CreateConnectionAsync();

@@ -102,7 +102,7 @@ public class AgentInitializationService : BackgroundService
             {
                 return;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 if (attempt < MaxRetries)
                 {
@@ -126,7 +126,7 @@ public class AgentInitializationService : BackgroundService
         {
             await _presenceDetectionService.RefreshSensorMappingsAsync(stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Presence sensor scan failed — presence detection will be unavailable until manually refreshed");
         }
@@ -174,7 +174,7 @@ public class AgentInitializationService : BackgroundService
             {
                 await plugin.OnSystemReadyAsync(_serviceProvider, stoppingToken).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogError(ex, "Plugin '{PluginId}' OnSystemReadyAsync failed.", plugin.PluginId);
             }
@@ -197,7 +197,7 @@ public class AgentInitializationService : BackgroundService
                 _logger.LogInformation("Agent initialization cancelled for {AgentName}", agentName);
                 return false;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 if (attempt < MaxRetries)
                 {

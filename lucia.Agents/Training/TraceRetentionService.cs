@@ -47,7 +47,7 @@ public sealed class TraceRetentionService : BackgroundService
                         deletedCount, _options.RetentionDays);
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogError(ex, "Error during trace retention cleanup");
             }
