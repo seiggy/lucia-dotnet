@@ -157,7 +157,10 @@ public sealed class DynamicAgent : ILuciaAgent
 
     private AIAgent BuildAgent(AgentDefinition definition, IReadOnlyList<AITool> tools, IChatClient chatClient)
     {
-        var traced = _tracingFactory.Wrap(chatClient, _agentId);
+        var toolNames = tools.OfType<AIFunction>().Select(fn => fn.Name).ToList();
+        var tolerant = new TolerantToolNameChatClient(
+            chatClient, toolNames, _loggerFactory.CreateLogger<TolerantToolNameChatClient>());
+        var traced = _tracingFactory.Wrap(tolerant, _agentId);
         var chatOptions = new ChatOptions
         {
             Instructions = definition.Instructions.Length == 0 ? "You are a helpful assistant." : definition.Instructions,
