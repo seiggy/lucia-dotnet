@@ -71,14 +71,24 @@ public sealed partial class SkillEntityIndex<T>
         LogProviderUpdated(_name, providerName ?? "system-default");
     }
 
-    /// <summary>Reloads when the items are older than the interval. Callers that find a reload running return at once.</summary>
+    /// <summary>
+    /// Reloads when the items are older than the interval. A caller that finds a reload already running
+    /// uses the current items and returns. If there are no items yet, it waits for that reload instead.
+    /// </summary>
     public async Task EnsureCurrentAsync(CancellationToken cancellationToken = default)
     {
         if (!IsStale())
             return;
 
-        if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        if (_items.IsEmpty)
+        {
+            await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        {
             return;
+        }
+
         try
         {
             if (IsStale())

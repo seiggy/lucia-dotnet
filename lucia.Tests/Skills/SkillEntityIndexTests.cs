@@ -99,7 +99,7 @@ public sealed class SkillEntityIndexTests
     }
 
     [Fact]
-    public async Task EnsureCurrentAsync_WhileAnotherReloadRuns_ReturnsWithoutLoadingAgain()
+    public async Task EnsureCurrentAsync_WhileAnotherReloadRuns_UsesTheCurrentItemsWithoutWaiting()
     {
         var time = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -109,7 +109,7 @@ public sealed class SkillEntityIndexTests
             Resolver(new DeterministicEmbeddingGenerator()),
             async (_, _) =>
             {
-                if (Interlocked.Increment(ref loads) == 1)
+                if (Interlocked.Increment(ref loads) == 2)
                 {
                     started.SetResult();
                     await gate.Task;
@@ -118,7 +118,8 @@ public sealed class SkillEntityIndexTests
                 return ["a"];
             },
             time);
-        await index.UpdateEmbeddingProviderAsync(null);
+        await index.InitializeAsync();
+        time.Advance(Interval + TimeSpan.FromSeconds(1));
 
         var first = index.EnsureCurrentAsync();
         await started.Task;
@@ -126,7 +127,38 @@ public sealed class SkillEntityIndexTests
         gate.SetResult();
         await first;
 
+        Assert.Equal(2, loads);
+    }
+
+    [Fact]
+    public async Task EnsureCurrentAsync_WithNoItemsWhileAnotherReloadRuns_WaitsForIt()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var loads = 0;
+        var index = CreateIndex(
+            Resolver(new DeterministicEmbeddingGenerator()),
+            async (_, _) =>
+            {
+                Interlocked.Increment(ref loads);
+                started.TrySetResult();
+                await gate.Task;
+                return ["a"];
+            },
+            time);
+        await index.UpdateEmbeddingProviderAsync(null);
+
+        var first = index.EnsureCurrentAsync();
+        await started.Task;
+        var second = index.EnsureCurrentAsync();
+        Assert.False(second.IsCompleted);
+
+        gate.SetResult();
+        await Task.WhenAll(first, second);
+
         Assert.Equal(1, loads);
+        Assert.Equal(["a"], index.Items.ToArray());
     }
 
     [Fact]

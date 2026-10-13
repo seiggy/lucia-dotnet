@@ -459,6 +459,30 @@ public sealed class FanControlSkillTests
     }
 
     [Fact]
+    public async Task FindFanAsync_WhenCancelled_Propagates()
+    {
+        var location = CreateLocation(Resolved(ResolutionStrategy.None));
+        A.CallTo(() => location.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Throws(new OperationCanceledException());
+        var skill = await CreateSkillAsync(await CreateHomeAssistantAsync(), location);
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => skill.FindFanAsync("qzxv wvpp"));
+    }
+
+    [Fact]
+    public async Task FindFanAsync_NoFansInHomeAssistant_DoesNotQueryHomeAssistantOnEveryCall()
+    {
+        var ha = A.Fake<IHomeAssistantClient>(options => options.Wrapping(new FakeHomeAssistantClient()));
+        var skill = await CreateSkillAsync(ha, CreateLocation(Resolved(ResolutionStrategy.None)));
+
+        await skill.FindFanAsync("fan");
+        await skill.FindFanAsync("fan");
+
+        A.CallTo(() => ha.GetStatesAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task InitializeAsync_WhenTheDeviceCacheWriteFails_StillUsesTheLoadedFans()
     {
         var deviceCache = CreateEmptyDeviceCache();
