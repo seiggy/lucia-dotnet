@@ -50,6 +50,21 @@ public sealed class ToolRunnerTests
     }
 
     [Fact]
+    public async Task RunAsync_WithoutTheExceptionMessage_ReturnsTheFailureTextAlone()
+    {
+        var logger = new RecordingLogger();
+
+        var result = await ToolRunner.RunAsync(
+            logger,
+            "Unable to query sensor data. Please try again.",
+            () => throw new InvalidOperationException("secret connection string"),
+            includeExceptionMessage: false);
+
+        Assert.Equal("Unable to query sensor data. Please try again.", result);
+        Assert.Contains(logger.Entries, entry => entry.Exception?.Message == "secret connection string");
+    }
+
+    [Fact]
     public async Task RunAsync_CallerCancellation_Propagates()
     {
         await Assert.ThrowsAsync<OperationCanceledException>(() => ToolRunner.RunAsync(

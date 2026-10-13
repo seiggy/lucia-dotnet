@@ -100,6 +100,22 @@ public sealed partial class SkillEntityIndex<T>
         }
     }
 
+    /// <summary>Drops the items and reloads them now, whatever their age.</summary>
+    public async Task ReloadAsync(CancellationToken cancellationToken = default)
+    {
+        await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _items = [];
+            Volatile.Write(ref _lastRefreshTicks, 0);
+            await RefreshAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _refreshLock.Release();
+        }
+    }
+
     private bool IsStale()
     {
         var last = new DateTimeOffset(Volatile.Read(ref _lastRefreshTicks), TimeSpan.Zero);

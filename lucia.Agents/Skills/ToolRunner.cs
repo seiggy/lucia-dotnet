@@ -16,13 +16,18 @@ public static partial class ToolRunner
     /// <param name="onFailure">Runs on failure, for failure counters.</param>
     /// <param name="duration">Records how long the tool took, whether or not it failed.</param>
     /// <param name="detail">Extra context for the log only, such as the search term.</param>
+    /// <param name="includeExceptionMessage">
+    /// When true, the exception message follows <paramref name="failure"/> in the returned text. Turn it
+    /// off to return <paramref name="failure"/> alone and keep internal details away from the model.
+    /// </param>
     public static async Task<string> RunAsync(
         ILogger logger,
         string failure,
         Func<Task<string>> body,
         Action? onFailure = null,
         Histogram<double>? duration = null,
-        string? detail = null)
+        string? detail = null,
+        bool includeExceptionMessage = true)
     {
         var start = Stopwatch.GetTimestamp();
         try
@@ -33,7 +38,7 @@ public static partial class ToolRunner
         {
             LogFailure(logger, ex, failure, detail);
             onFailure?.Invoke();
-            return $"{failure}: {ex.Message}";
+            return includeExceptionMessage ? $"{failure}: {ex.Message}" : failure;
         }
         finally
         {

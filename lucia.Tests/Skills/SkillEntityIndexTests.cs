@@ -195,6 +195,41 @@ public sealed class SkillEntityIndexTests
     }
 
     [Fact]
+    public async Task ReloadAsync_DropsTheItemsAndLoadsAgainBeforeTheIntervalEnds()
+    {
+        var time = new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        var generation = 0;
+        var index = CreateIndex(
+            Resolver(new DeterministicEmbeddingGenerator()), (_, _) => Items($"gen{++generation}"), time);
+        await index.InitializeAsync();
+
+        await index.ReloadAsync();
+
+        Assert.Equal(["gen2"], index.Items.ToArray());
+    }
+
+    [Fact]
+    public async Task ReloadAsync_WhenTheLoadFails_LeavesNoItemsAndRetriesOnTheNextCall()
+    {
+        var calls = 0;
+        var index = CreateIndex(
+            Resolver(new DeterministicEmbeddingGenerator()),
+            (_, _) => ++calls switch
+            {
+                1 => Items("old"),
+                2 => throw new InvalidOperationException("boom"),
+                _ => Items("new"),
+            });
+        await index.InitializeAsync();
+
+        await index.ReloadAsync();
+        Assert.Empty(index.Items);
+
+        await index.EnsureCurrentAsync();
+        Assert.Equal(["new"], index.Items.ToArray());
+    }
+
+    [Fact]
     public async Task UpdateEmbeddingProviderAsync_SwitchesTheGeneratorUsedByTheNextLoad()
     {
         var first = new DeterministicEmbeddingGenerator();
