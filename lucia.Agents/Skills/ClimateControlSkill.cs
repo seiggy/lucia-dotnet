@@ -3,7 +3,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
-using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -609,10 +608,10 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
                     ? nameObj?.ToString() ?? entity.EntityId
                     : entity.EntityId;
 
-                var hvacModes = ParseStringListAttribute(entity.Attributes, "hvac_modes");
-                var fanModes = ParseStringListAttribute(entity.Attributes, "fan_modes");
-                var swingModes = ParseStringListAttribute(entity.Attributes, "swing_modes");
-                var presetModes = ParseStringListAttribute(entity.Attributes, "preset_modes");
+                var hvacModes = AttributeParser.ParseStringList(entity.Attributes, "hvac_modes");
+                var fanModes = AttributeParser.ParseStringList(entity.Attributes, "fan_modes");
+                var swingModes = AttributeParser.ParseStringList(entity.Attributes, "swing_modes");
+                var presetModes = AttributeParser.ParseStringList(entity.Attributes, "preset_modes");
 
                 double? minTemp = null, maxTemp = null;
                 if (entity.Attributes.TryGetValue("min_temp", out var minObj) && double.TryParse(minObj?.ToString(), out var min))
@@ -692,50 +691,5 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
                 _refreshLock.Release();
             }
         }
-    }
-
-    /// <summary>
-    /// Safely parses a JSON array attribute that may contain strings or numbers.
-    /// HA devices like SmartThings can return numeric fan_modes (e.g., [4,1,2,3]) instead of strings.
-    /// </summary>
-    private static List<string> ParseStringListAttribute(Dictionary<string, object> attributes, string key)
-    {
-        if (!attributes.TryGetValue(key, out var value))
-            return [];
-
-        try
-        {
-            if (value is JsonElement jsonElement)
-            {
-                if (jsonElement.ValueKind != JsonValueKind.Array)
-                    return [];
-
-                return jsonElement.EnumerateArray()
-                    .Select(item => item.ValueKind switch
-                    {
-                        JsonValueKind.String => item.GetString(),
-                        JsonValueKind.Number => item.GetRawText(),
-                        _ => item.GetRawText()
-                    })
-                    .OfType<string>()
-                    .ToList();
-            }
-
-            // Fallback: try deserializing the string representation
-            var json = value?.ToString() ?? "[]";
-            var modes = JsonSerializer.Deserialize<JsonElement>(json);
-            if (modes.ValueKind == JsonValueKind.Array)
-            {
-                return modes.EnumerateArray()
-                    .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString()! : e.GetRawText())
-                    .ToList();
-            }
-        }
-        catch (JsonException ex)
-        {
-            Trace.TraceWarning("Failed to parse climate attribute '{0}' as a string list: {1}", key, ex.Message);
-        }
-
-        return [];
     }
 }

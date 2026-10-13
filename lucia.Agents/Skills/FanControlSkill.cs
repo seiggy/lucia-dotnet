@@ -3,7 +3,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
-using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -635,7 +634,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
                 if (entity.Attributes.TryGetValue("percentage_step", out var stepObj) && int.TryParse(stepObj?.ToString(), out var step))
                     percentageStep = step;
 
-                var presetModes = ParseStringListAttribute(entity.Attributes, "preset_modes");
+                var presetModes = AttributeParser.ParseStringList(entity.Attributes, "preset_modes");
 
                 // Check for a companion select entity that controls modes
                 string? modeSelectEntityId = null;
@@ -706,50 +705,6 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     }
 
     /// <summary>
-    /// Safely parses a JSON array attribute that may contain strings, numbers, or null.
-    /// HA devices can return null for preset_modes when no presets are available.
-    /// </summary>
-    private static List<string> ParseStringListAttribute(Dictionary<string, object> attributes, string key)
-    {
-        if (!attributes.TryGetValue(key, out var value))
-            return [];
-
-        try
-        {
-            if (value is JsonElement jsonElement)
-            {
-                if (jsonElement.ValueKind is JsonValueKind.Null or not JsonValueKind.Array)
-                    return [];
-
-                return jsonElement.EnumerateArray()
-                    .Select(item => item.ValueKind switch
-                    {
-                        JsonValueKind.String => item.GetString(),
-                        JsonValueKind.Number => item.GetRawText(),
-                        _ => item.GetRawText()
-                    })
-                    .OfType<string>()
-                    .ToList();
-            }
-
-            var json = value?.ToString() ?? "[]";
-            var modes = JsonSerializer.Deserialize<JsonElement>(json);
-            if (modes.ValueKind == JsonValueKind.Array)
-            {
-                return modes.EnumerateArray()
-                    .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString()! : e.GetRawText())
-                    .ToList();
-            }
-        }
-        catch (JsonException)
-        {
-            // Swallow parse failures
-        }
-
-        return [];
-    }
-
-    /// <summary>
     /// Builds a lookup from fan entity ID to a companion select entity that controls
     /// fan modes. Some integrations (e.g., LocalTuya/Tuya) expose fan modes as a
     /// separate <c>select.{device}_fan_mode</c> entity instead of through the fan
@@ -780,7 +735,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             if (!selectStates.TryGetValue(candidateSelectId, out var selectState))
                 continue;
 
-            var options = ParseStringListAttribute(selectState.Attributes, "options");
+            var options = AttributeParser.ParseStringList(selectState.Attributes, "options");
             if (options.Count == 0)
                 continue;
 
