@@ -3,6 +3,17 @@ using System.Text.Json.Serialization;
 namespace lucia.HomeAssistant.Models;
 
 /// <summary>
+/// Result envelope for the <c>homeassistant/expose_entity/list</c> WebSocket command.
+/// Home Assistant wraps the entity map in an <c>exposed_entities</c> key rather than
+/// returning the mapping directly.
+/// </summary>
+public sealed class ExposedEntityListResponse
+{
+    [JsonPropertyName("exposed_entities")]
+    public Dictionary<string, ExposedEntityAssistants> ExposedEntities { get; set; } = [];
+}
+
+/// <summary>
 /// Per-entity voice assistant exposure flags returned by the
 /// <c>homeassistant/expose_entity/list</c> WebSocket command.
 /// </summary>
