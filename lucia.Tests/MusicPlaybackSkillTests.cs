@@ -9,6 +9,7 @@ using lucia.Agents.Skills.Models;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
+using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -101,6 +102,156 @@ public class MusicPlaybackSkillTests
         Assert.Equal("replace", capturedPlayRequest["enqueue"]);
         Assert.Contains("Shuffling", response);
     }
+
+    private void ThrowFromEveryServiceCall(Exception exception)
+        => A.CallTo(() => _homeAssistantClient.CallServiceAsync(
+                A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .Throws(exception);
+
+    [Fact]
+    public async Task PlayArtistAsync_WhenHomeAssistantFails_ReturnsAGenericMessage()
+    {
+        ThrowFromEveryServiceCall(new InvalidOperationException("secret connection string"));
+        await _skill.InitializeAsync();
+
+        var response = await _skill.PlayArtistAsync("Satellite1 Kitchen", "Queen");
+
+        Assert.Equal("Unable to start playback on 'Satellite1 Kitchen'. Please try again.", response);
+    }
+
+    [Fact]
+    public async Task PlayArtistAsync_WhenCancelled_Propagates()
+    {
+        ThrowFromEveryServiceCall(new OperationCanceledException());
+        await _skill.InitializeAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _skill.PlayArtistAsync("Satellite1 Kitchen", "Queen"));
+    }
+
+    [Fact]
+    public async Task PlayShuffleAsync_WhenHomeAssistantFails_ReturnsAGenericMessage()
+    {
+        ThrowFromEveryServiceCall(new InvalidOperationException("secret connection string"));
+        await _skill.InitializeAsync();
+
+        var response = await _skill.PlayShuffleAsync("Satellite1 Kitchen", 10);
+
+        Assert.Equal("Unable to start shuffle playback on 'Satellite1 Kitchen'. Please try again.", response);
+    }
+
+    [Fact]
+    public async Task PlayShuffleAsync_WhenCancelled_Propagates()
+    {
+        ThrowFromEveryServiceCall(new OperationCanceledException());
+        await _skill.InitializeAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _skill.PlayShuffleAsync("Satellite1 Kitchen", 10));
+    }
+
+    public static TheoryData<string, string> ControlFailures => new()
+    {
+        { "stop", "Unable to stop playback on 'Satellite1 Kitchen'. Please try again." },
+        { "volume", "Unable to set the volume on 'Satellite1 Kitchen'. Please try again." },
+        { "up", "Unable to turn up the volume on 'Satellite1 Kitchen'. Please try again." },
+        { "down", "Unable to turn down the volume on 'Satellite1 Kitchen'. Please try again." },
+    };
+
+    private Task<string> InvokeControl(string tool) => tool switch
+    {
+        "stop" => _skill.StopMusicAsync("Satellite1 Kitchen"),
+        "volume" => _skill.SetVolumeAsync("Satellite1 Kitchen", 40),
+        "up" => _skill.VolumeUpAsync("Satellite1 Kitchen"),
+        _ => _skill.VolumeDownAsync("Satellite1 Kitchen"),
+    };
+
+    [Theory]
+    [MemberData(nameof(ControlFailures))]
+    public async Task ControlTools_WhenHomeAssistantFails_ReturnAGenericMessage(string tool, string expected)
+    {
+        ThrowFromEveryServiceCall(new InvalidOperationException("secret connection string"));
+        await _skill.InitializeAsync();
+
+        Assert.Equal(expected, await InvokeControl(tool));
+    }
+
+    [Theory]
+    [MemberData(nameof(ControlFailures))]
+    public async Task ControlTools_WhenCancelled_Propagate(string tool, string _)
+    {
+        ThrowFromEveryServiceCall(new OperationCanceledException());
+        await _skill.InitializeAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => InvokeControl(tool));
+    }
+
+    [Theory]
+    [InlineData("stop", "Stopped playback on 'Satellite1 Kitchen'.")]
+    [InlineData("volume", "Set volume to 40% on 'Satellite1 Kitchen'.")]
+    [InlineData("up", "Turned up the volume on 'Satellite1 Kitchen'.")]
+    [InlineData("down", "Turned down the volume on 'Satellite1 Kitchen'.")]
+    public async Task ControlTools_ReportSuccess(string tool, string expected)
+    {
+        await _skill.InitializeAsync();
+
+        Assert.Equal(expected, await InvokeControl(tool));
+    }
+
+    [Theory]
+    [InlineData("artist")]
+    [InlineData("album")]
+    [InlineData("song")]
+    [InlineData("genre")]
+    public async Task PlayTools_WhenThePlayerLookupFails_ReturnAGenericMessage(string tool)
+    {
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Throws(new InvalidOperationException("secret connection string"));
+
+        var response = await InvokePlay(tool);
+
+        Assert.Equal("Unable to start playback on 'Satellite1 Kitchen'. Please try again.", response);
+    }
+
+    [Theory]
+    [InlineData("artist")]
+    [InlineData("album")]
+    [InlineData("song")]
+    [InlineData("genre")]
+    public async Task PlayTools_WhenTheirCallerCancels_Propagate(string tool)
+    {
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .Throws(new OperationCanceledException(cancelled.Token));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => InvokePlay(tool, cancelled.Token));
+    }
+
+    [Theory]
+    [InlineData("artist", "PlayArtistAsync")]
+    [InlineData("album", "PlayAlbumAsync")]
+    [InlineData("song", "PlaySongAsync")]
+    [InlineData("genre", "PlayGenreAsync")]
+    public async Task PlayTools_EachGetTheirOwnSpan(string tool, string expectedName)
+    {
+        using var recorder = new ActivityRecorder("Lucia.Skills.MusicPlayback");
+        var player = $"span-{tool}";
+
+        await InvokePlay(tool, playerName: player);
+
+        Assert.Equal(expectedName, recorder.WithTag("player.name", player)?.OperationName);
+    }
+
+    private Task<string> InvokePlay(string tool, CancellationToken cancellationToken = default, string playerName = "Satellite1 Kitchen") => tool switch
+    {
+        "artist" => _skill.PlayArtistAsync(playerName, "Queen", cancellationToken: cancellationToken),
+        "album" => _skill.PlayAlbumAsync(playerName, "Jazz", cancellationToken: cancellationToken),
+        "song" => _skill.PlaySongAsync(playerName, "Bohemian Rhapsody", cancellationToken: cancellationToken),
+        _ => _skill.PlayGenreAsync(playerName, "Lo-fi", cancellationToken: cancellationToken),
+    };
 
     private void ConfigureDefaultLocationService()
     {

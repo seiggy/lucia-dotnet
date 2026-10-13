@@ -53,9 +53,20 @@ any storage driver.
 - Entity visibility settings (exposed-only mode and per-agent filters) now
   persist across restarts when Redis is not in use. They are stored in the
   SQLite or PostgreSQL configuration store.
+- A failed skill tool now tells the model only that it failed. Climate, Fan, Sensor, Light,
+  Scene, List and Music playback returned the exception message, which can hold connection strings
+  and addresses. The exception is logged instead.
+- Fan lookups and Music playback no longer swallow caller cancellation.
+- A home with no fans no longer queries Home Assistant for fans on every request.
+- OpenTelemetry now exports every `Lucia.Skills.*` meter and activity source. Only Light and Music were
+  registered before, so Climate, Fan, Sensor, Security and Scene telemetry never left the process.
 
 ## Added
 
+- Tool telemetry for the skills that had none. Climate, Sensor, Scene, List and Music tools now report
+  request, failure and duration metrics tagged with `tool` (for example `climate.lookup.requests`,
+  `list.failures`, `music.control.duration`) and set the span status to Error with the exception
+  message on failure. Every skill tool's span gets an `elapsed_ms` tag.
 - Response template store for SQLite and PostgreSQL.
 - `IKeyValueCache` with in-memory and Redis implementations. The API key and
   speaker profile caches work with either cache provider on both databases.
@@ -85,6 +96,9 @@ any storage driver.
   Lucia loaded every entity or reset the settings to their defaults.
 - Entities with an empty agent allow-list are hidden from every search, with or without a domain filter.
 - Visibility updates run one at a time on a copy of the settings, so concurrent edits no longer race.
+- Skills share `ToolRunner` (failure handling), `SkillEntityIndex<T>` (embedding cache and refresh)
+  and `AttributeParser`. Climate, Fan and Sensor are 150 to 190 lines shorter, and Scene,
+  List, Light and Security use `ToolRunner`.
 - Every `.cs` file now holds one class.
 - In-memory `ExactMatchArea` now matches display names only, like the Redis
   version.

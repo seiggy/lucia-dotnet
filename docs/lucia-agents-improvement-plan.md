@@ -13,22 +13,29 @@ The first review used regex counts across four projects. For `lucia.Agents` two 
 
 Drop both from the target table. The 124 `catch (Exception)` figure holds and is analysed below.
 
-## Status (branch refactor/agents-phase0)
+## Status
 
-Done:
-- Phase 0: multi-class splits in lucia.Agents, cancellation filters on 101 broad catches, catch triage sheet, CA1031 as a suggestion.
-- Provider contract tests: one abstract contract per store interface, run on SQLite and PostgreSQL against the migrated schema (lucia.Tests/Data/Providers, 244+ tests).
-- Bugs those tests exposed and the fixes: SQLite task stats grouped by a nonexistent `agentId` (always empty); SQLite and Postgres let you regenerate a revoked API key (Mongo blocked it); duplicate response templates returned 500 on SQLite and Postgres because only Mongo's exception was caught (now `DuplicateResponseTemplateException`).
-- Phase 1, Mongo removal: all Mongo stores, the Mongo config provider, BSON attributes, packages, AppHost resource, `lucia.A2AHost`, compose stacks (now PostgreSQL), Helm chart and raw manifests (bundled PostgreSQL), CI, docs. `DataProvider:Store=MongoDB` now fails at startup with a clear message. The default store is SQLite.
+Merged in #288 (2026-10-13):
+- Phase 0: multi-class splits, cancellation filters on the broad catches, catch triage sheet, CA1031 as a suggestion.
+- Mongo removal across code, packages, AppHost, Compose, Helm, raw manifests, CI and docs. `lucia.A2AHost` is deleted. `DataProvider:Store=MongoDB` and any `mongodb://` connection string fail at startup.
+- Redis stores and caches moved to `lucia.Data/Redis`. `lucia.Agents` references no storage driver, and `AgentsDependencyTests` enforces it.
+- `EntityLocationService` split (see the design section below). 1,438 lines became about 650.
+- Provider contract tests on SQLite and PostgreSQL, and the bugs they found (SQLite task stats, revoked API key regeneration, duplicate response template exception).
+- Two code reviews and the PR review findings, all fixed.
 
-- Redis stores moved out of lucia.Agents into `lucia.Data/Redis` (task store, device, session and prompt caches, key-value cache), registered by `AddRedisCacheProviders()` next to `AddInMemoryCacheProviders()`. I used a folder, not a new project, because seven Dockerfiles list csproj files for their restore layer and a new project would need blind edits to all of them.
+Open issues from that work:
+- #289: entity searches other than the hierarchy search ignore per-agent visibility.
+- #290: `RedisLocationSnapshotStore` writes with `FireAndForget`, so the shared version can be bumped before the snapshot lands.
 
-Not done, found along the way:
-- `IConditionalSpeakerProfileStore.DeleteExpiredProvisionalAsync` has no provider contract test.
-- `lucia.Agents` no longer references Redis. `EntityLocationService` talks to `ILocationSnapshotStore` and `IVisibilityConfigStore`, and `AgentsDependencyTests` fails if a storage driver comes back.
-- The helm regression script (infra/kubernetes/helm/tests/render_regressions.py) was updated but not run (no Python on the dev machine); its assertions were checked by hand with `helm template`.
-- RELEASE_NOTES needs a breaking-change entry: MongoDB removed, re-run setup, new compose env (`POSTGRES_PASSWORD`), Helm values (`bundledPostgres`, no `mongodb`/`a2aAgents`).
-
+Done on branch `refactor/agents-skills-base`: the skills base. All seven skills in `lucia.Agents` and `MusicPlaybackSkill` use it.
+- Characterization tests pin each skill's tool output (30 Climate, 32 Fan, 29 Sensor, 14 Scene, 17 List, 15 Light, plus failure and cancellation cases for Security and Music).
+- `ToolRunner` replaces the per-tool try/catch. `AttributeParser` replaces the two copies of the string-list parser. `SkillEntityIndex<T>` owns the embedding generator, cached items, refresh lock and staleness check.
+- Line counts: Climate 918 to 651, Fan 797 to 607, Sensor 652 to 567, Scene 226 to 207, List 155 to 130, Light 383 to 361, Security 640 to 590. Constructors are unchanged (7 to 8 parameters).
+- The per-skill loader keeps the domain part: read the shared device cache, build one device from a Home Assistant state, write the cache back.
+- Telemetry: `ToolRunner` sets the span status and `elapsed_ms`, and `ToolMetrics` gives each tool request, failure and duration metrics with a `tool` tag. Tools that had none (Climate lookups, Sensor lookups, Scene, List, Music control) now report through it. `ServiceDefaults` exports `Lucia.Skills.*`.
+- Decision: a failed tool returns a fixed message and logs the exception. `ex.Message` can hold connection strings and addresses, so it never reaches the model. `ToolRunner` has no flag for it.
+- Not moved: the Timer, Alarm and Scheduler skills (their catch blocks are best-effort persistence warnings, not tool failures) and the `searxng` and `brave-search` plugins (out of scope for now, they still return `ex.Message`).
+- The 500-line target is out of reach with these helpers. The state formatters, device builders and command patterns stay in each skill.
 ## EntityLocationService split design
 
 Status: done. The facade went from 1,438 to about 600 lines, backed by `LocationSearchService`, `LocationSnapshotLoader`, `EntityEmbeddingJob` and the two store interfaces. `InMemoryEntityLocationService` is gone. In-memory mode registers `InProcessLocationSnapshotStore` and persists visibility through `ConfigStoreVisibilityConfigStore`, so visibility now survives restarts without Redis.
