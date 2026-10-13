@@ -102,6 +102,53 @@ public class MusicPlaybackSkillTests
         Assert.Contains("Shuffling", response);
     }
 
+    private void ThrowFromEveryServiceCall(Exception exception)
+        => A.CallTo(() => _homeAssistantClient.CallServiceAsync(
+                A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .Throws(exception);
+
+    [Fact]
+    public async Task PlayArtistAsync_WhenHomeAssistantFails_ReturnsAGenericMessage()
+    {
+        ThrowFromEveryServiceCall(new InvalidOperationException("secret connection string"));
+        await _skill.InitializeAsync();
+
+        var response = await _skill.PlayArtistAsync("Satellite1 Kitchen", "Queen");
+
+        Assert.Equal("Unable to start playback on 'Satellite1 Kitchen'. Please try again.", response);
+    }
+
+    [Fact]
+    public async Task PlayArtistAsync_WhenCancelled_Propagates()
+    {
+        ThrowFromEveryServiceCall(new OperationCanceledException());
+        await _skill.InitializeAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _skill.PlayArtistAsync("Satellite1 Kitchen", "Queen"));
+    }
+
+    [Fact]
+    public async Task PlayShuffleAsync_WhenHomeAssistantFails_ReturnsAGenericMessage()
+    {
+        ThrowFromEveryServiceCall(new InvalidOperationException("secret connection string"));
+        await _skill.InitializeAsync();
+
+        var response = await _skill.PlayShuffleAsync("Satellite1 Kitchen", 10);
+
+        Assert.Equal("Unable to start shuffle playback on 'Satellite1 Kitchen'. Please try again.", response);
+    }
+
+    [Fact]
+    public async Task PlayShuffleAsync_WhenCancelled_Propagates()
+    {
+        ThrowFromEveryServiceCall(new OperationCanceledException());
+        await _skill.InitializeAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _skill.PlayShuffleAsync("Satellite1 Kitchen", 10));
+    }
+
     private void ConfigureDefaultLocationService()
     {
         var kitchenPlayer = new HomeAssistantEntity

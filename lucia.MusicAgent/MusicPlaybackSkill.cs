@@ -8,6 +8,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
+using lucia.Agents.Skills;
 using lucia.Agents.Skills.Models;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
@@ -348,7 +349,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
             return $"MusicAssistant player '{playerName}' was not found.";
         }
 
-        try
+        return await ToolRunner.RunAsync(_logger, $"Unable to start shuffle playback on '{player.FriendlyName}'. Please try again.", async () =>
         {
             var uris = await GetRandomTrackUrisAsync(_config.CurrentValue.IntegrationId, trackSeedCount, cancellationToken).ConfigureAwait(false);
 
@@ -364,12 +365,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
                 await EnqueueTracks(player, uris, true, cancellationToken).ConfigureAwait(false);
                 return $"Shuffling {trackSeedCount} tracks to {player.FriendlyName}";
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to start shuffle mix for {PlayerId}", player.EntityId);
-            return $"I couldn't start shuffle playback on '{player.FriendlyName}' due to an error: {ex.Message}";
-        }
+        }, detail: player.EntityId).ConfigureAwait(false);
     }
 
     private async Task<string> PlayMediaAsync(HomeAssistantEntity player, ServiceCallRequest payload, string successMessage, CancellationToken cancellationToken = default)
@@ -378,23 +374,14 @@ public class MusicPlaybackSkill : IOptimizableSkill
         activity?.SetTag("player.entity_id", player.EntityId);
         activity?.SetTag("player.friendly_name", player.FriendlyName);
         PlaybackRequests.Add(1);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, $"Unable to start playback on '{player.FriendlyName}'. Please try again.", async () =>
         {
             payload.EntityId = player.EntityId;
             await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", parameters: null, payload, cancellationToken).ConfigureAwait(false);
-            PlaybackDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"{successMessage} on '{player.FriendlyName}'.";
-        }
-        catch (Exception ex)
-        {
-            PlaybackDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            _logger.LogError(ex, "Music Assistant play_media failed for {PlayerId}", player.EntityId);
-            return $"I wasn't able to start playback on '{player.FriendlyName}': {ex.Message}";
-        }
+        }, duration: PlaybackDurationMs, detail: player.EntityId).ConfigureAwait(false);
     }
 
     private async Task EnqueueTracks(HomeAssistantEntity player, IReadOnlyList<string> tracks, bool clearQueue = false, CancellationToken cancellationToken = default)
