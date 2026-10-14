@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lucia-dashboard",
+      "port": 7233,
+      "url": "http://localhost:7233"
+    },
+    {
+      "name": "lucia-aspire",
+      "runtimeExecutable": "aspire",
+      "runtimeArgs": ["run", "--non-interactive"],
+      "port": 7233
+    }
+  ]
+}
