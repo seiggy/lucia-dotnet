@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import ToastContainer from '../components/ToastContainer'
+import Modal from '../components/Modal'
+import Field from '../components/Field'
 import { useToast } from '../hooks/useToast'
+import { useConfirm } from '../hooks/useConfirm'
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -37,6 +40,7 @@ interface AgentCapabilities {
 }
 
 interface AgentCard {
+  /** Address used for proxy, refresh and unregister calls. */
   url: string
   name: string
   description: string
@@ -45,6 +49,12 @@ interface AgentCard {
   defaultInputModes: string[]
   defaultOutputModes: string[]
   skills: AgentSkill[]
+}
+
+/** A2A v1.0 cards carry the endpoint under `supportedInterfaces`; older cards have a top-level `url`. */
+type AgentCardResponse = Omit<AgentCard, 'url'> & {
+  url?: string
+  supportedInterfaces?: { url: string }[]
 }
 
 interface A2AMessagePart {
@@ -66,7 +76,11 @@ interface A2AMessage {
 async function fetchAgents(): Promise<AgentCard[]> {
   const res = await fetch('/agents')
   if (!res.ok) throw new Error(`Failed to fetch agents: ${res.statusText}`)
-  return res.json()
+  const cards: AgentCardResponse[] = await res.json()
+  return cards.map(({ supportedInterfaces, ...card }) => ({
+    ...card,
+    url: card.url ?? supportedInterfaces?.[0]?.url ?? '',
+  }))
 }
 
 async function registerAgent(agentUri: string): Promise<void> {
@@ -596,56 +610,62 @@ function RegisterDialog({
 }: {
   open: boolean
   onClose: () => void
-  onRegister: (uri: string) => void
+  /** Resolves to an error message, or null on success. */
+  onRegister: (uri: string) => Promise<string | null>
 }) {
   const [uri, setUri] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!open) return null
-
-  const handleSubmit = () => {
-    if (!uri.trim()) return
-    onRegister(uri.trim())
-    setUri('')
+  const handleSubmit = async () => {
+    if (!uri.trim() || submitting) return
+    setSubmitting(true)
+    setError(null)
+    const failure = await onRegister(uri.trim())
+    setSubmitting(false)
+    if (failure) setError(failure)
+    else setUri('')
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-xl bg-charcoal p-6 shadow-2xl border border-stone">
-        <h3 className="text-lg font-semibold text-light">Register Agent</h3>
-        <p className="mt-1 text-sm text-dust">
-          Enter the base URL of an A2A-compatible agent. The agent card will be fetched from
-          <code className="ml-1 text-xs bg-basalt px-1 py-0.5 rounded font-mono text-fog">
-            /.well-known/agent-card.json
-          </code>
-        </p>
-        <input
-          type="url"
-          value={uri}
-          onChange={(e) => setUri(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-          placeholder="https://agent-host:port"
-          className="mt-4 w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber input-focus font-mono"
-          autoFocus
-        />
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!uri.trim()}
-            className={`rounded-xl px-4 py-2 text-sm font-medium text-on-accent transition-colors ${
-              !uri.trim() ? 'bg-amber-glow/40 cursor-not-allowed' : 'bg-amber-glow hover:bg-amber-glow'
-            }`}
-          >
-            Register
-          </button>
-        </div>
+    <Modal open={open} onClose={onClose} title="Register Agent">
+      <p className="text-sm text-dust">
+        Enter the base URL of an A2A-compatible agent. The agent card will be fetched from
+        <code className="ml-1 text-xs bg-basalt px-1 py-0.5 rounded font-mono text-fog">
+          /.well-known/agent-card.json
+        </code>
+      </p>
+      <Field label="Agent URL" error={error ?? undefined} className="mt-4">
+        {(control) => (
+          <input
+            {...control}
+            type="url"
+            value={uri}
+            onChange={(e) => setUri(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+            placeholder="https://agent-host:port"
+            className="min-h-11 w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber font-mono"
+          />
+        )}
+      </Field>
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          onClick={onClose}
+          className="min-h-11 rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={!uri.trim() || submitting}
+          className={`min-h-11 rounded-xl px-4 py-2 text-sm font-medium text-on-accent transition-colors ${
+            !uri.trim() || submitting ? 'bg-amber-glow/40 cursor-not-allowed' : 'bg-amber-glow hover:bg-amber-glow'
+          }`}
+        >
+          {submitting ? 'Registering…' : 'Register'}
+        </button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -654,8 +674,9 @@ function RegisterDialog({
 /* ------------------------------------------------------------------ */
 
 export default function AgentsPage() {
+  const confirmAction = useConfirm()
   const [agents, setAgents] = useState<AgentCard[]>([])
-  const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
+  const [selectedName, setSelectedName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [registerOpen, setRegisterOpen] = useState(false)
@@ -696,8 +717,9 @@ export default function AgentsPage() {
         showToast(`Agent registered from ${uri}`, 'success')
         setRegisterOpen(false)
         await loadAgents()
+        return null
       } catch (err) {
-        showToast(`Registration failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+        return `Registration failed: ${err instanceof Error ? err.message : 'Unknown error'}`
       }
     },
     [loadAgents, showToast],
@@ -717,43 +739,47 @@ export default function AgentsPage() {
   )
 
   const handleDelete = useCallback(
-    async (agentUrl: string) => {
-      if (!window.confirm(`Unregister agent "${agentUrl}"?`)) return
+    async (agent: AgentCard) => {
+      if (!(await confirmAction({
+        title: `Unregister ${agent.name}?`,
+        message: 'The agent is removed from the registry.',
+        confirmLabel: 'Unregister agent',
+      }))) return
       try {
-        await unregisterAgent(agentUrl)
+        await unregisterAgent(agent.url)
         showToast('Agent unregistered', 'success')
-        if (selectedUrl === agentUrl) setSelectedUrl(null)
+        if (selectedName === agent.name) setSelectedName(null)
         await loadAgents()
       } catch (err) {
         showToast(`Unregister failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
       }
     },
-    [loadAgents, selectedUrl, showToast],
+    [confirmAction, loadAgents, selectedName, showToast],
   )
 
   const handleSendMessage = useCallback(
     async (message: string) => {
-      if (!selectedUrl) return
-      const agent = agents.find((a) => a.url === selectedUrl)
+      if (!selectedName) return
+      const agent = agents.find((a) => a.name === selectedName)
       if (!agent) return
 
       // Add user message to conversation
       setConversations((prev) => ({
         ...prev,
-        [selectedUrl]: [
-          ...(prev[selectedUrl] ?? []),
+        [selectedName]: [
+          ...(prev[selectedName] ?? []),
           { role: 'user', text: message, timestamp: new Date() },
         ],
       }))
 
       setSending(true)
       try {
-        const currentContextId = contextIds[selectedUrl]
+        const currentContextId = contextIds[selectedName]
         const response = await sendA2AMessage(agent.url, message, currentContextId)
 
         // Track the contextId from the response for multi-turn continuity
         if (response?.contextId) {
-          setContextIds((prev) => ({ ...prev, [selectedUrl]: response.contextId }))
+          setContextIds((prev) => ({ ...prev, [selectedName]: response.contextId }))
         }
 
         const responseText =
@@ -762,8 +788,8 @@ export default function AgentsPage() {
 
         setConversations((prev) => ({
           ...prev,
-          [selectedUrl]: [
-            ...(prev[selectedUrl] ?? []),
+          [selectedName]: [
+            ...(prev[selectedName] ?? []),
             { role: 'agent', text: responseText, timestamp: new Date() },
           ],
         }))
@@ -771,8 +797,8 @@ export default function AgentsPage() {
         const errMsg = err instanceof Error ? err.message : 'Unknown error'
         setConversations((prev) => ({
           ...prev,
-          [selectedUrl]: [
-            ...(prev[selectedUrl] ?? []),
+          [selectedName]: [
+            ...(prev[selectedName] ?? []),
             { role: 'agent', text: `⚠ Error: ${errMsg}`, timestamp: new Date() },
           ],
         }))
@@ -781,10 +807,10 @@ export default function AgentsPage() {
         setSending(false)
       }
     },
-    [agents, contextIds, selectedUrl, showToast],
+    [agents, contextIds, selectedName, showToast],
   )
 
-  const selectedAgent = agents.find((a) => a.url === selectedUrl) ?? null
+  const selectedAgent = agents.find((a) => a.name === selectedName) ?? null
 
   // ── Loading / Error ────────────────────────────────────────────
 
@@ -832,7 +858,7 @@ export default function AgentsPage() {
         {/* Mobile: back button when viewing agent detail */}
         {showMobileDetail && (
           <button
-            onClick={() => setSelectedUrl(null)}
+            onClick={() => setSelectedName(null)}
             className="mb-2 flex items-center gap-1.5 text-sm text-amber hover:text-light transition-colors md:hidden"
           >
             ← Back to agents
@@ -881,12 +907,12 @@ export default function AgentsPage() {
           )}
           {agents.map((agent) => (
             <AgentCardView
-              key={agent.url}
+              key={agent.name}
               agent={agent}
-              selected={agent.url === selectedUrl}
-              onSelect={() => setSelectedUrl(agent.url)}
+              selected={agent.name === selectedName}
+              onSelect={() => setSelectedName(agent.name)}
               onRefresh={() => handleRefresh(agent.url)}
-              onDelete={() => handleDelete(agent.url)}
+              onDelete={() => handleDelete(agent)}
             />
           ))}
         </div>
@@ -902,7 +928,7 @@ export default function AgentsPage() {
               agent={selectedAgent}
               onSendMessage={handleSendMessage}
               sending={sending}
-              conversationHistory={conversations[selectedUrl!] ?? []}
+              conversationHistory={conversations[selectedName!] ?? []}
             />
           )}
         </div>

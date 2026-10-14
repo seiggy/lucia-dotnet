@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { LiveEvent } from '../types'
+import { usePageVisible } from './usePageVisible'
 
 /** Connection state of the SSE activity stream. */
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
@@ -11,9 +12,11 @@ export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
  * the current {@link ConnectionState}, and a manual `reconnect` function.
  *
  * Automatically reconnects on error with exponential backoff (up to 10 retries,
- * max 30 second delay). Cleans up the EventSource on unmount.
+ * max 30 second delay). Cleans up the EventSource on unmount and while the
+ * browser tab is hidden, so background tabs do not hold a connection slot.
  */
 export function useActivityStream() {
+  const visible = usePageVisible()
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const sourceRef = useRef<EventSource | null>(null)
@@ -77,6 +80,8 @@ export function useActivityStream() {
   }, [])
 
   useEffect(() => {
+    if (!visible) return
+    retriesRef.current = 0
     connect()
     return () => {
       if (retryTimerRef.current) {
@@ -86,7 +91,7 @@ export function useActivityStream() {
       sourceRef.current?.close()
       sourceRef.current = null
     }
-  }, [connect])
+  }, [connect, visible])
 
   return { lastEvent, connectionState, reconnect }
 }

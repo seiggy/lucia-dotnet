@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { useConfirm } from '../hooks/useConfirm'
 import { Activity, Check, ChevronDown, ChevronUp, Cpu, Download, Globe, Loader2, Mic, Pencil, Radio, Sparkles, Trash2, User, Volume2 } from 'lucide-react'
 import type {
   AsrModel,
@@ -112,6 +113,7 @@ const TARGET_SAMPLE_RATE = 16_000
 const TRAINING_SAMPLE_COUNT = 5
 
 export default function VoicePlatformPage() {
+  const confirmAction = useConfirm()
   const [activeTab, setActiveTab] = useState<Tab>('status')
   const [notice, setNotice] = useState<Notice>(null)
 
@@ -661,7 +663,12 @@ export default function VoicePlatformPage() {
   }
 
   async function handleModelDelete(modelId: string) {
-    if (!confirm('Delete this local model?')) return
+    const name = models.find(m => m.id === modelId)?.name ?? modelId
+    if (!(await confirmAction({
+      title: `Delete ${name}?`,
+      message: 'Its downloaded files are removed from this device. If it is the active model, the selection is cleared.',
+      confirmLabel: 'Delete model',
+    }))) return
     markModelBusy(modelId, true)
     try {
       await deleteModel(modelId)
@@ -701,7 +708,12 @@ export default function VoicePlatformPage() {
   }
 
   async function handleEngineModelDelete(et: EngineType, modelId: string) {
-    if (!confirm('Delete this local model?')) return
+    const name = engineModels.find(m => m.id === modelId)?.name ?? modelId
+    if (!(await confirmAction({
+      title: `Delete ${name}?`,
+      message: 'Its downloaded files are removed from this device. If it is the active model, the selection is cleared.',
+      confirmLabel: 'Delete model',
+    }))) return
     markModelBusy(modelId, true)
     try {
       await deleteEngineModel(et, modelId)
@@ -728,7 +740,12 @@ export default function VoicePlatformPage() {
   }
 
   async function handleDeleteSpeaker(id: string) {
-    if (!confirm('Delete this speaker profile?')) return
+    const name = profiles.find(p => p.id === id)?.name ?? 'this speaker'
+    if (!(await confirmAction({
+      title: `Delete ${name}?`,
+      message: 'The speaker profile and all of its recorded audio clips are removed.',
+      confirmLabel: 'Delete speaker',
+    }))) return
     try {
       await deleteSpeakerProfile(id)
       await loadDirectories()
@@ -757,6 +774,12 @@ export default function VoicePlatformPage() {
   }
 
   async function handlePromoteProfile(id: string, currentName: string) {
+    if (!(await confirmAction({
+      title: `Promote ${currentName}?`,
+      message: 'The profile becomes an enrolled, authorized speaker.',
+      confirmLabel: 'Promote to enrolled',
+      tone: 'default',
+    }))) return
     try {
       await updateSpeakerProfile(id, { isProvisional: false, isAuthorized: true, name: currentName })
       await loadDirectories()
@@ -767,7 +790,12 @@ export default function VoicePlatformPage() {
   }
 
   async function handleDeleteWakeWord(id: string) {
-    if (!confirm('Delete this wake word?')) return
+    const phrase = wakeWords.find(w => w.id === id)?.phrase
+    if (!(await confirmAction({
+      title: phrase ? `Delete wake word "${phrase}"?` : 'Delete this wake word?',
+      message: 'The wake word is removed and the detector reloads without it.',
+      confirmLabel: 'Delete wake word',
+    }))) return
     try {
       await deleteWakeWord(id)
       await loadDirectories()
@@ -794,7 +822,11 @@ export default function VoicePlatformPage() {
   }
 
   async function handleDeleteClip(profileId: string, clipId: string) {
-    if (!confirm('Delete this audio clip?')) return
+    if (!(await confirmAction({
+      title: 'Delete this audio clip?',
+      message: 'The recording is removed from this speaker profile.',
+      confirmLabel: 'Delete clip',
+    }))) return
     try {
       await deleteClip(profileId, clipId)
       const clips = await fetchProfileClips(profileId)
@@ -807,6 +839,14 @@ export default function VoicePlatformPage() {
 
   async function handleReassignClip(profileId: string, clipId: string, targetProfileId: string) {
     if (!targetProfileId) return
+    const from = profiles.find(p => p.id === profileId)?.name ?? 'this profile'
+    const to = profiles.find(p => p.id === targetProfileId)?.name ?? 'the selected profile'
+    if (!(await confirmAction({
+      title: `Move this clip to ${to}?`,
+      message: `The recording moves from ${from} to ${to}.`,
+      confirmLabel: 'Move clip',
+      tone: 'default',
+    }))) return
     try {
       await reassignClip(profileId, clipId, targetProfileId)
       setReassigningClipKey(null)
@@ -822,8 +862,13 @@ export default function VoicePlatformPage() {
 
   async function handleMerge(sourceId: string, targetId: string) {
     if (!targetId) return
-    const target = profiles.find(p => p.id === targetId)
-    if (!confirm(`Merge this profile into "${target?.name ?? targetId}"? This cannot be undone.`)) return
+    const sourceName = profiles.find(p => p.id === sourceId)?.name ?? 'this profile'
+    const targetName = profiles.find(p => p.id === targetId)?.name ?? targetId
+    if (!(await confirmAction({
+      title: `Merge ${sourceName} into ${targetName}?`,
+      message: `${targetName} takes over the voice samples and audio clips of ${sourceName}, and ${sourceName} is deleted. This cannot be undone.`,
+      confirmLabel: 'Merge profiles',
+    }))) return
     try {
       await mergeProfiles(sourceId, targetId)
       setMergingProfileId(null)
@@ -1300,7 +1345,7 @@ export default function VoicePlatformPage() {
                     <div className="flex items-center gap-2">
                       <select
                         className={inputClass + ' !w-auto'}
-                        onChange={event => void handleMerge(profile.id, event.target.value)}
+                        onChange={event => { const el = event.currentTarget; void handleMerge(profile.id, el.value).finally(() => { el.value = '' }) }}
                         defaultValue=""
                       >
                         <option value="" disabled>Merge into…</option>
@@ -1354,7 +1399,7 @@ export default function VoicePlatformPage() {
                             <div className="flex items-center gap-2">
                               <select
                                 className={inputClass + ' !w-auto text-xs'}
-                                onChange={event => void handleReassignClip(profile.id, clip.id, event.target.value)}
+                                onChange={event => { const el = event.currentTarget; void handleReassignClip(profile.id, clip.id, el.value).finally(() => { el.value = '' }) }}
                                 defaultValue=""
                               >
                                 <option value="" disabled>Move to…</option>

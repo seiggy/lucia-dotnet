@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { CommandTrace } from '../types'
+import { usePageVisible } from './usePageVisible'
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
 /**
  * SSE hook for real-time command trace updates.
  * Connects to `/api/command-traces/live` and emits new traces as they arrive.
+ * Disconnects while the browser tab is hidden so background tabs do not hold a connection slot.
  */
 export function useCommandTraceStream() {
+  const visible = usePageVisible()
   const [lastTrace, setLastTrace] = useState<CommandTrace | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const sourceRef = useRef<EventSource | null>(null)
@@ -70,6 +73,8 @@ export function useCommandTraceStream() {
   }, [])
 
   useEffect(() => {
+    if (!visible) return
+    retriesRef.current = 0
     connect()
     return () => {
       if (retryTimerRef.current) {
@@ -79,7 +84,7 @@ export function useCommandTraceStream() {
       sourceRef.current?.close()
       sourceRef.current = null
     }
-  }, [connect])
+  }, [connect, visible])
 
   return { lastTrace, connectionState, reconnect }
 }

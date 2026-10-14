@@ -242,7 +242,7 @@ export interface LoginResponse {
 }
 
 export async function fetchAuthStatus(): Promise<AuthStatus> {
-  const res = await fetch(`${BASE}/auth/status`);
+  const res = await fetch(`${BASE}/auth/status`, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`Failed to fetch auth status: ${res.statusText}`);
   return res.json();
 }

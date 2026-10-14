@@ -17,6 +17,7 @@ import {
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
 import SkillConfigEditor from '../components/SkillConfigEditor'
+import { useConfirm } from '../hooks/useConfirm'
 import type { SkillConfigEditorHandle } from '../components/SkillConfigEditor'
 import type { McpToolServerDefinition, McpServerStatus } from '../types'
 
@@ -63,6 +64,7 @@ function getMcpToolStatusMessage({
 }
 
 export default function AgentDefinitionsPage() {
+  const confirmAction = useConfirm()
   const [definitions, setDefinitions] = useState<AgentDefinition[]>([])
   const [mode, setMode] = useState<FormMode>('list')
   const [editingDef, setEditingDef] = useState<AgentDefinition | null>(null)
@@ -89,7 +91,12 @@ export default function AgentDefinitionsPage() {
   useEffect(() => { loadData() }, [loadData])
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this agent definition?')) return
+    const name = definitions.find(d => d.id === id)?.name ?? id
+    if (!(await confirmAction({
+      title: `Delete ${name}?`,
+      message: `This deletes the agent definition and unregisters ${name} from the agent registry.`,
+      confirmLabel: 'Delete agent definition',
+    }))) return
     try {
       await deleteAgentDefinition(id)
       await loadData()

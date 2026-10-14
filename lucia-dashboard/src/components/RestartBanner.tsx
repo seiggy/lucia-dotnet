@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
 import { fetchRestartRequired, triggerRestart } from '../api'
+import { usePageVisible } from '../hooks/usePageVisible'
 
 interface RestartBannerProps {
   onNotify?: (message: string, type: 'success' | 'error') => void
@@ -9,8 +10,10 @@ interface RestartBannerProps {
 export default function RestartBanner({ onNotify }: RestartBannerProps) {
   const [needed, setNeeded] = useState(false)
   const [restarting, setRestarting] = useState(false)
+  const visible = usePageVisible()
 
   useEffect(() => {
+    if (!visible) return
     const poll = async () => {
       try {
         const { restartRequired } = await fetchRestartRequired()
@@ -22,7 +25,7 @@ export default function RestartBanner({ onNotify }: RestartBannerProps) {
     poll()
     const timer = setInterval(poll, 5000)
     return () => clearInterval(timer)
-  }, [])
+  }, [visible])
 
   if (!needed) return null
 
