@@ -97,7 +97,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             var text = response.Text?.Trim();
             return new ModelProviderConnectionTestResult(true, $"Connection successful. Response: {text}");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Model provider test failed for {ProviderId}", provider.Id);
             return new ModelProviderConnectionTestResult(false, $"Connection failed: {ex.Message}");
@@ -113,7 +113,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             var dims = result.FirstOrDefault()?.Vector.Length ?? 0;
             return new ModelProviderConnectionTestResult(true, $"Embedding successful. Dimensions: {dims}");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex, "Embedding provider test failed for {ProviderId}", provider.Id);
             return new ModelProviderConnectionTestResult(false, $"Embedding test failed: {ex.Message}");

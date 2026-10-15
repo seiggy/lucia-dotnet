@@ -37,7 +37,7 @@ public sealed class PluginManagementService
     // ── Bootstrap ────────────────────────────────────────────────
 
     /// <summary>
-    /// Ensures a repository definition exists in MongoDB. Call at startup to
+    /// Ensures a repository definition exists in the store. Call at startup to
     /// seed the default repository (local for dev, git for production).
     /// </summary>
     public async Task EnsureRepositoryAsync(PluginRepositoryDefinition repo, CancellationToken ct = default)
@@ -71,7 +71,7 @@ public sealed class PluginManagementService
     }
 
     /// <summary>
-    /// Fetches the manifest from a repository and caches results in MongoDB.
+    /// Fetches the manifest from a repository and caches results in the store.
     /// Delegates to the appropriate <see cref="IPluginRepositorySource"/> by repository type.
     /// </summary>
     public async Task SyncRepositoryAsync(string id, CancellationToken ct = default)
@@ -157,7 +157,7 @@ public sealed class PluginManagementService
 
         await source.InstallPluginAsync(repo, manifestEntry, pluginPath, ct).ConfigureAwait(false);
 
-        // Update MongoDB cache
+        // Update the stored cache
         await _repository.UpsertInstalledPluginAsync(new InstalledPluginRecord
         {
             Id = pluginId,
@@ -179,7 +179,7 @@ public sealed class PluginManagementService
     // ── Plugin State Management ─────────────────────────────────
 
     /// <summary>
-    /// Returns installed plugins from MongoDB, merged with any plugins present on disk
+    /// Returns installed plugins from the store, merged with any plugins present on disk
     /// (e.g. baked into the image) that are not yet in the store.
     /// </summary>
     public async Task<List<InstalledPluginRecord>> GetInstalledPluginsAsync(CancellationToken ct = default)

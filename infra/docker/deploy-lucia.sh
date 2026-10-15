@@ -7,7 +7,7 @@
 #   From infra/docker: ./deploy-lucia.sh
 #
 # Options:
-#   --wipe     Stop containers and remove all Lucia volumes (Redis + MongoDB).
+#   --wipe     Stop containers and remove all Lucia volumes (Redis + PostgreSQL).
 #              Next up will start with empty DBs; you will need to run setup again.
 #   --rebuild  Build images with --no-cache before starting.
 #
@@ -48,7 +48,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   if [[ -f .env.lucia.example ]]; then
     cp .env.lucia.example "$ENV_FILE"
     echo "Created $ENV_FILE from .env.lucia.example."
-    echo "Edit $ENV_FILE and set at least: HOMEASSISTANT__ACCESSTOKEN (or HomeAssistant__AccessToken)"
+    echo "Edit $ENV_FILE and set at least: POSTGRES_PASSWORD and HOMEASSISTANT__ACCESSTOKEN (or HomeAssistant__AccessToken)"
     echo "Then run: $0 --env-file $ENV_FILE"
     exit 1
   else
@@ -65,7 +65,7 @@ compose() {
 }
 
 if [[ $WIPE -eq 1 ]]; then
-  echo "Wiping Lucia data: stopping containers and removing volumes (lucia-redis-data, lucia-mongo-data)..."
+  echo "Wiping Lucia data: stopping containers and removing volumes (lucia-redis-data, lucia-postgres-data)..."
   compose down -v
   echo "Lucia data wiped."
 fi

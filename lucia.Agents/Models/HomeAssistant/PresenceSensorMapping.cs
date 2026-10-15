@@ -1,15 +1,13 @@
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.Agents.Models.HomeAssistant;
 
 /// <summary>
 /// Maps a Home Assistant presence sensor entity to an area with a confidence level.
-/// Auto-detected by pattern matching, with user overrides persisted in MongoDB.
+/// Auto-detected by pattern matching, with user overrides persisted in the database.
 /// </summary>
 public sealed class PresenceSensorMapping
 {
     /// <summary>Home Assistant entity ID (e.g., "sensor.satellite1_91b604_presence_target_count").</summary>
-    [BsonId]
     public required string EntityId { get; init; }
 
     /// <summary>Home Assistant area ID this sensor is mapped to.</summary>

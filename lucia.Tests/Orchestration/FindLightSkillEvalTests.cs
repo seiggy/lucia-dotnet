@@ -1,5 +1,4 @@
 #pragma warning disable AIEVAL001 // Microsoft.Extensions.AI.Evaluation is experimental
-#pragma warning disable CS0618 // Testing obsolete methods until migrated
 
 using System.Text.RegularExpressions;
 using lucia.Agents.Configuration;
@@ -9,12 +8,13 @@ using Xunit.Abstractions;
 namespace lucia.Tests.Orchestration;
 
 /// <summary>
-/// Tests the <c>FindLightAsync</c> skill method directly against real embeddings
-/// and the live Home Assistant entity cache. Each test case supplies a search term
-/// (including STT-artifact variants) and asserts that the expected entity is found
-/// and that the total match count does not exceed the expected maximum.
-/// This bypasses the LLM entirely — we are evaluating the embedding similarity
-/// algorithm and its resilience to speech-to-text noise.
+/// Tests the light lookup path of <c>LightControlSkill.GetLightsStateAsync</c> against real
+/// embeddings. The skill hands the search term to <c>IEntityLocationService.SearchHierarchyAsync</c>
+/// (an in-memory service over the Home Assistant snapshot), then reads the matched entity states.
+/// Each case supplies a search term (including STT-artifact variants) and asserts that the
+/// expected entity is found and the match count stays under the expected maximum.
+/// This bypasses the LLM, so it evaluates the embedding similarity algorithm and its
+/// resilience to speech-to-text noise.
 /// </summary>
 [Trait("Category", "Eval")]
 public sealed class FindLightSkillEvalTests : AgentEvalTestBase
@@ -73,7 +73,7 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
         ("Diana's Lamp", "light.diannas_lamp", 3, "stt-spelling"),
         ("Dianna's Light", "light.diannas_lamp", 3, "stt-synonym"));
 
-    [Theory]
+    [SkippableTheory]
     [MemberData(nameof(KitchenLightPrompts))]
     public async Task FindLight_KitchenLight(
         string embeddingModelId, string searchTerm, string expectedEntityId,
@@ -82,7 +82,7 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
         await RunFindLightTest(embeddingModelId, searchTerm, expectedEntityId, expectedMaxResults, variant);
     }
 
-    [Theory]
+    [SkippableTheory]
     [MemberData(nameof(ZacksLightPrompts))]
     public async Task FindLight_ZacksLight(
         string embeddingModelId, string searchTerm, string expectedEntityId,
@@ -91,7 +91,7 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
         await RunFindLightTest(embeddingModelId, searchTerm, expectedEntityId, expectedMaxResults, variant);
     }
 
-    [Theory]
+    [SkippableTheory]
     [MemberData(nameof(GarageLightPrompts))]
     public async Task FindLight_GarageLight(
         string embeddingModelId, string searchTerm, string expectedEntityId,
@@ -100,7 +100,7 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
         await RunFindLightTest(embeddingModelId, searchTerm, expectedEntityId, expectedMaxResults, variant);
     }
 
-    [Theory]
+    [SkippableTheory]
     [MemberData(nameof(DiannasLampPrompts))]
     public async Task FindLight_DiannasLamp(
         string embeddingModelId, string searchTerm, string expectedEntityId,
@@ -116,18 +116,15 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
         _output.WriteLine($"[FindLight] embedding={embeddingModelId} search=\"{searchTerm}\" variant={variant}");
 
         var skill = await Fixture.CreateLightControlSkillAsync(embeddingModelId);
-        var result = await skill.FindLightAsync(searchTerm);
+        var result = await skill.GetLightsStateAsync([searchTerm]);
 
         _output.WriteLine($"[FindLight] result: {result}");
 
         Assert.False(
             string.IsNullOrWhiteSpace(result),
-            $"FindLightAsync returned empty for \"{searchTerm}\" ({variant})");
+            $"GetLightsStateAsync returned empty for \"{searchTerm}\" ({variant})");
 
-        Assert.DoesNotContain("No matching lights found", result,
-            StringComparison.OrdinalIgnoreCase);
-
-        Assert.DoesNotContain("No lights available", result,
+        Assert.DoesNotContain("No lights found matching", result,
             StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains(expectedEntityId, result,
@@ -201,7 +198,7 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
     /// continues at finer granularity until convergence.</para>
     /// </summary>
     [Trait("Category", "Eval")]
-    [Theory]
+    [SkippableTheory]
     [InlineData("text-embedding-3-small")]
     [InlineData("nomic-embed-text")]
     public async Task OptimizeHybridParameters(string embeddingModelId)
@@ -235,10 +232,9 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
 
             foreach (var tc in AllTestCases)
             {
-                var result = await skill.FindLightAsync(tc.SearchTerm);
+                var result = await skill.GetLightsStateAsync([tc.SearchTerm]);
                 var found = !string.IsNullOrWhiteSpace(result)
-                    && !result.Contains("No matching lights found", StringComparison.OrdinalIgnoreCase)
-                    && !result.Contains("No lights available", StringComparison.OrdinalIgnoreCase)
+                    && !result.Contains("No lights found matching", StringComparison.OrdinalIgnoreCase)
                     && result.Contains(tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase);
 
                 var count = CountMatchesInResult(result);
@@ -456,19 +452,15 @@ public sealed class FindLightSkillEvalTests : AgentEvalTestBase
     }
 
     /// <summary>
-    /// Parses the FindLightAsync result string to count how many matches were returned.
-    /// Single-match format: "Found light: ..."
-    /// Multi-match format: "Found N matching light(s):\n- ...\n- ..."
+    /// Counts the lights in a <c>GetLightsStateAsync</c> result: one "- name (entity_id): state"
+    /// line per match, under a "Found N light(s):" header. No match returns zero.
     /// </summary>
     private static int CountMatchesInResult(string result)
     {
-        if (string.IsNullOrWhiteSpace(result))
+        if (string.IsNullOrWhiteSpace(result)
+            || result.StartsWith("No lights found", StringComparison.OrdinalIgnoreCase))
             return 0;
 
-        if (result.StartsWith("Found light:", StringComparison.OrdinalIgnoreCase))
-            return 1;
-
-        var dashLines = Regex.Matches(result, @"^- ", RegexOptions.Multiline);
-        return dashLines.Count > 0 ? dashLines.Count : 1;
+        return Regex.Matches(result, @"^- ", RegexOptions.Multiline).Count;
     }
 }

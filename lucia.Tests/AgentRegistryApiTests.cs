@@ -39,6 +39,43 @@ public sealed class AgentRegistryApiTests
         Assert.Equal(StatusCodes.Status400BadRequest, ExtractStatusCode(result));
     }
 
+    [Fact]
+    public async Task UpdateAgentAsync_EncodedSlashesInTheRoute_LooksUpTheDecodedAddress()
+    {
+        // ASP.NET Core leaves %2F encoded in route values, so the dashboard's encoded URL arrives like this.
+        var registry = A.Fake<IAgentRegistry>();
+        var httpClientFactory = A.Fake<IHttpClientFactory>();
+        A.CallTo(() => registry.GetAgentAsync(A<string>._, A<CancellationToken>._)).Returns(Task.FromResult<A2A.AgentCard?>(null));
+
+        var result = await InvokeUpdateAsync("http:%2F%2Fagent-host%3A8080%2Fa2a%2Flight-agent", registry, httpClientFactory);
+
+        Assert.Equal(StatusCodes.Status404NotFound, ExtractStatusCode(result));
+        A.CallTo(() => registry.GetAgentAsync("http://agent-host:8080/a2a/light-agent", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task UnregisterAgentAsync_AnAddressWithALiteralPercentEscape_SurvivesTheDoubleEncoding()
+    {
+        // The dashboard encodes the address twice. Kestrel decodes one layer, so a literal %2F in the address arrives as %252F.
+        var registry = A.Fake<IAgentRegistry>();
+
+        await AgentRegistryApi.UnregisterAgentAsync(registry, "http%3A%2F%2Fagent-host%2Fa2a%2Fx%252Fy", CancellationToken.None);
+
+        A.CallTo(() => registry.UnregisterAgentAsync("http://agent-host/a2a/x%2Fy", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task UnregisterAgentAsync_EncodedSlashesInTheRoute_RemovesTheDecodedAddress()
+    {
+        var registry = A.Fake<IAgentRegistry>();
+
+        await AgentRegistryApi.UnregisterAgentAsync(registry, "http:%2F%2Fagent-host%3A8080%2Fa2a%2Flight-agent", CancellationToken.None);
+
+        A.CallTo(() => registry.UnregisterAgentAsync("http://agent-host:8080/a2a/light-agent", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
     private static async Task<IResult> InvokeRegisterAsync(
         string agentId,
         IAgentRegistry registry,

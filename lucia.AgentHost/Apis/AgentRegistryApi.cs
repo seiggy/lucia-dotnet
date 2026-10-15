@@ -140,6 +140,8 @@ public static class AgentRegistryApi
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
+        agentId = DecodeRouteAgentId(agentId);
+
         if (!Uri.TryCreate(agentId, UriKind.Absolute, out var agentUri))
         {
             return TypedResults.BadRequest($"agentId '{agentId}' is not a valid absolute URI");
@@ -181,7 +183,10 @@ public static class AgentRegistryApi
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
-        await agentRegistry.UnregisterAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
+        await agentRegistry.UnregisterAgentAsync(DecodeRouteAgentId(agentId), cancellationToken).ConfigureAwait(false);
         return TypedResults.Ok();
     }
+
+    // ASP.NET Core decodes %3A in route values but leaves %2F encoded, so an encoded URL arrives half-decoded.
+    private static string DecodeRouteAgentId(string agentId) => Uri.UnescapeDataString(agentId);
 }

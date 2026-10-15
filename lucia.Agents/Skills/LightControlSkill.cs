@@ -166,9 +166,8 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.terms", string.Join(", ", searchTerms));
         LightStateQueries.Add(1);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to get the light states. Please try again.", async () =>
         {
             var matchOptions = GetCurrentMatchOptions();
             var allEntities = new Dictionary<string, HomeAssistantEntity>(StringComparer.OrdinalIgnoreCase);
@@ -217,20 +216,10 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting light states for: {SearchTerms}", string.Join(", ", searchTerms));
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            LightStateFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
-            return $"Failed to get light states: {ex.Message}";
-        }
-        finally
-        {
-            var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-            LightStateDurationMs.Record(elapsedMs);
-            activity?.SetTag("elapsed_ms", elapsedMs);
-        }
+        },
+            onFailure: () => LightStateFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: LightStateDurationMs,
+            detail: string.Join(", ", searchTerms)).ConfigureAwait(false);
     }
 
     [Description("Control lights matching one or more search terms — turn on/off, set brightness, or change color. Uses fuzzy search to find lights by name, area, or floor.")]
@@ -251,9 +240,8 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
             activity?.SetTag("desired.color", color);
 
         LightControlRequests.Add(1);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to control the lights. Please try again.", async () =>
         {
             var allEntities = new Dictionary<string, HomeAssistantEntity>(StringComparer.OrdinalIgnoreCase);
 
@@ -365,19 +353,9 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error controlling lights for: {SearchTerms}", string.Join(", ", searchTerms));
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            LightControlFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
-            return $"Failed to control lights: {ex.Message}";
-        }
-        finally
-        {
-            var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-            LightControlDurationMs.Record(elapsedMs);
-            activity?.SetTag("elapsed_ms", elapsedMs);
-        }
+        },
+            onFailure: () => LightControlFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: LightControlDurationMs,
+            detail: string.Join(", ", searchTerms)).ConfigureAwait(false);
     }
 }

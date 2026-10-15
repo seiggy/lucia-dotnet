@@ -67,7 +67,7 @@ public static class TaskManagementApi
     }
 
     /// <summary>
-    /// List archived tasks from MongoDB with filtering.
+    /// List archived tasks with filtering.
     /// </summary>
     private static async Task<Ok<PagedResult<ArchivedTask>>> ListArchivedTasksAsync(
         [FromServices] ITaskArchiveStore archive,
@@ -96,7 +96,7 @@ public static class TaskManagementApi
     }
 
     /// <summary>
-    /// Get a single task by ID. Checks active (Redis) first, then archive (MongoDB).
+    /// Get a single task by ID. Checks active (Redis) first, then archive.
     /// </summary>
     private static async Task<Results<Ok<object>, NotFound>> GetTaskAsync(
         [FromServices] ITaskStore taskStore,

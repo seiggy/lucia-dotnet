@@ -33,9 +33,6 @@ jobs:
           echo "Linting all Dockerfiles..."
           DOCKERFILES=(
             "infra/docker/Dockerfile"
-            "infra/docker/Dockerfile.a2ahost"
-            "infra/docker/Dockerfile.music-agent"
-            "infra/docker/Dockerfile.timer-agent"
             "infra/docker/Dockerfile.ha"
           )
           for df in "${DOCKERFILES[@]}"; do
@@ -51,7 +48,8 @@ jobs:
         run: |
           echo "Validating Docker Compose syntax..."
           mv .env.example .env  # Use example env for validation
-          docker compose -f infra/docker/docker-compose.yml config > /dev/null
+          # Compose refuses to render without a password. This value is for validation only.
+          POSTGRES_PASSWORD=ci-validation-only docker compose -f infra/docker/docker-compose.yml config > /dev/null
           echo "✅ Docker Compose files are valid"
 
       - name: Validate Docker build workflow

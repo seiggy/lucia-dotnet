@@ -60,23 +60,3 @@ public sealed class EvalScenario
     /// </summary>
     public Dictionary<string, EntityState>? ExpectedFinalState { get; set; }
 }
-
-/// <summary>
-/// Represents an expected tool call for evaluation.
-/// </summary>
-public sealed class ExpectedToolCall
-{
-    public required string Tool { get; set; }
-
-    public Dictionary<string, string> Arguments { get; set; } = [];
-}
-
-/// <summary>
-/// Represents Home Assistant entity state.
-/// </summary>
-public sealed class EntityState
-{
-    public required string State { get; set; }
-
-    public Dictionary<string, object> Attributes { get; set; } = [];
-}

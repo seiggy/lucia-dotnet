@@ -59,7 +59,7 @@ public sealed class ModelManager(
     }
 
     /// <summary>
-    /// Loads persisted model preferences from MongoDB. Call during startup.
+    /// Loads persisted model preferences. Call during startup.
     /// </summary>
     public async Task LoadPersistedPreferencesAsync(CancellationToken ct = default)
     {
@@ -83,7 +83,7 @@ public sealed class ModelManager(
                 }
                 if (engineType is EngineType.Stt or EngineType.OfflineStt)
                 {
-                    // Legacy keys — clean them up from MongoDB
+                    // Legacy keys — clean them up from the store
                     _ = preferenceStore.RemoveAsync(key, ct);
                     continue;
                 }
@@ -108,7 +108,7 @@ public sealed class ModelManager(
             }
 
             logger.LogInformation(
-                "Restored {Count} model preference(s) from MongoDB (preferred STT: {PreferredStt})",
+                "Restored {Count} model preference(s) from the store (preferred STT: {PreferredStt})",
                 _activeModelOverrides.Count, PreferredSttEngineType);
 
             // Notify engines so they load the restored models
@@ -308,7 +308,7 @@ public sealed class ModelManager(
 
         _activeModelOverrides[engineType] = modelId;
 
-        // Persist to MongoDB so the selection survives reboots.
+        // Persist so the selection survives reboots.
         // For STT, only persist the single PreferredSttModel key (engine inferred from catalog).
         if (engineType is EngineType.Stt or EngineType.OfflineStt)
         {

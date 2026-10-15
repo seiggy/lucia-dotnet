@@ -136,11 +136,10 @@ public sealed class SqliteTaskArchiveStore : ITaskArchiveStore
         using var agentCmd = connection.CreateCommand();
         agentCmd.CommandText = """
             SELECT
-                json_extract(data, '$.agentId') AS agent_id,
+                agent.value AS agent_id,
                 COUNT(*) AS task_count
-            FROM archived_tasks
-            WHERE json_extract(data, '$.agentId') IS NOT NULL
-            GROUP BY agent_id;
+            FROM archived_tasks, json_each(archived_tasks.data, '$.agentIds') AS agent
+            GROUP BY agent.value;
             """;
 
         using (var reader = await agentCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))

@@ -6,6 +6,8 @@ interface AuthContextValue {
   authenticated: boolean
   setupComplete: boolean
   loading: boolean
+  /** True when the auth status could not be read (server down, timed out, or an error response). */
+  statusError: boolean
   login: (apiKey: string) => Promise<void>
   logout: () => Promise<void>
   refresh: () => Promise<void>
@@ -17,15 +19,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [setupComplete, setSetupComplete] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [statusError, setStatusError] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
       const status = await fetchAuthStatus()
       setAuthenticated(status.authenticated)
       setSetupComplete(status.setupComplete)
+      setStatusError(false)
     } catch {
+      // A failed read says nothing about setup state; sending an existing install to the
+      // first-run wizard here would be wrong, so surface the error and let the user retry.
       setAuthenticated(false)
-      setSetupComplete(false)
+      setStatusError(true)
     } finally {
       setLoading(false)
     }
@@ -48,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ authenticated, setupComplete, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ authenticated, setupComplete, loading, statusError, login, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   )

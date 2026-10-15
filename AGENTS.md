@@ -16,13 +16,12 @@ Always use the `unslop` skill when writing any docs, prose, or response to the u
   - `custom_components/lucia` – Python custom component for Home Assistant integration.
   - `lucia.Tests` - XUnit tests for the app
   - `lucia-dashboard` - React v19 Dashboard for users to manage the Lucia platform.
-  - `lucia.A2AHost` – Retired and deprecating, to be removed. Legacy A2A host.
 
 ## 2. Updated Tech Stack Overview (2025-08-06)
 
 - **Backend:** ASP.NET Core Web API (.NET 10 / C# 14) orchestrated with .NET Aspire 13
 - **AI Runtime:** Microsoft Agent Framework, Custom Regex|SLM|LLM multi-agent orchestration patterns, Azure OpenAI, Gemini, Claude, LLaMa, Open Router Provider support.
-- **Data & State:** MongoDB 8 or PosgreSQL 17, Redis 7.x for task persistence (per latest spec), configuration via ASP.NET Core config + Secrets/K8s secrets.
+- **Data & State:** PostgreSQL 17 or SQLite, Redis 7.x for task persistence (per latest spec), configuration via ASP.NET Core config + Secrets/K8s secrets.
 - **Home Assistant Integration:** REST + Conversation + LLM APIs today, WebSocket streaming upcoming; Python custom component built on aiohttp 3.x.
 - **Infrastructure:** Docker containers, primary deployment target is a NVIDIA Jetson Orin Nano 8GB; Observability powered by OpenTelemetry (traces/metrics/logging).
 - **Testing:** xUnit + FakeItEasy; Aspire.Hosting.Testing for integration, AgentEval for AI evals. Use `dotnet test` from repo root or target projects explicitly.

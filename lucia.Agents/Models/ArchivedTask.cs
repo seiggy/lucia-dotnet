@@ -3,13 +3,13 @@ using System.Text.Json.Serialization;
 namespace lucia.Agents.Models;
 
 /// <summary>
-/// MongoDB document representing an archived agent task.
+/// Document representing an archived agent task.
 /// Stored as a denormalized snapshot of the task at completion time.
 /// </summary>
 public sealed class ArchivedTask
 {
     /// <summary>
-    /// Task ID (same as the original A2A task ID). Used as the MongoDB _id.
+    /// Task ID (same as the original A2A task ID). Used as the primary key.
     /// </summary>
     [JsonPropertyName("id")]
     public required string Id { get; init; }

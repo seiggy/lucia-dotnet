@@ -11,9 +11,8 @@ var builder = DistributedApplication.CreateBuilder(args);
 // Read DataProvider config to conditionally include infrastructure containers
 var dataProviderConfig = builder.Configuration.GetSection("DataProvider");
 var cacheProvider = dataProviderConfig["Cache"] ?? "Redis";
-var storeProvider = dataProviderConfig["Store"] ?? "MongoDB";
+var storeProvider = dataProviderConfig["Store"] ?? "PostgreSQL";
 var useRedis = cacheProvider.Equals("Redis", StringComparison.OrdinalIgnoreCase);
-var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
 var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
 var observabilityMode = builder.Configuration["Observability:Mode"] ?? "Trace";
 
@@ -43,21 +42,6 @@ if (useRedis)
         .WithCertificateTrustScope(CertificateTrustScope.None);
 }
 
-IResourceBuilder<MongoDBServerResource>? mongodb = null;
-IResourceBuilder<MongoDBDatabaseResource>? tracesDb = null, configDb = null, tasksDb = null;
-if (useMongo)
-{
-    mongodb = builder.AddMongoDB("mongodb")
-        .WithImageTag("7.0")
-        .WithDataVolume()
-        .WithLifetime(ContainerLifetime.Persistent)
-        .WithMongoExpress()
-        .WithContainerName("mongodb");
-
-    tracesDb = mongodb.AddDatabase("luciatraces");
-    configDb = mongodb.AddDatabase("luciaconfig");
-    tasksDb = mongodb.AddDatabase("luciatasks");
-}
 
 IResourceBuilder<PostgresServerResource>? postgres = null;
 IResourceBuilder<PostgresDatabaseResource>? pgtracesDb = null, pgconfigDb = null, pgtasksDb = null;
@@ -125,14 +109,7 @@ foreach (var envName in seedEnvNames)
 // Conditionally wire infrastructure references
 if (redis is not null)
     registryApi.WithReference(redis).WaitFor(redis);
-if (tracesDb is not null)
-    registryApi.WithReference(tracesDb);
-if (configDb is not null)
-    registryApi.WithReference(configDb);
-if (tasksDb is not null)
-    registryApi.WithReference(tasksDb);
-if (mongodb is not null)
-    registryApi.WaitFor(mongodb);
+
 if (postgres is not null && pgtracesDb is not null && pgconfigDb is not null && pgtasksDb is not null)
     registryApi
     .WithEnvironment("DataProvider__Store", "PostgreSQL")

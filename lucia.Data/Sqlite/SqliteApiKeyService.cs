@@ -12,7 +12,7 @@ namespace lucia.Data.Sqlite;
 
 /// <summary>
 /// SQLite-backed API key service. Stores SHA-256 hashes of keys, never plaintext.
-/// Crypto logic is identical to <c>MongoApiKeyService</c>.
+/// Crypto logic is identical to <c>PostgresApiKeyService</c>.
 /// </summary>
 public sealed class SqliteApiKeyService : IApiKeyService
 {
@@ -408,7 +408,7 @@ public sealed class SqliteApiKeyService : IApiKeyService
         using var transaction = connection.BeginTransaction(deferred: false);
         using var getCmd = connection.CreateCommand();
         getCmd.Transaction = transaction;
-        getCmd.CommandText = "SELECT name, scopes FROM api_keys WHERE id = @id;";
+        getCmd.CommandText = "SELECT name, scopes, is_revoked FROM api_keys WHERE id = @id;";
         getCmd.Parameters.AddWithValue("@id", keyId);
         using var reader = await getCmd
             .ExecuteReaderAsync(cancellationToken)
@@ -420,7 +420,12 @@ public sealed class SqliteApiKeyService : IApiKeyService
         var name = reader.GetString(0);
         var scopes =
             JsonSerializer.Deserialize<string[]>(reader.GetString(1)) ?? ["*"];
+        var isRevoked = reader.GetInt64(2) != 0;
         await reader.DisposeAsync().ConfigureAwait(false);
+        if (isRevoked)
+        {
+            throw new InvalidOperationException($"API key with ID '{keyId}' is revoked and cannot be regenerated.");
+        }
 
         var plaintextKey = GenerateKey();
         var hash = HashKey(plaintextKey);
@@ -629,7 +634,7 @@ public sealed class SqliteApiKeyService : IApiKeyService
         }, revokedCount);
     }
 
-    // ── Crypto helpers (identical to MongoApiKeyService) ────────
+    // ── Crypto helpers (identical to PostgresApiKeyService) ────────
 
     private static string GenerateKey()
     {

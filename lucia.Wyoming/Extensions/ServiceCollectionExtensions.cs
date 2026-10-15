@@ -13,7 +13,6 @@ using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using lucia.Wyoming.Telemetry;
 using lucia.Wyoming.Wyoming;
-using MongoDB.Driver;
 
 namespace lucia.Wyoming.Extensions;
 
@@ -108,40 +107,11 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IHostedService>(
             sp => sp.GetRequiredService<ProfileMergeService>());
 
-        // Determine data provider mode from configuration
-        var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
-        var cacheProvider = builder.Configuration["DataProvider:Cache"] ?? "Redis";
-        var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
-        var useRedis = !cacheProvider.Equals("InMemory", StringComparison.OrdinalIgnoreCase);
-
-        if (useMongo)
-        {
-            builder.Services.AddSingleton<MongoSpeakerProfileStore>();
-            builder.Services.AddSingleton<IModelPreferenceStore, MongoModelPreferenceStore>();
-            if (useRedis)
-            {
-                builder.Services.AddSingleton<ISpeakerProfileStore>(sp =>
-                    new CachedSpeakerProfileStore(
-                        sp.GetRequiredService<MongoSpeakerProfileStore>(),
-                        sp.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>(),
-                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CachedSpeakerProfileStore>>()));
-            }
-            else
-            {
-                builder.Services.AddSingleton<ISpeakerProfileStore>(sp =>
-                    sp.GetRequiredService<MongoSpeakerProfileStore>());
-            }
-            builder.Services.AddSingleton<ITranscriptStore, MongoTranscriptStore>();
-        }
-        else
-        {
-            // PostgreSQL/SQLite stores are registered by AddPostgresStoreProviders()/AddSqliteStoreProviders();
-            // TryAddSingleton ensures in-memory fallback only if those haven't registered first
-            builder.Services.TryAddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
-            builder.Services.TryAddSingleton<ITranscriptStore, InMemoryTranscriptStore>();
-            builder.Services.TryAddSingleton<IModelPreferenceStore, InMemoryModelPreferenceStore>();
-        }
-
+        // PostgreSQL/SQLite stores are registered by AddPostgresStoreProviders()/AddSqliteStoreProviders();
+        // TryAddSingleton ensures in-memory fallback only if those haven't registered first
+        builder.Services.TryAddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
+        builder.Services.TryAddSingleton<ITranscriptStore, InMemoryTranscriptStore>();
+        builder.Services.TryAddSingleton<IModelPreferenceStore, InMemoryModelPreferenceStore>();
         builder.Services.AddSingleton<SpeakerVerificationFilter>();
         builder.Services.AddSingleton<AdaptiveProfileUpdater>();
         builder.Services.AddSingleton<UnknownSpeakerTracker>();

@@ -58,7 +58,7 @@ public sealed class InputRequiredTimeoutService : BackgroundService
             {
                 break;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogError(ex, "InputRequired timeout sweep failed. Will retry next interval.");
             }
@@ -148,7 +148,7 @@ public sealed class InputRequiredTimeoutService : BackgroundService
                 // without emitting a per-task "failed to process" warning.
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.TaskCheckFailed(ex, taskId);
             }

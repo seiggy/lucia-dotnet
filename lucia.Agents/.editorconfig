@@ -1,0 +1,3 @@
+[*.cs]
+# Broad catches are being triaged (docs/lucia-agents-catch-triage.md). Raise to warning once the backlog is cleared.
+dotnet_diagnostic.CA1031.severity = suggestion

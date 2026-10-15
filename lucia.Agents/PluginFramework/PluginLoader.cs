@@ -80,7 +80,7 @@ public static class PluginLoader
         {
             return AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             Console.Error.WriteLine($"[lucia] PluginLoader: Failed to load assembly '{path}' — {ex.Message}");
             return null;

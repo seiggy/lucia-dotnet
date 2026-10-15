@@ -44,8 +44,7 @@ kubectl apply -f 03-redis.yaml
 kubectl apply -f 04-deployment.yaml
 kubectl apply -f 05-ingress.yaml
 kubectl apply -f 06-rbac.yaml
-kubectl apply -f 07-mongodb.yaml
-kubectl apply -f 08-a2a-deployment.yaml
+kubectl apply -f 07-postgres.yaml
 
 # Verify installation
 kubectl get all -n lucia
@@ -79,8 +78,7 @@ infra/kubernetes/
 │   ├── 04-deployment.yaml         # Lucia app Deployment + Service
 │   ├── 05-ingress.yaml            # Ingress configuration
 │   ├── 06-rbac.yaml               # ServiceAccount + RBAC + PDB
-│   ├── 07-mongodb.yaml            # MongoDB StatefulSet + Service
-│   ├── 08-a2a-deployment.yaml     # A2A agent Deployments (mesh mode)
+│   ├── 07-postgres.yaml           # PostgreSQL StatefulSet + Service + init SQL
 │   ├── kustomization.yaml         # Kustomize configuration
 │   └── README.md                  # Manifests documentation
 │
@@ -307,14 +305,12 @@ kubectl logs -n lucia lucia-redis-0 -f
 
 ### Scaling Deployment
 
-> **⚠️ Single-Instance Constraint:** The AgentHost (lucia) must run as a **single replica**. The in-memory `ScheduledTaskStore` holds active alarms and timers — multiple replicas would split task state and cause missed alarms or duplicate firings. True HA support is a planned future feature. In mesh mode, the Timer Agent can scale independently if needed.
+> **⚠️ Single-Instance Constraint:** The AgentHost (lucia) must run as a **single replica**. The in-memory `ScheduledTaskStore` holds active alarms and timers — multiple replicas would split task state and cause missed alarms or duplicate firings. True HA support is a planned future feature.
 
 ```bash
 # AgentHost must stay at 1 replica
 helm upgrade lucia ./helm -n lucia --set lucia.replicaCount=1
 
-# In mesh mode, Timer Agent can be scaled independently
-kubectl scale deployment timer-agent -n lucia --replicas=2
 ```
 
 ### Rolling Updates

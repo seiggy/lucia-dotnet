@@ -13,7 +13,7 @@ namespace lucia.TimerAgent;
 /// <summary>
 /// Skill that creates timed announcements on Home Assistant assist satellite devices.
 /// Timers are added to <see cref="ScheduledTaskStore"/> and executed by <see cref="ScheduledTaskService"/>.
-/// Timers are persisted to MongoDB via <see cref="IScheduledTaskRepository"/> for durability across restarts.
+/// Timers are persisted via <see cref="IScheduledTaskRepository"/> for durability across restarts.
 /// </summary>
 public sealed class TimerSkill
 {
@@ -127,7 +127,7 @@ public sealed class TimerSkill
             DurationSeconds = durationSeconds
         };
 
-        // Persist to MongoDB for crash recovery
+        // Persist for crash recovery
         try
         {
             await _taskRepository.UpsertAsync(timerTask.ToDocument(), cancellationToken).ConfigureAwait(false);
@@ -138,7 +138,7 @@ public sealed class TimerSkill
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to persist timer {TimerId} to MongoDB — timer will still run in-memory", timerId);
+            _logger.LogWarning(ex, "Failed to persist timer {TimerId} to the database — timer will still run in-memory", timerId);
         }
 
         _taskStore.Add(timerTask);
@@ -182,7 +182,7 @@ public sealed class TimerSkill
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update task {TimerId} status to Cancelled in MongoDB", timerId);
+                _logger.LogWarning(ex, "Failed to update task {TimerId} status to Cancelled in the database", timerId);
             }
 
             _logger.LogInformation("Timer {TimerId} cancelled", timerId);

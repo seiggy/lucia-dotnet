@@ -2,7 +2,7 @@ namespace lucia.Data.PostgreSQL;
 
 /// <summary>
 /// Well-known database names for PostgreSQL keyed service resolution.
-/// Mirrors the MongoDB three-database pattern (luciaconfig, luciatraces, luciatasks).
+/// Mirrors the three-database pattern (luciaconfig, luciatraces, luciatasks).
 /// </summary>
 public static class PostgresDbNames
 {

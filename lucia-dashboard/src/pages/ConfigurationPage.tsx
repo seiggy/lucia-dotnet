@@ -10,6 +10,9 @@ import {
 import CustomSelect from '../components/CustomSelect'
 import ToastContainer from '../components/ToastContainer'
 import ConfirmDialog from '../components/ConfirmDialog'
+import Modal from '../components/Modal'
+import Field from '../components/Field'
+import { useConfirm } from '../hooks/useConfirm'
 import { useToast } from '../hooks/useToast'
 import type {
   ConfigSectionSchema,
@@ -40,11 +43,28 @@ function ConnectionStringsEditor({
     onChange({ ...entries, [key]: value || null })
   }
 
+  const [naming, setNaming] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [nameError, setNameError] = useState<string | null>(null)
+
+  const closeNaming = () => {
+    setNaming(false)
+    setNewName('')
+    setNameError(null)
+  }
+
   const handleAddNew = () => {
-    const name = prompt('Connection name:')
-    if (!name || name.trim() === '') return
-    if (entries[name] !== undefined) return
-    onChange({ ...entries, [name.trim()]: '' })
+    const name = newName.trim()
+    if (!name) return
+    // Configuration keys are case-insensitive. A removed entry is null, so only a live one blocks the name,
+    // and a removed one is reused under its existing spelling.
+    const existingKey = Object.keys(entries).find(key => key.toLowerCase() === name.toLowerCase())
+    if (existingKey !== undefined && entries[existingKey] != null) {
+      setNameError(`A connection named "${existingKey}" already exists.`)
+      return
+    }
+    closeNaming()
+    onChange({ ...entries, [existingKey ?? name]: '' })
   }
 
   const handleRemove = (key: string) => {
@@ -91,12 +111,51 @@ function ConnectionStringsEditor({
       })}
       <button
         type="button"
-        onClick={handleAddNew}
+        onClick={() => setNaming(true)}
         className="flex items-center gap-2 rounded-xl border border-dashed border-stone px-4 py-2 text-sm text-dust hover:border-amber hover:text-amber transition-colors"
       >
         <span className="text-lg leading-none">+</span>
         Add Connection String
       </button>
+      <Modal open={naming} onClose={closeNaming} title="Name this connection" size="sm" dismissOnBackdrop={false}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            handleAddNew()
+          }}
+        >
+          <Field label="Connection name" error={nameError ?? undefined}>
+            {(control) => (
+              <input
+                {...control}
+                type="text"
+                value={newName}
+                onChange={(e) => {
+                  setNewName(e.target.value)
+                  setNameError(null)
+                }}
+                className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light input-focus"
+              />
+            )}
+          </Field>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeNaming}
+              className="rounded-xl border border-stone px-4 py-2 text-sm text-fog hover:text-light transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!newName.trim()}
+              className="rounded-xl bg-amber px-4 py-2 text-sm font-medium text-void disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }
@@ -571,6 +630,7 @@ export default function ConfigurationPage() {
 
   // Toast notifications
   const { toasts, addToast: showToast, dismissToast } = useToast()
+  const confirmAction = useConfirm()
 
   // Reset confirmation dialog
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
@@ -675,16 +735,18 @@ export default function ConfigurationPage() {
   }, [activeSection, showSecrets, showToast, schemas, entriesToValues])
 
   const handleSectionChange = useCallback(
-    (section: string) => {
+    async (section: string) => {
       if (isDirty()) {
-        const proceed = window.confirm(
-          'You have unsaved changes. Discard and switch sections?',
-        )
+        const proceed = await confirmAction({
+          title: 'Discard unsaved changes?',
+          message: 'You have unsaved changes. Switching sections discards them.',
+          confirmLabel: 'Discard changes',
+        })
         if (!proceed) return
       }
       setActiveSection(section)
     },
-    [isDirty],
+    [isDirty, confirmAction],
   )
 
   const handleSave = useCallback(async () => {

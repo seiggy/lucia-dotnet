@@ -1,9 +1,7 @@
-using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
-using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -31,16 +29,13 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
     private const string BinarySensorStateErrorMessage = "Unable to retrieve binary sensor data. Please try again.";
 
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingProviderResolver _embeddingResolver;
-    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingService;
     private readonly ILogger<SensorControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
     private readonly IHybridEntityMatcher _entityMatcher;
     private readonly IOptionsMonitor<SensorControlSkillOptions> _options;
-    private ImmutableArray<SensorEntity> _cachedSensors = [];
-    private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
-    private readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private readonly SkillEntityIndex<SensorEntity> _sensors;
+    private volatile bool _skipDeviceCache;
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.SensorControl", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.SensorControl", "1.0.0");
@@ -49,6 +44,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
     private static readonly Counter<long> SensorSearchFailures = Meter.CreateCounter<long>("sensor.search.failures");
     private static readonly Histogram<double> SensorSearchDurationMs = Meter.CreateHistogram<double>("sensor.search.duration", "ms");
     private static readonly Histogram<double> CacheRefreshDurationMs = Meter.CreateHistogram<double>("sensor.cache.refresh.duration", "ms");
+    private static readonly ToolMetrics LookupMetrics = ToolMetrics.Create(Meter, "sensor.lookup", "sensor lookup");
 
     public SensorControlSkill(
         IHomeAssistantClient homeAssistantClient,
@@ -60,12 +56,18 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         IOptionsMonitor<SensorControlSkillOptions> options)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingResolver = embeddingResolver;
         _logger = logger;
         _deviceCache = deviceCache;
         _locationService = locationService;
         _entityMatcher = entityMatcher;
         _options = options;
+        _sensors = new SkillEntityIndex<SensorEntity>(
+            embeddingResolver,
+            logger,
+            "sensor",
+            LoadSensorsAsync,
+            () => TimeSpan.FromMinutes(options.CurrentValue.CacheRefreshMinutes),
+            CacheRefreshDurationMs);
     }
 
     public IList<AITool> GetTools()
@@ -133,74 +135,64 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
     {
         _logger.LogInformation("Initializing SensorControlSkill and caching sensor entities...");
 
-        _embeddingService = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
-        if (_embeddingService is null)
-        {
-            _logger.LogWarning("No embedding provider configured — sensor semantic search will not be available.");
+        await _sensors.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (_sensors.Embeddings is null)
             return;
-        }
 
-        await RefreshCacheAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("SensorControlSkill initialized with {SensorCount} sensor entities", _cachedSensors.Length);
+        _logger.LogInformation("SensorControlSkill initialized with {SensorCount} sensor entities", _sensors.Items.Length);
     }
 
     /// <summary>
     /// Re-resolves the embedding generator using the specified provider name.
     /// Called by the owning agent when the embedding configuration changes.
     /// </summary>
-    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
-    {
-        _embeddingService = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("SensorControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
-    }
+    public Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+        => _sensors.UpdateEmbeddingProviderAsync(providerName, cancellationToken);
 
+    /// <summary>Rebuilds the sensors from Home Assistant, skipping the shared device cache, so every name is embedded again.</summary>
     public async Task InvalidateEmbeddingCacheAsync(CancellationToken cancellationToken = default)
     {
-        _cachedSensors = [];
-        Volatile.Write(ref _lastCacheUpdateTicks, DateTime.MinValue.Ticks);
-        await RefreshCacheAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
+        _skipDeviceCache = true;
+        try
+        {
+            await _sensors.ReloadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _skipDeviceCache = false;
+        }
     }
 
     [Description("Find a sensor by name or description using natural language. Works for both regular sensors (temperature, humidity, etc.) and binary sensors (motion, door, etc.).")]
     public async Task<string> FindSensorAsync(
         [Description("Name or description of the sensor (e.g., 'living room temperature', 'front door', 'motion sensor', 'battery level')")] string searchTerm)
     {
-        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
-
-        if (_cachedSensors.IsEmpty)
-        {
-            SensorSearchFailures.Add(1);
-            return "No sensors available in the system.";
-        }
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.term", searchTerm);
-        var start = Stopwatch.GetTimestamp();
         SensorSearchRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, SensorSearchErrorMessage, async () =>
         {
-            if (_embeddingService is null)
+            await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_sensors.Items.IsEmpty)
+            {
+                SensorSearchFailures.Add(1);
+                return "No sensors available in the system.";
+            }
+
+            var embeddings = _sensors.Embeddings;
+            if (embeddings is null)
             {
                 SensorSearchFailures.Add(1);
                 return "Embedding provider not available for sensor search.";
             }
 
-            var opts = _options.CurrentValue;
-            var matchOptions = new HybridMatchOptions
-            {
-                Threshold = opts.HybridSimilarityThreshold,
-                EmbeddingWeight = opts.EmbeddingWeight,
-                ScoreDropoffRatio = opts.ScoreDropoffRatio,
-                DisagreementPenalty = opts.DisagreementPenalty,
-                EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
-            };
-
             var matches = await _entityMatcher.FindMatchesAsync(
                 searchTerm,
-                (IReadOnlyList<SensorEntity>)_cachedSensors,
-                _embeddingService,
-                matchOptions).ConfigureAwait(false);
+                (IReadOnlyList<SensorEntity>)_sensors.Items,
+                embeddings,
+                GetCurrentMatchOptions()).ConfigureAwait(false);
 
             if (matches.Count > 0)
             {
@@ -243,7 +235,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             if (hierarchyResult.ResolutionStrategy != ResolutionStrategy.None && locationEntities.Count > 0)
             {
                 var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var areaSensors = _cachedSensors.Where(s => matchedEntityIds.Contains(s.EntityId)).ToList();
+                var areaSensors = _sensors.Items.Where(s => matchedEntityIds.Contains(s.EntityId)).ToList();
 
                 if (areaSensors.Count > 0)
                 {
@@ -264,34 +256,24 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             }
 
             SensorSearchFailures.Add(1);
-            return $"No sensor found matching '{searchTerm}'. Available sensors: {string.Join(", ", _cachedSensors.Take(5).Select(s => s.FriendlyName))}";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error finding sensor for search term: {SearchTerm}", searchTerm);
-            SensorSearchFailures.Add(1);
-            return SensorSearchErrorMessage;
-        }
-        finally
-        {
-            SensorSearchDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+            return $"No sensor found matching '{searchTerm}'. Available sensors: {string.Join(", ", _sensors.Items.Take(5).Select(s => s.FriendlyName))}";
+        }, onFailure: () => SensorSearchFailures.Add(1), duration: SensorSearchDurationMs, detail: searchTerm).ConfigureAwait(false);
     }
 
     [Description("Find all sensors in a specific area/room. Returns both regular sensors and binary sensors.")]
     public async Task<string> FindSensorsByAreaAsync(
         [Description("The area/room name to search (e.g., 'living room', 'garage', 'kitchen')")] string areaName)
     {
-        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
-
-        if (_cachedSensors.IsEmpty)
-            return "No sensors available in the system.";
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(FindSensorsByAreaAsync)), AreaSensorSearchErrorMessage, async () =>
         {
+            await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_sensors.Items.IsEmpty)
+                return "No sensors available in the system.";
+
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
             var locationEntities = hierarchyResult.ResolvedEntities;
@@ -300,7 +282,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             if (hierarchyResult.ResolutionStrategy == ResolutionStrategy.None || locationEntities.Count == 0)
             {
-                var availableAreas = _cachedSensors
+                var availableAreas = _sensors.Items
                     .Where(s => !string.IsNullOrEmpty(s.Area))
                     .Select(s => s.Area!)
                     .Distinct();
@@ -308,7 +290,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             }
 
             var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var areaSensors = _cachedSensors.Where(s => matchedEntityIds.Contains(s.EntityId)).ToList();
+            var areaSensors = _sensors.Items.Where(s => matchedEntityIds.Contains(s.EntityId)).ToList();
             if (!areaSensors.Any())
                 return $"No sensors found in the matched location for '{areaName}'.";
 
@@ -324,12 +306,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error finding sensors in area: {AreaName}", areaName);
-            return AreaSensorSearchErrorMessage;
-        }
+        }, detail: areaName).ConfigureAwait(false);
     }
 
     [Description("Get the current reading of a specific sensor entity. Use this for regular sensors (temperature, humidity, battery, power, etc.). Sensors are read-only.")]
@@ -339,20 +316,15 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(GetSensorStateAsync)), SensorStateErrorMessage, async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
                 return $"Sensor '{entityId}' not found.";
 
-            var device = _cachedSensors.FirstOrDefault(s => s.EntityId == entityId);
+            var device = _sensors.Items.FirstOrDefault(s => s.EntityId == entityId);
             return FormatSensorState(state, device);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting sensor state for {EntityId}", entityId);
-            return SensorStateErrorMessage;
-        }
+        }, detail: entityId).ConfigureAwait(false);
     }
 
     [Description("Get the current state of a specific binary sensor entity. Binary sensors have on/off states (e.g., motion detected, door open/closed, window open). They are read-only.")]
@@ -362,13 +334,13 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(GetBinarySensorStateAsync)), BinarySensorStateErrorMessage, async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
                 return $"Binary sensor '{entityId}' not found.";
 
-            var device = _cachedSensors.FirstOrDefault(s => s.EntityId == entityId);
+            var device = _sensors.Items.FirstOrDefault(s => s.EntityId == entityId);
 
             var friendlyName = state.Attributes.TryGetValue("friendly_name", out var fn) ? fn?.ToString() : entityId;
             var deviceClass = state.Attributes.TryGetValue("device_class", out var dc) ? dc?.ToString() : null;
@@ -386,12 +358,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting binary sensor state for {EntityId}", entityId);
-            return BinarySensorStateErrorMessage;
-        }
+        }, detail: entityId).ConfigureAwait(false);
     }
 
     [Description("Get all sensors of a specific type in an area. Filter by device class to find specific kinds of sensors (e.g., temperature sensors, motion sensors, battery sensors).")]
@@ -399,17 +366,17 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         [Description("The area/room name to search (e.g., 'living room', 'kitchen')")] string areaName,
         [Description("Optional device class filter (e.g., 'temperature', 'humidity', 'motion', 'door', 'window', 'battery', 'power', 'illuminance'). Leave empty to return all sensors in the area.")] string? deviceClass = null)
     {
-        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
-
-        if (_cachedSensors.IsEmpty)
-            return "No sensors available in the system.";
-
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", areaName);
         activity?.SetTag("filter.device_class", deviceClass ?? "none");
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, LookupMetrics.ForTool(nameof(GetAreaSensorsAsync)), AreaSensorSearchErrorMessage, async () =>
         {
+            await _sensors.EnsureCurrentAsync().ConfigureAwait(false);
+
+            if (_sensors.Items.IsEmpty)
+                return "No sensors available in the system.";
+
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
                 areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
 
@@ -419,7 +386,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
                 return $"No area found matching '{areaName}'. {hierarchyResult.ResolutionReason}";
 
             var matchedEntityIds = hierarchyResult.ResolvedEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var areaSensors = _cachedSensors.Where(s => matchedEntityIds.Contains(s.EntityId)).ToList();
+            var areaSensors = _sensors.Items.Where(s => matchedEntityIds.Contains(s.EntityId)).ToList();
 
             if (!string.IsNullOrEmpty(deviceClass))
             {
@@ -451,12 +418,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error finding sensors in area: {AreaName}", areaName);
-            return AreaSensorSearchErrorMessage;
-        }
+        }, detail: areaName).ConfigureAwait(false);
     }
 
     private bool IsTrackedSensorEntity(string entityId)
@@ -513,140 +475,92 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         return sb.ToString();
     }
 
-    private async Task RefreshCacheAsync(bool forceRefresh = false, CancellationToken cancellationToken = default)
+    private async Task<IReadOnlyList<SensorEntity>> LoadSensorsAsync(
+        IEmbeddingGenerator<string, Embedding<float>> embeddings,
+        CancellationToken cancellationToken)
     {
-        if (_embeddingService is null)
+        using var activity = ActivitySource.StartActivity("RefreshCacheAsync");
+
+        var cached = _skipDeviceCache
+            ? null
+            : await TryLoadFromDeviceCacheAsync(cancellationToken).ConfigureAwait(false);
+        if (cached is not null)
         {
-            _logger.LogWarning("Skipping sensor cache refresh — no embedding provider available.");
-            return;
+            _logger.LogInformation("Loaded {Count} sensors from Redis cache", cached.Count);
+            return cached;
         }
 
-        using var activity = ActivitySource.StartActivity();
-        var start = Stopwatch.GetTimestamp();
-        try
-        {
-            if (!forceRefresh)
-            {
-                // Try Redis cache first (device data only — areas come from IEntityLocationService)
-                var cached = await _deviceCache.GetCachedSensorsAsync(cancellationToken).ConfigureAwait(false);
-                if (cached is not null)
-                {
-                    var allEmbeddingsFound = true;
-                    foreach (var sensor in cached)
-                    {
-                        var embedding = await _deviceCache.GetEmbeddingAsync($"sensor:{sensor.EntityId}", cancellationToken).ConfigureAwait(false);
-                        if (embedding is not null)
-                        {
-                            sensor.NameEmbedding = embedding;
-                        }
-                        else
-                        {
-                            allEmbeddingsFound = false;
-                            break;
-                        }
-                    }
+        _logger.LogDebug("Refreshing sensor cache from Home Assistant...");
 
-                    if (allEmbeddingsFound)
-                    {
-                        foreach (var sensor in cached)
-                        {
-                            if (sensor.PhoneticKeys.Length == 0)
-                            {
-                                sensor.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(sensor.FriendlyName);
-                            }
-                        }
+        var allStates = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
 
-                        _cachedSensors = [.. cached];
-                        Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
-                        _logger.LogInformation("Loaded {Count} sensors from Redis cache", cached.Count);
-                        return;
-                    }
-                }
-            }
+        var sensors = new List<SensorEntity>();
+        foreach (var state in allStates.Where(state => IsTrackedSensorEntity(state.EntityId)))
+            sensors.Add(await BuildSensorAsync(state, embeddings, cancellationToken).ConfigureAwait(false));
 
-            _logger.LogDebug("Refreshing sensor cache from Home Assistant...");
-
-            var allStates = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
-
-            var sensorEntities = allStates
-                .Where(state => IsTrackedSensorEntity(state.EntityId))
-                .ToList();
-
-            var newSensors = new List<SensorEntity>();
-
-            foreach (var entity in sensorEntities)
-            {
-                var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
-                    ? nameObj?.ToString() ?? entity.EntityId
-                    : entity.EntityId;
-
-                var deviceClass = entity.Attributes.TryGetValue("device_class", out var dcObj)
-                    ? dcObj?.ToString()
-                    : null;
-
-                var unitOfMeasurement = entity.Attributes.TryGetValue("unit_of_measurement", out var uomObj)
-                    ? uomObj?.ToString()
-                    : null;
-
-                var stateClass = entity.Attributes.TryGetValue("state_class", out var scObj)
-                    ? scObj?.ToString()
-                    : null;
-
-                // Resolve area from the shared entity location service
-                var areaInfo = _locationService.GetAreaForEntity(entity.EntityId);
-
-                var embedding = await _embeddingService.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                newSensors.Add(new SensorEntity
-                {
-                    EntityId = entity.EntityId,
-                    FriendlyName = friendlyName,
-                    NameEmbedding = embedding,
-                    PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
-                    Area = areaInfo?.Name,
-                    DeviceClass = deviceClass,
-                    UnitOfMeasurement = unitOfMeasurement,
-                    StateClass = stateClass
-                });
-            }
-
-            _cachedSensors = [.. newSensors];
-            Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
-
-            var ttl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
-            var embedTtl = TimeSpan.FromHours(24);
-            await _deviceCache.SetCachedSensorsAsync(newSensors, ttl, cancellationToken).ConfigureAwait(false);
-            foreach (var sensor in newSensors.Where(s => s.NameEmbedding is not null))
-                await _deviceCache.SetEmbeddingAsync($"sensor:{sensor.EntityId}", sensor.NameEmbedding!, embedTtl, cancellationToken).ConfigureAwait(false);
-
-            _logger.LogInformation("Cached {Count} sensor entities", newSensors.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error refreshing sensor cache");
-        }
-        finally
-        {
-            CacheRefreshDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        await StoreInDeviceCacheAsync(sensors, cancellationToken).ConfigureAwait(false);
+        return sensors;
     }
 
-    private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
+    /// <summary>Device data only. Areas come from <see cref="IEntityLocationService"/>. Returns null unless every sensor has its embedding.</summary>
+    private async Task<List<SensorEntity>?> TryLoadFromDeviceCacheAsync(CancellationToken cancellationToken)
     {
-        var cacheRefreshInterval = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
-        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
+        var cached = await _deviceCache.GetCachedSensorsAsync(cancellationToken).ConfigureAwait(false);
+        if (cached is null)
+            return null;
+
+        foreach (var sensor in cached)
         {
-            if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
-                return;
-            try
-            {
-                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
-                    await RefreshCacheAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                _refreshLock.Release();
-            }
+            var embedding = await _deviceCache.GetEmbeddingAsync($"sensor:{sensor.EntityId}", cancellationToken).ConfigureAwait(false);
+            if (embedding is null)
+                return null;
+
+            sensor.NameEmbedding = embedding;
+        }
+
+        foreach (var sensor in cached.Where(s => s.PhoneticKeys.Length == 0))
+            sensor.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(sensor.FriendlyName);
+
+        return cached;
+    }
+
+    private async Task<SensorEntity> BuildSensorAsync(
+        HomeAssistantState entity,
+        IEmbeddingGenerator<string, Embedding<float>> embeddings,
+        CancellationToken cancellationToken)
+    {
+        var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
+            ? nameObj?.ToString() ?? entity.EntityId
+            : entity.EntityId;
+
+        return new SensorEntity
+        {
+            EntityId = entity.EntityId,
+            FriendlyName = friendlyName,
+            NameEmbedding = await embeddings.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false),
+            PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
+            Area = _locationService.GetAreaForEntity(entity.EntityId)?.Name,
+            DeviceClass = entity.Attributes.TryGetValue("device_class", out var dcObj) ? dcObj?.ToString() : null,
+            UnitOfMeasurement = entity.Attributes.TryGetValue("unit_of_measurement", out var uomObj) ? uomObj?.ToString() : null,
+            StateClass = entity.Attributes.TryGetValue("state_class", out var scObj) ? scObj?.ToString() : null
+        };
+    }
+
+    /// <summary>A failed write must not discard sensors that were just loaded, so it only logs.</summary>
+    private async Task StoreInDeviceCacheAsync(List<SensorEntity> sensors, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var ttl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+            await _deviceCache.SetCachedSensorsAsync(sensors, ttl, cancellationToken).ConfigureAwait(false);
+            foreach (var sensor in sensors.Where(s => s.NameEmbedding is not null))
+                await _deviceCache.SetEmbeddingAsync($"sensor:{sensor.EntityId}", sensor.NameEmbedding!, TimeSpan.FromHours(24), cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation("Cached {Count} sensor entities", sensors.Count);
+        }
+        catch (Exception ex) when (!ex.IsCancellation())
+        {
+            _logger.LogError(ex, "Error caching sensor entities");
         }
     }
 }

@@ -12,7 +12,7 @@ namespace lucia.Agents.Training;
 
 /// <summary>
 /// Singleton observer that captures orchestrator request lifecycles into
-/// <see cref="ConversationTrace"/> objects and persists them to MongoDB.
+/// <see cref="ConversationTrace"/> objects and persists them to the trace store.
 /// Uses a <see cref="ConcurrentDictionary{TKey,TValue}"/> keyed by request ID
 /// instead of <see cref="AsyncLocal{T}"/>, which does not survive the MAF
 /// <c>InProcessExecution</c> workflow boundary.
@@ -207,7 +207,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         {
             await PersistTraceAsync(trace).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Trace persistence failed for {TraceId}", trace.Id);
         }
@@ -228,6 +228,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             var elapsedMs = Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
             TraceCaptureTelemetry.CaptureLatency.Record(elapsedMs);
         }
+        // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
         catch (Exception ex)
         {
             TraceCaptureTelemetry.StorageErrors.Add(1);

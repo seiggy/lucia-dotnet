@@ -362,7 +362,7 @@ function LuciaHaStep({
                   <p className="text-xs text-rose">{resumeError}</p>
                 )}
                 <p className="text-xs text-dust">
-                  Lost your key? Reset the MongoDB configuration store and re-run the setup wizard.
+                  Lost your key? Reset the configuration store and re-run the setup wizard.
                 </p>
               </>
             )}

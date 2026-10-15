@@ -106,8 +106,9 @@ function InstallerRoute() {
 }
 
 function AppRoutes() {
-  const { authenticated, setupComplete, loading, logout } = useAuth()
+  const { authenticated, setupComplete, loading, statusError, refresh, logout } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const [hasAppliance, setHasAppliance] = useState<boolean | null>(null)
   const [appVersion, setAppVersion] = useState('Loading version...')
 
@@ -176,6 +177,31 @@ function AppRoutes() {
         <div className="flex items-center gap-3 text-fog">
           <Sparkles className="h-5 w-5 animate-pulse text-amber" />
           <span className="font-display text-sm tracking-wide">Loading...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (statusError) {
+    return (
+      <div className="relative flex min-h-screen items-center justify-center bg-observatory px-4">
+        <ThemeSelector className="absolute right-4 top-4 w-[170px]" />
+        <div role="alert" className="max-w-sm text-center">
+          <h1 className="font-display text-lg font-semibold text-light">Can't reach Lucia</h1>
+          <p className="mt-2 text-sm text-fog">
+            The dashboard couldn't read its sign-in status. The server may be starting, restarting, or unreachable.
+          </p>
+          <button
+            type="button"
+            disabled={retrying}
+            onClick={() => {
+              setRetrying(true)
+              void refresh().finally(() => setRetrying(false))
+            }}
+            className="mt-5 rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-amber-glow disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber"
+          >
+            {retrying ? 'Trying…' : 'Try again'}
+          </button>
         </div>
       </div>
     )

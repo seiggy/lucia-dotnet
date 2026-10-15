@@ -80,11 +80,10 @@ test('edits and deletes only the selected enrolled users memory', async ({ page 
   await page.getByLabel('Enrolled user').selectOption('profile-alex');
   await expect(page.getByText('Coffee', { exact: true })).toBeVisible();
   await expect(page.getByText('Keep replies concise.', { exact: true })).toHaveCount(0);
-  page.once('dialog', async dialog => {
-    expect(dialog.message()).toContain('for Alex');
-    await dialog.accept();
-  });
   await page.getByRole('button', { name: 'Delete drink', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete memory?' });
+  await expect(confirm).toContainText('for Alex');
+  await confirm.getByRole('button', { name: 'Delete memory', exact: true }).click();
   await expect(page.getByText(/No personal memories are saved for Alex/)).toBeVisible();
   expect(fixture.writes.at(-1)).toEqual({ profile: 'profile-alex', key: 'drink', method: 'DELETE' });
   expect(fixture.entries['profile-sam']).toHaveLength(2);
@@ -171,8 +170,9 @@ for (const scenario of [
     await page.goto(`/user-memories?profile=${scenario.profile}`);
     const deleteButton = page.getByRole('button', { name: `Delete ${scenario.deleted}`, exact: true });
     await deleteButton.focus();
-    page.once('dialog', dialog => dialog.accept());
     await page.keyboard.press('Enter');
+    await page.getByRole('dialog', { name: 'Delete memory?' })
+      .getByRole('button', { name: 'Delete memory', exact: true }).click();
     await expect(deleteButton).toHaveCount(0);
     if (scenario.next) {
       await expect(page.getByRole('button', { name: `Edit ${scenario.next}`, exact: true })).toBeFocused();

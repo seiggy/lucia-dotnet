@@ -104,8 +104,7 @@ public static class Extensions
                     .AddRuntimeInstrumentation()
                     .AddProcessInstrumentation()
                     .AddMeter("lucia.TraceCapture")
-                    .AddMeter("lucia.Skills.LightControl")
-                    .AddMeter("lucia.Skills.MusicPlayback")
+                    .AddMeter("lucia.Skills.*")
                     .AddMeter("lucia.Wyoming.SpeechPipeline")
                     .AddMeter("lucia.Wyoming.BackgroundTasks")
                     .AddMeter("Microsoft.Agents.AI");
@@ -184,8 +183,7 @@ public static class Extensions
                     .AddSource("lucia.AgentDispatch")
                     .AddSource("lucia.Agents.General")
                     .AddSource("lucia.Agents.Music")
-                    .AddSource("lucia.Skills.LightControl")
-                    .AddSource("lucia.Skills.MusicPlayback")
+                    .AddSource("lucia.Skills.*")
                     .AddSource("lucia.Services.EntityLocation")
                     .AddSource("Microsoft.Extensions.AI")
                     .AddSource("Microsoft.Extensions.Agents*")
@@ -197,7 +195,6 @@ public static class Extensions
                     .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
                     .AddSource("lucia.Wyoming.Session")
                     .AddSource("lucia.Wyoming.BackgroundTasks")
-                    .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
                     .AddRedisInstrumentation()
                     .AddAspNetCoreInstrumentation(tracing =>
                         tracing.Filter = context =>

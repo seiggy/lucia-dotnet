@@ -35,13 +35,7 @@ public sealed class TimerAgentPlugin : IAgentPlugin
         builder.Services.AddSingleton<ScheduledTaskStore>();
         builder.Services.AddSingleton<CronScheduleService>();
 
-        var storeType = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
-        if (storeType.Equals("MongoDB", StringComparison.OrdinalIgnoreCase))
-        {
-            builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
-            builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
-        }
-        // SQLite and PostgreSQL alternatives are registered by the host.
+        // IScheduledTaskRepository and IAlarmClockRepository are registered by the host (SQLite or PostgreSQL).
 
         builder.Services.AddHostedService<ScheduledTaskService>();
         builder.Services.AddHostedService<ScheduledTaskRecoveryService>();

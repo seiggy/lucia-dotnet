@@ -96,7 +96,15 @@ public sealed class PostgresResponseTemplateRepository : IResponseTemplateReposi
             Value = JsonSerializer.Serialize(template, JsonOptions),
         });
 
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new DuplicateResponseTemplateException(template.SkillId, template.Action, ex);
+        }
+
         return template;
     }
 

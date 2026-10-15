@@ -335,7 +335,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
 
     /// <summary>
     /// Creates a real <see cref="DynamicAgent"/> backed by the given Ollama model.
-    /// The agent is built from its MongoDB definition, which must exist in the repository.
+    /// The agent is built from its stored definition, which must exist in the repository.
     /// </summary>
     public async Task<RealAgentInstance> CreateDynamicAgentAsync(string modelName, string agentId)
     {

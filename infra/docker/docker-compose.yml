@@ -10,7 +10,7 @@
 # Services:
 #   - lucia: Agent Host API (all agents embedded in standalone mode)
 #   - lucia-redis: Task persistence and session state
-#   - lucia-mongo: Trace capture and configuration storage
+#   - lucia-postgres: Configuration, trace capture and task storage
 #
 # Usage:
 #   # Start all services
@@ -98,65 +98,54 @@ services:
 
 
   # ========================================================================
-  # MongoDB Service - Trace Capture and Configuration Storage
+  # PostgreSQL Service - Configuration, Trace Capture and Task Storage
   # ========================================================================
-  lucia-mongo:
-    # Use official MongoDB 8.0.5 image (pinned for reproducible builds)
-    image: mongo:8.0.5
-    
-    container_name: lucia-mongo
-    
-    # Network configuration
+  lucia-postgres:
+    # Pinned major version. The init script creates the luciaconfig, luciatraces
+    # and luciatasks databases the first time the data volume is initialised.
+    image: postgres:17-alpine
+
+    container_name: lucia-postgres
+
     networks:
       - lucia-network
-    
-    # Port exposure (only on localhost for security)
-    ports:
-      - "127.0.0.1:27017:27017"
-    
-    # Volume for persistent data storage
+
     volumes:
-      - lucia-mongo-data:/data/db
-    
-    # Workaround for SERVER-121912: MongoDB 8.0.x crashes on Linux kernel 6.19+
-    # due to TCMalloc/rseq ABI mismatch. Forces glibc to enable pthread rseq.
-    # Remove once TCMalloc upstream patch lands and MongoDB rebases.
+      - lucia-postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+
     environment:
-      - GLIBC_TUNABLES=glibc.pthread.rseq=1
-    
-    # Health check for automatic restart
+      # Superuser password. Avoid ';' in the value: it is also embedded in the
+      # Npgsql connection strings below.
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the environment or infra/docker/.env}
+
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    
-    # Resource limits
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
     deploy:
       resources:
         limits:
           cpus: '1'
           memory: 512M
         reservations:
-          cpus: '0.5'
+          cpus: '0.25'
           memory: 256M
-    
-    # Restart policy
+
     restart: unless-stopped
-    
-    # Logging configuration
+
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-        tag: "lucia-mongo"
-    
-    # Security options
+        tag: "lucia-postgres"
+
     security_opt:
       - no-new-privileges:true
-
 
   # ========================================================================
   # Lucia Agent Host Service - Main Application
@@ -176,11 +165,11 @@ services:
 
     container_name: lucia
 
-    # Depends on Redis and MongoDB being healthy
+    # Depends on Redis and PostgreSQL being healthy
     depends_on:
       lucia-redis:
         condition: service_healthy
-      lucia-mongo:
+      lucia-postgres:
         condition: service_healthy
     
     # Network configuration
@@ -197,16 +186,18 @@ services:
       - lucia-models:/app/models
     
     # All user configuration (LLM keys, Home Assistant connection, etc.) is handled
-    # by the setup wizard on first launch and stored in MongoDB. No .env file needed.
+    # by the setup wizard on first launch and stored in PostgreSQL. Set POSTGRES_PASSWORD in .env.
     environment:
       # ASP.NET Core configuration
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       
-      # MongoDB connection strings (infrastructure — not user-configurable)
-      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
-      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
-      - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
+      # PostgreSQL (infrastructure, not user-configurable)
+      - DataProvider__Store=PostgreSQL
+      - DataProvider__Cache=Redis
+      - ConnectionStrings__luciaconfig=Host=lucia-postgres;Port=5432;Database=luciaconfig;Username=postgres;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - ConnectionStrings__luciatraces=Host=lucia-postgres;Port=5432;Database=luciatraces;Username=postgres;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      - ConnectionStrings__luciatasks=Host=lucia-postgres;Port=5432;Database=luciatasks;Username=postgres;Password=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       
       # Redis connection string
       - ConnectionStrings__redis=lucia-redis:6379
@@ -299,8 +290,8 @@ volumes:
   lucia-redis-data:
     driver: local
   
-  # MongoDB persistent data
-  lucia-mongo-data:
+  # PostgreSQL persistent data
+  lucia-postgres-data:
     driver: local
   
   # Lucia model storage (writable by appuser, persists across container recreations)

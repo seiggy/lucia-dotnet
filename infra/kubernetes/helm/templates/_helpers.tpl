@@ -79,28 +79,40 @@ Returns "hostname" or "hostname.namespace.svc.cluster.local" depending on contex
 {{- end }}
 
 {{/*
-MongoDB host for ConfigMap and connection strings.
+PostgreSQL host and port for the readiness check: the bundled server, or the external one.
 */}}
-{{- define "lucia.mongodb.host" -}}
-{{- if .Values.mongodb.enabled }}
-{{- printf "%s-mongodb" (include "lucia.fullname" .) }}
+{{- define "lucia.postgres.host" -}}
+{{- if .Values.postgres.enabled }}
+{{- .Values.postgres.host }}
 {{- else }}
-{{- .Values.mongodb.externalHost | default "mongodb" }}
+{{- printf "%s-postgres" (include "lucia.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{- define "lucia.postgres.port" -}}
+{{- if .Values.postgres.enabled }}
+{{- .Values.postgres.port }}
+{{- else }}
+{{- .Values.bundledPostgres.service.port }}
 {{- end }}
 {{- end }}
 
 {{/*
 PostgreSQL connection strings for every pod using the shared data provider.
+Read from the bundled server's Secret, or from the external existingSecret.
 */}}
 {{- define "lucia.postgres.env" -}}
-{{- if .Values.postgres.enabled }}
 {{- range $database := list "luciaconfig" "luciatraces" "luciatasks" }}
 - name: ConnectionStrings__{{ $database }}
   valueFrom:
     secretKeyRef:
+      {{- if $.Values.postgres.enabled }}
       name: {{ $.Values.postgres.existingSecret | quote }}
       key: {{ required (printf "postgres.connectionStringKeys.%s is required" $database) (index $.Values.postgres.connectionStringKeys $database) | quote }}
-{{- end }}
+      {{- else }}
+      name: {{ printf "%s-postgres" (include "lucia.fullname" $) | quote }}
+      key: {{ $database | quote }}
+      {{- end }}
 {{- end }}
 {{- end }}
 

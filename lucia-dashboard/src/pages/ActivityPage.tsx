@@ -176,7 +176,7 @@ export default function ActivityPage() {
   const [eventHistory, setEventHistory] = useState<LiveEvent[]>([])
   const clearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const { lastEvent, connectionState, reconnect } = useActivityStream()
+  const { lastEvent, connectionState, connectionCount, reconnect } = useActivityStream()
 
   // Load initial data
   const loadData = useCallback(async () => {
@@ -213,6 +213,11 @@ export default function ActivityPage() {
     }, 30000)
     return () => clearInterval(interval)
   }, [])
+
+  // Completion events missed while the stream was down are not replayed, so clear nodes left in a processing state.
+  useEffect(() => {
+    if (connectionCount > 1) setNodeStates({})
+  }, [connectionCount])
 
   // Process live events into node states + timeline
   useEffect(() => {

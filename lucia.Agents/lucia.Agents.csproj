@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <NoWarn>SKEXP0110;SKEXP0001;SKEXP0010</NoWarn>
     <PreviewFeatures>enable</PreviewFeatures>
@@ -32,12 +32,10 @@
     <PackageReference Include="Microsoft.ML.Tokenizers" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" />
-    <PackageReference Include="MongoDB.Driver" />
     <PackageReference Include="OllamaSharp" />
     <PackageReference Include="System.Linq.Async">
       <ExcludeAssets>all</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Aspire.StackExchange.Redis" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>

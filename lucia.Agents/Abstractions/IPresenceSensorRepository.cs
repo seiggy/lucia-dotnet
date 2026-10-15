@@ -4,7 +4,7 @@ namespace lucia.Agents.Abstractions;
 
 /// <summary>
 /// Persistence for presence sensor mappings and configuration.
-/// Stores auto-detected and user-overridden sensor-to-area mappings in MongoDB.
+/// Stores auto-detected and user-overridden sensor-to-area mappings.
 /// </summary>
 public interface IPresenceSensorRepository
 {

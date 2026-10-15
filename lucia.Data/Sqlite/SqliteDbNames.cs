@@ -4,7 +4,7 @@ namespace lucia.Data.Sqlite;
 
 /// <summary>
 /// Well-known database names for SQLite multi-file service resolution.
-/// Mirrors the MongoDB/PostgreSQL three-database pattern.
+/// Mirrors the PostgreSQL three-database pattern.
 /// </summary>
 public static class SqliteDbNames
 {

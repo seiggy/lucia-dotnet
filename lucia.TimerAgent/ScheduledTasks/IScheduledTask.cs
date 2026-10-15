@@ -34,7 +34,7 @@ public interface IScheduledTask
     Task ExecuteAsync(IServiceProvider services, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Serialize this task to a MongoDB-persistable document for recovery on restart.
+    /// Serialize this task to a persistable document for recovery on restart.
     /// </summary>
     ScheduledTaskDocument ToDocument();
 }

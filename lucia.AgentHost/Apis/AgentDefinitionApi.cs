@@ -28,7 +28,7 @@ public static class AgentDefinitionApi
 
         group.MapGet("/", ListDefinitionsAsync)
             .WithSummary("List all agent definitions")
-            .WithDescription("Returns all user-defined and built-in agent definitions from MongoDB.");
+            .WithDescription("Returns all user-defined and built-in agent definitions.");
         group.MapGet("/{id}", GetDefinitionAsync)
             .WithSummary("Get agent definition by ID");
         group.MapPost("/", CreateDefinitionAsync)
@@ -45,16 +45,16 @@ public static class AgentDefinitionApi
             .WithDescription("Deletes the definition and unregisters the agent from the in-memory registry.");
         group.MapPost("/reload", ReloadAgentsAsync)
             .WithSummary("Reload dynamic agents")
-            .WithDescription("Rebuilds all dynamic agents from their MongoDB definitions without restarting the host.");
+            .WithDescription("Rebuilds all dynamic agents from their stored definitions without restarting the host.");
         group.MapPost("/seed", SeedBuiltInAgentsAsync)
             .WithSummary("Seed built-in agent definitions")
             .WithDescription("Re-runs the built-in agent seed. Initializes and registers any newly added agents.");
         group.MapGet("/{id}/skill-config", GetSkillConfigAsync)
             .WithSummary("Get skill configuration for an agent")
-            .WithDescription("Returns configurable skill sections with schemas and current values from MongoDB.");
+            .WithDescription("Returns configurable skill sections with schemas and current values from the configuration store.");
         group.MapPut("/{id}/skill-config/{section}", UpdateSkillConfigAsync)
             .WithSummary("Update a skill configuration section")
-            .WithDescription("Writes values to MongoDB config collection. Changes hot-reload via the config polling loop.");
+            .WithDescription("Writes values to the configuration store. Changes hot-reload via the config polling loop.");
 
         return endpoints;
     }
@@ -329,8 +329,8 @@ public static class AgentDefinitionApi
     }
 
     /// <summary>
-    /// Updates a skill configuration section. Writes to the MongoDB config collection
-    /// so changes hot-reload via the <see cref="MongoConfigurationProvider"/> polling loop.
+    /// Updates a skill configuration section. Writes to the configuration store
+    /// so changes hot-reload via the configuration provider polling loop.
     /// </summary>
     private static async Task<Results<Ok, NotFound<string>, BadRequest<string>>> UpdateSkillConfigAsync(
         [FromRoute] string id,
@@ -423,7 +423,7 @@ public static class AgentDefinitionApi
     }
 
     /// <summary>
-    /// Reads current values from MongoDB config entries, falling back to defaults.
+    /// Reads current values from the configuration store, falling back to defaults.
     /// Handles indexed array keys (e.g. EntityDomains:0, EntityDomains:1).
     /// </summary>
     private static Dictionary<string, object?> BuildCurrentValues(

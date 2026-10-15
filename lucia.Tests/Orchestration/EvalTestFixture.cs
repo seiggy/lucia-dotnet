@@ -171,6 +171,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         _loggerFactory = LoggerFactory.Create(builder =>
             builder.AddConsole().SetMinimumLevel(LogLevel.Information));
         _haClient = CreateHomeAssistantClient();
+        ConfigureLocationService();
         _embeddingResolver = new EvalEmbeddingProviderResolver(Configuration);
         _tracingFactory = new TracingChatClientFactory(
             A.Fake<lucia.Agents.Training.ITraceRepository>(), _loggerFactory);
@@ -185,12 +186,47 @@ public sealed class EvalTestFixture : IAsyncLifetime
     }
 
     /// <summary>
+    /// Skills resolve targets through <see cref="IEntityLocationService"/>. A bare fake returns a result
+    /// with null collections, which crashes the tool call. Resolve every query to one synthetic entity
+    /// in the first requested domain so eval tests assert on the model's tool arguments, not on the snapshot.
+    /// </summary>
+    private void ConfigureLocationService()
+    {
+        A.CallTo(() => _mockLocationService.SearchHierarchyAsync(
+                A<string>._, A<lucia.Agents.Models.HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._))
+            .ReturnsLazily(call =>
+            {
+                var query = call.GetArgument<string>(0)!;
+                var domain = call.GetArgument<IReadOnlyList<string>?>(2)?.FirstOrDefault() ?? "light";
+                var slug = string.Concat(query.ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '_'));
+                var entity = new lucia.Agents.Models.HomeAssistant.HomeAssistantEntity
+                {
+                    EntityId = $"{domain}.{slug}",
+                    FriendlyName = query
+                };
+                return Task.FromResult(new lucia.Agents.Models.HierarchicalSearchResult
+                {
+                    FloorMatches = [],
+                    AreaMatches = [],
+                    EntityMatches = [],
+                    ResolvedEntities = [entity],
+                    ResolutionStrategy = lucia.Agents.Models.ResolutionStrategy.Entity,
+                    ResolutionReason = "eval fixture stub"
+                });
+            });
+
+        A.CallTo(() => _mockLocationService.GetEntitiesAsync(A<CancellationToken>._))
+            .Returns(Task.FromResult<IReadOnlyList<lucia.Agents.Models.HomeAssistant.HomeAssistantEntity>>([]));
+    }
+
+    /// <summary>
     /// Creates the Home Assistant client — real if configured, snapshot-backed fake otherwise.
     /// </summary>
     private IHomeAssistantClient CreateHomeAssistantClient()
     {
         var ha = Configuration.HomeAssistant;
-        if (ha is not null && !string.IsNullOrWhiteSpace(ha.BaseUrl) && !string.IsNullOrWhiteSpace(ha.AccessToken))
+        if (ha is not null && !string.IsNullOrWhiteSpace(ha.BaseUrl) && !string.IsNullOrWhiteSpace(ha.AccessToken)
+            && !EvalCredentialChecks.IsPlaceholder(ha.AccessToken))
         {
             var options = new HomeAssistantOptions
             {
@@ -378,10 +414,11 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// fully initialized with its AI agent wired to the correct provider.
     /// </summary>
     /// <summary>
-    /// Creates an initialized <see cref="LightControlSkill"/> wired to a real
-    /// Home Assistant client and the requested embedding model. Use this to
-    /// test the FindLight algorithm directly without going through the full
-    /// agent ↔ LLM loop.
+    /// Creates an initialized <see cref="LightControlSkill"/> backed by a real
+    /// <see cref="EntityLocationService"/> that embeds the snapshot
+    /// entities with the requested embedding model. Use this to exercise the
+    /// production tool flow (<c>GetLightsStateAsync</c> to <c>SearchHierarchyAsync</c>)
+    /// without the agent and LLM loop.
     /// </summary>
     public async Task<LightControlSkill> CreateLightControlSkillAsync(string embeddingModelName)
     {
@@ -389,21 +426,59 @@ public sealed class EvalTestFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Creates an initialized <see cref="LightControlSkill"/> with a caller-supplied
-    /// options monitor, allowing tests to mutate threshold / weight between calls
-    /// without rebuilding the expensive entity-embedding cache.
+    /// Same as above with a caller-supplied options monitor, so tests can change threshold
+    /// and weight between calls without rebuilding the entity-embedding cache.
     /// </summary>
     public async Task<LightControlSkill> CreateLightControlSkillAsync(
         string embeddingModelName,
         IOptionsMonitor<LightControlSkillOptions> optionsMonitor)
     {
+        SkipIfEmbeddingModelNotConfigured(embeddingModelName);
+
+        var locationService = InProcessEntityLocation.Create(
+            _haClient,
+            _embeddingResolver.WithPreferredModel(embeddingModelName),
+            _entityMatcher,
+            _loggerFactory);
+        await locationService.InitializeAsync();
+        await WaitForEmbeddingsAsync(locationService);
+
         var skill = new LightControlSkill(
             _haClient,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockLocationService,
+            locationService,
             optionsMonitor);
         await skill.InitializeAsync();
         return skill;
+    }
+
+    private void SkipIfEmbeddingModelNotConfigured(string embeddingModelName)
+    {
+        var model = Configuration.EmbeddingModels.FirstOrDefault(m =>
+            string.Equals(m.DeploymentName, embeddingModelName, StringComparison.OrdinalIgnoreCase));
+        if (model is null)
+            throw new Xunit.SkipException($"Embedding model '{embeddingModelName}' is not in EvalConfiguration:EmbeddingModels.");
+
+        if ((model.Provider ?? EvalProviderType.AzureOpenAI) == EvalProviderType.AzureOpenAI
+            && EvalCredentialChecks.IsPlaceholder(model.ApiKey ?? Configuration.AzureOpenAI.ApiKey))
+        {
+            throw new Xunit.SkipException(
+                $"Embedding model '{embeddingModelName}' needs a real Azure OpenAI key (still a placeholder).");
+        }
+    }
+
+    private static async Task WaitForEmbeddingsAsync(EntityLocationService service)
+    {
+        var deadline = DateTime.UtcNow.AddMinutes(3);
+        while (DateTime.UtcNow < deadline)
+        {
+            var progress = await service.GetEmbeddingProgressAsync();
+            if (!progress.IsGenerationRunning && progress.EntityMissingCount == 0)
+                return;
+            await Task.Delay(250);
+        }
+
+        throw new TimeoutException("Entity embeddings did not finish generating within 3 minutes.");
     }
 
     public async Task<LightAgent> CreateLightAgentAsync(

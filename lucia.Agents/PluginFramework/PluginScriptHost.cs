@@ -66,7 +66,7 @@ public static class PluginScriptHost
                 string.Join(Environment.NewLine, ex.Diagnostics));
             return null;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             logger.LogError(ex, "Failed to evaluate plugin script '{Path}'.", scriptPath);
             return null;

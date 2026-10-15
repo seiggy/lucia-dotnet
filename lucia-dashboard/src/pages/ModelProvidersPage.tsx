@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ModelProvider, ProviderType, ModelPurpose, ModelAuthConfig, CopilotModelInfo } from '../types'
 import { EmbeddingCapableProviders } from '../types'
 import CustomSelect from '../components/CustomSelect'
+import { useConfirm } from '../hooks/useConfirm'
 import {
   fetchModelProviders,
   createModelProvider,
@@ -59,6 +60,7 @@ function emptyProvider(): Partial<ModelProvider> {
 }
 
 export default function ModelProvidersPage() {
+  const confirmAction = useConfirm()
   const [providers, setProviders] = useState<ModelProvider[]>([])
   const [mode, setMode] = useState<FormMode>('list')
   const [form, setForm] = useState<Partial<ModelProvider>>(emptyProvider())
@@ -140,7 +142,11 @@ export default function ModelProvidersPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm(`Delete provider "${id}"?`)) return
+    if (!(await confirmAction({
+      title: 'Delete provider?',
+      message: `This deletes the model provider "${id}".`,
+      confirmLabel: 'Delete provider',
+    }))) return
     try {
       await deleteModelProvider(id)
       await loadData()

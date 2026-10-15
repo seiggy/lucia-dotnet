@@ -8,7 +8,7 @@ namespace lucia.Agents.Abstractions;
 public sealed record SkillConfigSection
 {
     /// <summary>
-    /// The MongoDB configuration section name (e.g. "LightControlSkill").
+    /// The configuration section name (e.g. "LightControlSkill").
     /// Must match the <c>SectionName</c> const on the options class.
     /// </summary>
     public required string SectionName { get; init; }

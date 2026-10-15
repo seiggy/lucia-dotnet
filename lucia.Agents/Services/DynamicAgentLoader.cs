@@ -12,7 +12,7 @@ namespace lucia.Agents.Services;
 /// Background service that connects MCP tool servers and registers dynamic agents
 /// on startup. Runs after the built-in agents are initialized.
 /// </summary>
-public sealed class DynamicAgentLoader : BackgroundService
+public sealed class DynamicAgentLoader : BackgroundService, IDynamicAgentLoader
 {
     private readonly IAgentDefinitionRepository _repository;
     private readonly IMcpToolRegistry _toolRegistry;
@@ -62,7 +62,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         {
             await _toolRegistry.InitializeAsync(stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Failed to initialize MCP tool registry. Dynamic agents may have limited tools.");
         }
@@ -73,14 +73,14 @@ public sealed class DynamicAgentLoader : BackgroundService
         {
             await LoadAndRegisterAgentsAsync(stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Failed to load dynamic agent definitions");
         }
     }
 
     /// <summary>
-    /// Reloads all dynamic agent definitions from MongoDB and re-registers them.
+    /// Reloads all dynamic agent definitions from the store and re-registers them.
     /// Called on startup and on-demand via the reload API.
     /// </summary>
     public async Task ReloadAsync(CancellationToken ct = default)
@@ -128,7 +128,7 @@ public sealed class DynamicAgentLoader : BackgroundService
                     "Registered dynamic agent: {AgentName} ({ToolCount} tools)",
                     definition.Name, definition.Tools.Count);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 failed++;
                 _logger.LogError(ex, "Failed to register dynamic agent: {AgentName}", definition.Name);
