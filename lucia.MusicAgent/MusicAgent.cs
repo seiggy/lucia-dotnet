@@ -253,7 +253,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
             ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
-                Description = "Handles media playback — music via Music Assistant, transport controls (stop/skip/now-playing/volume) on any media player",
+            Description = "Handles media playback — music via Music Assistant, transport controls (stop/skip/now-playing/volume) on any media player",
             ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,
