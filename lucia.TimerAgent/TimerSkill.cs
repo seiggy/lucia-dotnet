@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
+using lucia.HomeAssistant.Services;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -18,6 +20,7 @@ public sealed class TimerSkill
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.Timer", "1.0.0");
 
     private readonly IEntityLocationService _entityLocationService;
+    private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly ScheduledTaskStore _taskStore;
     private readonly IScheduledTaskRepository _taskRepository;
     private readonly TimeProvider _timeProvider;
@@ -25,12 +28,14 @@ public sealed class TimerSkill
 
     public TimerSkill(
         IEntityLocationService entityLocationService,
+        IHomeAssistantClient homeAssistantClient,
         ScheduledTaskStore taskStore,
         IScheduledTaskRepository taskRepository,
         TimeProvider timeProvider,
         ILogger<TimerSkill> logger)
     {
         _entityLocationService = entityLocationService ?? throw new ArgumentNullException(nameof(entityLocationService));
+        _homeAssistantClient = homeAssistantClient ?? throw new ArgumentNullException(nameof(homeAssistantClient));
         _taskStore = taskStore ?? throw new ArgumentNullException(nameof(taskStore));
         _taskRepository = taskRepository ?? throw new ArgumentNullException(nameof(taskRepository));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
@@ -226,8 +231,11 @@ public sealed class TimerSkill
     /// <summary>
     /// Resolves a location name or entity_id to an actual assist_satellite entity_id.
     /// If the input already looks like a valid entity_id (contains a dot), returns it as-is.
-    /// Otherwise, searches the entity location service for assist_satellite entities in that area,
-    /// filtering to those that support the <see cref="AssistSatelliteFeature.Announce"/> capability.
+    /// Otherwise, searches the entity location service for assist_satellite entities in that area.
+    /// Announce capability is verified against each candidate's live state — Home Assistant's
+    /// entity registry does not carry <c>supported_features</c>, so the registry value (always 0)
+    /// cannot be used. Candidates whose state cannot be read are treated as unverified and
+    /// preferred over candidates confirmed to lack the announce capability.
     /// </summary>
     private async Task<string?> ResolveSatelliteEntityAsync(string input, CancellationToken cancellationToken)
     {
@@ -243,32 +251,76 @@ public sealed class TimerSkill
             domainFilter: ["assist_satellite"],
             ct: cancellationToken).ConfigureAwait(false);
 
-        if (entities.Count > 0)
+        if (entities.Count == 0)
         {
-            _logger.LogDebug(
-                "Found {Count} satellite(s) in '{Location}': {Entities}",
-                entities.Count, input,
-                string.Join(", ", entities.Select(e => $"{e.EntityId} (features={e.SupportedFeatures})")));
+            _logger.LogWarning("No assist_satellite entity found for location '{Location}'", input);
+            return null;
+        }
 
-            // Filter to satellites that support announce, prefer those with more capabilities
-            var announceable = entities
-                .Where(e => e.SupportedFeatures.HasFlag(SupportedFeaturesFlags.Announce))
-                .OrderByDescending(e => e.SupportedFeatures)
-                .ToList();
-
-            if (announceable.Count > 0)
+        var candidates = new List<(HomeAssistantEntity Entity, int Features, bool Verified)>();
+        foreach (var entity in entities)
+        {
+            try
             {
-                return announceable[0].EntityId;
+                var state = await _homeAssistantClient.GetStateAsync(entity.EntityId, cancellationToken).ConfigureAwait(false);
+                if (state is not null
+                    && state.Attributes.TryGetValue("supported_features", out var featObj)
+                    && int.TryParse(featObj?.ToString(), out var feat))
+                {
+                    candidates.Add((entity, feat, true));
+                }
+                else
+                {
+                    candidates.Add((entity, 0, false));
+                }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read state for satellite '{EntityId}' — treating as unverified", entity.EntityId);
+                candidates.Add((entity, 0, false));
+            }
+        }
 
+        var entityDetails = string.Join(", ", candidates.Select(c =>
+            c.Verified
+                ? $"{c.Entity.EntityId} (features={c.Features})"
+                : $"{c.Entity.EntityId} (features={c.Features}, unverified)"));
+
+        _logger.LogDebug(
+            "Found {Count} satellite(s) in '{Location}': {Entities}",
+            entities.Count, input, entityDetails);
+
+        var announceable = candidates
+            .Where(c => c.Verified && ((SupportedFeaturesFlags)c.Features).HasFlag(SupportedFeaturesFlags.Announce))
+            .OrderByDescending(c => c.Features)
+            .Select(c => c.Entity.EntityId)
+            .ToList();
+
+        if (announceable.Count > 0)
+        {
+            return announceable[0];
+        }
+
+        if (candidates.All(c => c.Verified))
+        {
             _logger.LogWarning(
                 "Found {Count} satellite(s) in '{Location}' but none support announce",
                 entities.Count, input);
             return null;
         }
 
-        _logger.LogWarning("No assist_satellite entity found for location '{Location}'", input);
-        return null;
+        // At least one candidate's capability could not be verified. Fail open: an assist_satellite
+        // in the requested area is a better target than no target at all — if it truly cannot
+        // announce, the failure surfaces when the timer fires.
+        var unverified = candidates.First(c => !c.Verified).Entity.EntityId;
+        _logger.LogWarning(
+            "Found {Count} satellite(s) in '{Location}' but could not verify announce capability — using '{EntityId}'",
+            entities.Count, input, unverified);
+        return unverified;
     }
 
     private static string FormatDuration(TimeSpan ts)

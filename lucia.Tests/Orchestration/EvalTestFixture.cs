@@ -922,6 +922,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var cronService = new CronScheduleService(timeProvider, _loggerFactory.CreateLogger<CronScheduleService>());
         var timerSkill = new TimerSkill(
             _mockLocationService,
+            _haClient,
             taskStore,
             mockTaskRepo,
             timeProvider,
