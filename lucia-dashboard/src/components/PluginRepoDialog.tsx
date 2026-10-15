@@ -7,23 +7,20 @@ import { fetchPluginRepos, addPluginRepo, deletePluginRepo, syncPluginRepo } fro
 interface Props {
   open: boolean
   onClose: () => void
-  onNotify?: (message: string, type: 'success' | 'error') => void
 }
 
-export default function PluginRepoDialog({ open, onClose, onNotify }: Props) {
+export default function PluginRepoDialog({ open, onClose }: Props) {
   const [repos, setRepos] = useState<PluginRepository[]>([])
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(null)
 
+  // Feedback stays inside the dialog: the page behind it is inert, so a toast there would not be seen or announced.
   const notify = (message: string, type: 'success' | 'error') => {
-    if (onNotify) {
-      onNotify(message, type)
-    }
-    if (type === 'error') {
-      setError(message)
-    }
+    setError(type === 'error' ? message : null)
+    setStatus(type === 'success' ? message : null)
   }
 
   const load = async () => {
@@ -96,6 +93,12 @@ export default function PluginRepoDialog({ open, onClose, onNotify }: Props) {
       {error && (
         <div role="alert" className="rounded-lg border border-rose/30 bg-rose/10 px-3 py-2 text-sm text-rose">
           {error}
+        </div>
+      )}
+
+      {status && (
+        <div role="status" className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-sage">
+          {status}
         </div>
       )}
 

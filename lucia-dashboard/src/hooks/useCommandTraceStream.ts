@@ -4,6 +4,8 @@ import { usePageVisible } from './usePageVisible'
 
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
+const MIN_COUNT_INTERVAL_MS = 5_000
+
 /**
  * SSE hook for real-time command trace updates.
  * Connects to `/api/command-traces/live` and emits new traces as they arrive.
@@ -15,6 +17,7 @@ export function useCommandTraceStream() {
   const [lastTrace, setLastTrace] = useState<CommandTrace | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const [connectionCount, setConnectionCount] = useState(0)
+  const lastCountedAtRef = useRef(0)
   const sourceRef = useRef<EventSource | null>(null)
   const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
@@ -35,7 +38,12 @@ export function useCommandTraceStream() {
 
     source.onopen = () => {
       setConnectionState('connected')
-      setConnectionCount(count => count + 1)
+      // A stream that keeps dropping and reopening would make every consumer refetch each time, so count at most once per interval.
+      const now = Date.now()
+      if (now - lastCountedAtRef.current >= MIN_COUNT_INTERVAL_MS) {
+        lastCountedAtRef.current = now
+        setConnectionCount(count => count + 1)
+      }
       retriesRef.current = 0
     }
 

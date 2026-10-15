@@ -763,6 +763,9 @@ export default function EntityLocationPage() {
                             if (e.entityId in updates) return { ...e, includeForAgent: updates[e.entityId] }
                             return e
                           }))
+                          setSelectedEntityIds(new Set())
+                        }).catch(err => {
+                          setError(err instanceof Error ? err.message : 'Failed to bulk-assign agents')
                         })
                       }
                       setBulkAgentDropdownOpen(false)

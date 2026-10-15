@@ -79,14 +79,18 @@ async function fetchAgents(): Promise<AgentCard[]> {
   const cards: AgentCardResponse[] = await res.json()
   return cards.map(({ supportedInterfaces, ...card }) => ({
     ...card,
-    url: card.url ?? supportedInterfaces?.[0]?.url ?? '',
+    url: card.url || supportedInterfaces?.[0]?.url || card.name,
   }))
 }
+
+// POST and DELETE on the registry need the platform-injected token that agents use, which a dashboard session cannot present.
+const REGISTRY_TOKEN_ONLY = 'The registry only accepts this from agents that hold the platform token, so the dashboard cannot do it yet.'
 
 async function registerAgent(agentUri: string): Promise<void> {
   const form = new FormData()
   form.append('agentId', agentUri)
   const res = await fetch('/agents/register', { method: 'POST', body: form })
+  if (res.status === 401 || res.status === 403) throw new Error(REGISTRY_TOKEN_ONLY)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -103,6 +107,7 @@ async function refreshAgent(agentUrl: string): Promise<void> {
 
 async function unregisterAgent(agentUrl: string): Promise<void> {
   const res = await fetch(`/agents/${encodeURIComponent(agentUrl)}`, { method: 'DELETE' })
+  if (res.status === 401 || res.status === 403) throw new Error(REGISTRY_TOKEN_ONLY)
   if (!res.ok) throw new Error(`Failed to unregister: ${res.statusText}`)
 }
 
@@ -186,6 +191,9 @@ function AgentCardView({
   onDelete: () => void
   selected: boolean
 }) {
+  // The registry refreshes a card by fetching it from an absolute http(s) address; built-in agents have relative ones.
+  const canRefresh = /^https?:\/\//i.test(agent.url)
+
   return (
     <div
       onClick={onSelect}
@@ -209,8 +217,9 @@ function AgentCardView({
         <div className="flex shrink-0 gap-1 ml-3">
           <button
             onClick={(e) => { e.stopPropagation(); onRefresh() }}
-            title="Refresh agent card"
-            className="rounded-xl p-1.5 text-dust hover:bg-basalt hover:text-amber transition-colors"
+            disabled={!canRefresh}
+            title={canRefresh ? 'Refresh agent card' : 'Built-in agents run in this host and have no address to refresh from'}
+            className="rounded-xl p-1.5 text-dust hover:bg-basalt hover:text-amber transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-dust"
           >
             ↻
           </button>
@@ -851,7 +860,8 @@ export default function AgentsPage() {
   return (
     <div className="-mx-4 -my-6 sm:-mx-6 lg:-mx-8 flex h-[calc(100vh-80px)] flex-col">
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      <RegisterDialog open={registerOpen} onClose={() => setRegisterOpen(false)} onRegister={handleRegister} />
+      {/* Mounted only while open, so a reopened dialog starts without the last URL or error. */}
+      {registerOpen && <RegisterDialog open onClose={() => setRegisterOpen(false)} onRegister={handleRegister} />}
 
       {/* Header — stacks on mobile */}
       <header className="border-b border-stone px-4 py-3 md:px-6 md:py-4">

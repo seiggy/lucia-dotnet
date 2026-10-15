@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { LiveEvent } from '../types'
 import { usePageVisible } from './usePageVisible'
 
+const MIN_COUNT_INTERVAL_MS = 5_000
+
 /** Connection state of the SSE activity stream. */
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
@@ -22,6 +24,7 @@ export function useActivityStream() {
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const [connectionCount, setConnectionCount] = useState(0)
+  const lastCountedAtRef = useRef(0)
   const sourceRef = useRef<EventSource | null>(null)
   const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
@@ -42,7 +45,12 @@ export function useActivityStream() {
 
     source.onopen = () => {
       setConnectionState('connected')
-      setConnectionCount(count => count + 1)
+      // A stream that keeps dropping and reopening would make every consumer refetch each time, so count at most once per interval.
+      const now = Date.now()
+      if (now - lastCountedAtRef.current >= MIN_COUNT_INTERVAL_MS) {
+        lastCountedAtRef.current = now
+        setConnectionCount(count => count + 1)
+      }
       retriesRef.current = 0
     }
 

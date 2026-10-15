@@ -18,8 +18,8 @@ public sealed class BackgroundTaskTrackerNotificationTests
             var version = tracker.Version;
             var reader = Task.Run(() =>
             {
-                SpinWait.SpinUntil(() => tracker.Version != version);
-                return tracker.GetTask(handle.TaskId)!.Status;
+                var changed = SpinWait.SpinUntil(() => tracker.Version != version, TimeSpan.FromSeconds(5));
+                return changed ? tracker.GetTask(handle.TaskId)!.Status : BackgroundTaskStatus.Queued;
             });
 
             handle.MarkRunning();

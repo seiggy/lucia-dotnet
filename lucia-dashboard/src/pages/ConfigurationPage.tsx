@@ -45,17 +45,23 @@ function ConnectionStringsEditor({
 
   const [naming, setNaming] = useState(false)
   const [newName, setNewName] = useState('')
+  const [nameError, setNameError] = useState<string | null>(null)
 
   const closeNaming = () => {
     setNaming(false)
     setNewName('')
+    setNameError(null)
   }
 
   const handleAddNew = () => {
     const name = newName.trim()
     if (!name) return
+    // A removed entry is null, so only a live one blocks the name.
+    if (entries[name] != null) {
+      setNameError(`A connection named "${name}" already exists.`)
+      return
+    }
     closeNaming()
-    if (entries[name] !== undefined) return
     onChange({ ...entries, [name]: '' })
   }
 
@@ -116,13 +122,16 @@ function ConnectionStringsEditor({
             handleAddNew()
           }}
         >
-          <Field label="Connection name">
+          <Field label="Connection name" error={nameError ?? undefined}>
             {(control) => (
               <input
                 {...control}
                 type="text"
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setNewName(e.target.value)
+                  setNameError(null)
+                }}
                 className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light input-focus"
               />
             )}
