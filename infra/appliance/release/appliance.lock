@@ -34,8 +34,8 @@ REDIS_SOURCE_SHA256=bda93820ddbb7842a3f1110288b1cc8f44fd268a7d4af767cb17b144d178
 # Redis must load with JetPack 6's Ubuntu 22.04 libc and libstdc++.
 REDIS_BUILD_IMAGE=gcc:11.5.0-bullseye@sha256:63aaebc5db8930a70241051619cba77781a5466fb3e4dc99d2ff3b752cb715f2
 RUNTIME_PACKAGES=(
-    "52644a5b5c205d85ef9b61ca1472f2ee7c770c613ef70fc2a6be97353a0d2d4a https://ports.ubuntu.com/ubuntu-ports/pool/main/c/curl/libcurl4_7.81.0-1ubuntu1.27_arm64.deb"
-    "d2025f7211e5d0ab50366b8a44c8456732cff31243cdbd8f6666afcae0f44f02 https://ports.ubuntu.com/ubuntu-ports/pool/main/c/curl/curl_7.81.0-1ubuntu1.27_arm64.deb"
+    "b53e8b99a788183e41419fcb835b38b1e1a8755fa031f67bd7abfe074d6080c2 https://ports.ubuntu.com/ubuntu-ports/pool/main/c/curl/libcurl4_7.81.0-1ubuntu1.30_arm64.deb"
+    "03b395f721ec4965385a4d8c4e5b7b21207b416bd2de36a6081fe152f650fceb https://ports.ubuntu.com/ubuntu-ports/pool/main/c/curl/curl_7.81.0-1ubuntu1.30_arm64.deb"
 )
 GH_CLI_VERSION=2.99.0
 GH_CLI_URL=https://github.com/cli/cli/releases/download/v2.99.0/gh_2.99.0_linux_arm64.tar.gz
