@@ -46,4 +46,20 @@ public sealed class VoiceConfigApiTests
                 "Wyoming:VoiceProfiles:ProvisionalMatchThreshold", "0.30", A<string>._, A<bool>._, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
+
+    [Fact]
+    public async Task UpdateVoiceConfigAsync_StickySpeakerToggle_PersistsKey()
+    {
+        var result = await VoiceConfigApi.UpdateVoiceConfigAsync(
+            new VoiceConfigUpdateRequest
+            {
+                StickySpeakerFollowUps = true,
+            },
+            _configStore);
+
+        Assert.Equal(StatusCodes.Status200OK, Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode);
+        A.CallTo(() => _configStore.SetAsync(
+                "Wyoming:VoiceProfiles:StickySpeakerFollowUps", "True", A<string>._, A<bool>._, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
 }

@@ -40,6 +40,8 @@ public sealed partial class ConversationCommandProcessor
     private readonly ISpeakerProfileStore? _speakerProfiles;
     private readonly VoiceOnboardingWorkflow? _onboarding;
     private readonly SpeakerVerificationFilter? _speakerFilter;
+    private readonly StickySpeakerStore? _stickySpeakers;
+    private readonly IOptionsMonitor<VoiceProfileOptions>? _voiceProfileOptions;
 
     public ConversationCommandProcessor(
         ICommandRouter commandRouter,
@@ -58,7 +60,9 @@ public sealed partial class ConversationCommandProcessor
         VoiceTurnStore? voiceTurns = null,
         ISpeakerProfileStore? speakerProfiles = null,
         VoiceOnboardingWorkflow? onboarding = null,
-        SpeakerVerificationFilter? speakerFilter = null)
+        SpeakerVerificationFilter? speakerFilter = null,
+        StickySpeakerStore? stickySpeakers = null,
+        IOptionsMonitor<VoiceProfileOptions>? voiceProfileOptions = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
@@ -77,7 +81,17 @@ public sealed partial class ConversationCommandProcessor
         _speakerProfiles = speakerProfiles;
         _onboarding = onboarding;
         _speakerFilter = speakerFilter;
+        _stickySpeakers = stickySpeakers;
+        _voiceProfileOptions = voiceProfileOptions;
     }
+
+    /// <summary>
+    /// Sticky follow-up identity is opt-in and must never apply while unknown voices are
+    /// ignored. Read live from the options monitor so dashboard changes take effect without a
+    /// restart. Fail closed when the options are not wired (legacy call sites).
+    /// </summary>
+    private bool IsStickySpeakerEnabled =>
+        _voiceProfileOptions?.CurrentValue is { StickySpeakerFollowUps: true, IgnoreUnknownVoices: false };
 
     /// <summary>
     /// Process a conversation request. Returns a result indicating whether
@@ -129,7 +143,20 @@ public sealed partial class ConversationCommandProcessor
                 if (profile is { IsProvisional: false, IsAuthorized: true })
                 {
                     context = context with { EnrolledProfileId = profile.Id, SpeakerId = profile.Name };
+                    if (IsStickySpeakerEnabled)
+                        _stickySpeakers?.Remember(conversationId, profile.Id);
                 }
+            }
+        }
+        // Short follow-ups ("The kitchen.", "Okay.") often fail speaker verification. When the
+        // sticky-speaker option is enabled (and unknown voices are not being ignored), keep them
+        // in the same session and history as the last recognized speaker of this conversation.
+        if (context.IsVoiceRequest && context.EnrolledProfileId is null && IsStickySpeakerEnabled)
+        {
+            var stickySpeaker = await ResolveStickySpeakerAsync(conversationId, ct).ConfigureAwait(false);
+            if (stickySpeaker is not null)
+            {
+                context = context with { EnrolledProfileId = stickySpeaker.Id, SpeakerId = stickySpeaker.Name };
             }
         }
         var cleanRequest = request with { Text = cleanText, Context = context with { ConversationId = conversationId } };
@@ -191,6 +218,23 @@ public sealed partial class ConversationCommandProcessor
         // Step 2: No match — fall back to LLM (with clean text + speaker in context)
         return await HandleLlmFallbackAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
             .ConfigureAwait(false);
+    }
+
+    private async Task<SpeakerProfile?> ResolveStickySpeakerAsync(string conversationId, CancellationToken ct)
+    {
+        if (_stickySpeakers is null || _speakerProfiles is null)
+        {
+            return null;
+        }
+
+        var profileId = _stickySpeakers.Get(conversationId);
+        if (profileId is null)
+        {
+            return null;
+        }
+
+        var profile = await _speakerProfiles.GetAsync(profileId, ct).ConfigureAwait(false);
+        return profile is { IsAuthorized: true, IsProvisional: false } ? profile : null;
     }
 
     private async Task<ProcessingResult> HandleCommandMatchAsync(
