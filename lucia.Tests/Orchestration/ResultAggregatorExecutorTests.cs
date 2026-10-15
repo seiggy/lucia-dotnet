@@ -70,10 +70,10 @@ public sealed class ResultAggregatorExecutorTests
         Assert.False(result.NeedsInput);
     }
 
-    // ─── Success with empty content → default template ────────────────
+    // ─── Success with empty content → surfaced as failure (issue #291) ─
 
     [Fact]
-    public async Task HandleAsync_SuccessWithEmptyContent_UsesDefaultSuccessTemplate()
+    public async Task HandleAsync_SuccessWithEmptyContent_SurfacedAsFailure()
     {
         var aggregator = CreateAggregator();
         var responses = new List<OrchestratorAgentResponse>
@@ -83,8 +83,42 @@ public sealed class ResultAggregatorExecutorTests
 
         var result = await aggregator.HandleAsync(responses, CreateContext(), CancellationToken.None);
 
+        Assert.Contains("couldn't complete", result.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Light Agent", result.Text, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("completed", result.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("completed successfully", result.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HandleAsync_SuccessWithWhitespaceContent_SurfacedAsFailure()
+    {
+        var aggregator = CreateAggregator();
+        var responses = new List<OrchestratorAgentResponse>
+        {
+            Success("music-agent", "   ")
+        };
+
+        var result = await aggregator.HandleAsync(responses, CreateContext(), CancellationToken.None);
+
+        Assert.Contains("couldn't complete", result.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("completed successfully", result.Text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HandleAsync_MixedRealAndEmptySuccess_KeepsRealContentAndSurfacesEmptyAsFailure()
+    {
+        var aggregator = CreateAggregator();
+        var responses = new List<OrchestratorAgentResponse>
+        {
+            Success("light-agent", "The kitchen lights are now on."),
+            Success("music-agent", string.Empty)
+        };
+
+        var result = await aggregator.HandleAsync(responses, CreateContext(), CancellationToken.None);
+
+        Assert.Contains("The kitchen lights are now on.", result.Text);
+        Assert.Contains("However", result.Text);
+        Assert.Contains("couldn't complete Music Agent", result.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("completed successfully", result.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     // ─── Single failure ───────────────────────────────────────────────
