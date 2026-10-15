@@ -30,8 +30,9 @@ any storage driver.
   profile database name, and the config and API key collection constants).
 - **A2A REST routes lost the `/v1` prefix.** The A2A SDK (1.0.0-preview3) serves
   `{agent}/message:send`, `{agent}/tasks` and the other REST routes without
-  `/v1`, and no longer serves `{agent}/v1/card`. Lucia's own clients use the
-  same SDK and need no change. Point third-party A2A clients at the new routes.
+  `/v1`. Each agent's card moved from `{agent}/v1/card` to
+  `{agent}/.well-known/agent-card.json`. Lucia's own clients use the same SDK
+  and need no change. Point third-party A2A clients at the new routes.
 
 ## Upgrading from 1.5.x
 
