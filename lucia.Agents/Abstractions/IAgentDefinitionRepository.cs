@@ -20,5 +20,11 @@ public interface IAgentDefinitionRepository
     Task<List<AgentDefinition>> GetEnabledAgentDefinitionsAsync(CancellationToken ct = default);
     Task<AgentDefinition?> GetAgentDefinitionAsync(string id, CancellationToken ct = default);
     Task UpsertAgentDefinitionAsync(AgentDefinition definition, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically inserts a new definition only when no row with the same Id exists.
+    /// Returns <c>false</c> (and writes nothing) when the Id was already in use.
+    /// </summary>
+    Task<bool> InsertAgentDefinitionIfAbsentAsync(AgentDefinition definition, CancellationToken ct = default);
     Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default);
 }

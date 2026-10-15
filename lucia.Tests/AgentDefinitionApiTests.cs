@@ -225,12 +225,9 @@ public sealed class AgentDefinitionApiTests
     {
         var repository = A.Fake<IAgentDefinitionRepository>();
         AgentDefinition? persisted = null;
-        // Loose fakes return a proxy for reference returns — assert no existing agent.
-        A.CallTo(() => repository.GetAgentDefinitionAsync("research-agent", A<CancellationToken>._))
-            .Returns(Task.FromResult<AgentDefinition?>(null));
-        A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
+        A.CallTo(() => repository.InsertAgentDefinitionIfAbsentAsync(A<AgentDefinition>._, A<CancellationToken>._))
             .Invokes(call => persisted = call.GetArgument<AgentDefinition>(0))
-            .Returns(Task.CompletedTask);
+            .Returns(Task.FromResult(true));
 
         var result = await InvokeCreateHandlerAsync(
             CreateDefinition(
@@ -259,7 +256,7 @@ public sealed class AgentDefinitionApiTests
             repository);
 
         IsBadRequest(result, "kebab-case");
-        A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
+        A.CallTo(() => repository.InsertAgentDefinitionIfAbsentAsync(A<AgentDefinition>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
 
@@ -277,7 +274,7 @@ public sealed class AgentDefinitionApiTests
             repository);
 
         IsBadRequest(result, "must equal its id");
-        A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
+        A.CallTo(() => repository.InsertAgentDefinitionIfAbsentAsync(A<AgentDefinition>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
 
@@ -285,13 +282,9 @@ public sealed class AgentDefinitionApiTests
     public async Task CreateDefinitionAsync_ReturnsConflict_WhenIdAlreadyExists()
     {
         var repository = A.Fake<IAgentDefinitionRepository>();
-        // Creating with an id that is already in use must not overwrite the existing definition.
-        A.CallTo(() => repository.GetAgentDefinitionAsync("research-agent", A<CancellationToken>._))
-            .Returns(CreateDefinition(
-                id: "research-agent", name: "research-agent", displayName: "Research Agent",
-                description: "Existing agent", instructions: "Be helpful", enabled: true,
-                modelConnectionName: null, embeddingProviderName: null, isBuiltIn: false,
-                isRemote: false, isOrchestrator: false, createdAt: DateTime.UtcNow.AddDays(-1), updatedAt: DateTime.UtcNow.AddDays(-1), tools: []));
+        // The atomic insert reports the in-use id instead of overwriting the existing definition.
+        A.CallTo(() => repository.InsertAgentDefinitionIfAbsentAsync(A<AgentDefinition>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(false));
 
         var result = await InvokeCreateHandlerAsync(
             CreateDefinition(
@@ -303,6 +296,37 @@ public sealed class AgentDefinitionApiTests
 
         IsConflict(result, "already exists");
         A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task ReplaceDefinitionAsync_RejectsNonKebabRouteId()
+    {
+        var repository = A.Fake<IAgentDefinitionRepository>();
+
+        var result = await InvokeReplaceHandlerAsync(
+            "Bad Id",
+            CreateDefinition(
+                id: "Bad Id", name: "Bad Id", displayName: "Replacement Display",
+                description: "Replacement description", instructions: "Replacement instructions", enabled: true,
+                modelConnectionName: null, embeddingProviderName: null, isBuiltIn: false,
+                isRemote: false, isOrchestrator: false, createdAt: DateTime.UtcNow, updatedAt: DateTime.UtcNow, tools: []),
+            repository);
+
+        IsBadRequest(result, "kebab-case");
+        A.CallTo(() => repository.GetAgentDefinitionAsync(A<string>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task PatchDefinitionAsync_RejectsNonKebabRouteId()
+    {
+        var repository = A.Fake<IAgentDefinitionRepository>();
+
+        var result = await InvokePatchHandlerAsync("Bad Id", new PatchAgentDefinitionRequest { DisplayName = "Patched" }, repository);
+
+        IsBadRequest(result, "kebab-case");
+        A.CallTo(() => repository.GetAgentDefinitionAsync(A<string>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
 

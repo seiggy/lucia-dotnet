@@ -96,8 +96,11 @@ public sealed class RouterExecutor : Executor
             {
                 var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
                 var cached = await _promptCache.TryGetCachedRoutingDecisionAsync(cacheMessages, cancellationToken).ConfigureAwait(false);
-                if (cached is not null && IsKnownAgent(cached.RoutingDecision.AgentId, availableAgents))
+                if (cached is not null && TryResolveAgentId(cached.RoutingDecision.AgentId, availableAgents, out var canonicalCachedAgentId))
                 {
+                    // Canonicalize to the exact card name so downstream dispatch keys match;
+                    // cache entries written by older versions may hold a slugified id.
+                    cached.RoutingDecision.AgentId = canonicalCachedAgentId;
                     // Skip stale cache entries that route to multiple agents but lack per-agent instructions
                     if (cached.RoutingDecision.AdditionalAgents is { Count: > 0 }
                         && cached.RoutingDecision.AgentInstructions is null or { Count: 0 })
@@ -165,12 +168,15 @@ public sealed class RouterExecutor : Executor
                 "Routing model failed after {0} attempts: {1}", _options.MaxAttempts, reason), originalUserText);
         }
 
-        if (!IsKnownAgent(parsed.AgentId, availableAgents))
+        if (!TryResolveAgentId(parsed.AgentId, availableAgents, out var canonicalAgentId))
         {
             _logger.LogWarning("RouterExecutor returned unknown agent '{AgentId}'. Falling back.", parsed.AgentId);
             return CreateFallbackResult(string.Format(CultureInfo.InvariantCulture,
                 "Model suggested unknown agent '{0}'.", parsed.AgentId), originalUserText);
         }
+
+        // Canonicalize to the exact card name so downstream dispatch keys match.
+        parsed.AgentId = canonicalAgentId;
 
         NormalizeAdditionalAgents(parsed, availableAgents);
         parsed.OriginalUserText = originalUserText;
@@ -390,25 +396,45 @@ public sealed class RouterExecutor : Executor
         return null;
     }
 
-    private static bool IsKnownAgent(string agentId, IReadOnlyList<AgentCard> agents)
+    private static bool TryResolveAgentId(string agentId, IReadOnlyList<AgentCard> agents, out string canonicalAgentId)
     {
-        if (agents.Any(agent => string.Equals(agent.Name, agentId, StringComparison.OrdinalIgnoreCase)))
+        canonicalAgentId = agentId;
+
+        var exactMatch = agents.FirstOrDefault(agent => string.Equals(agent.Name, agentId, StringComparison.OrdinalIgnoreCase));
+        if (exactMatch is not null)
         {
+            canonicalAgentId = exactMatch.Name;
             return true;
         }
 
         // Defensive: card names may be display text while the router emits a kebab-case
-        // slug (or vice versa). Normalize both sides before giving up.
+        // slug (or vice versa). Normalize both sides before giving up, but only accept
+        // the match when it is unambiguous — two cards sharing one slug would route the
+        // request to the wrong agent.
         var requestedSlug = ToAgentSlug(agentId);
         if (requestedSlug is null)
         {
             return false;
         }
 
-        return agents.Any(agent => string.Equals(ToAgentSlug(agent.Name), requestedSlug, StringComparison.Ordinal));
+        var slugMatches = agents
+            .Where(agent => string.Equals(ToAgentSlug(agent.Name), requestedSlug, StringComparison.Ordinal))
+            .ToList();
+        if (slugMatches.Count != 1)
+        {
+            return false;
+        }
+
+        canonicalAgentId = slugMatches[0].Name;
+        return true;
     }
 
-    private static string? ToAgentSlug(string value)
+    /// <summary>
+    /// Normalizes an agent identifier to a kebab-case slug ("Open Wearables Agent" →
+    /// "open-wearables-agent"). Shared with the startup routing-identity migration so
+    /// both sides of the identity contract use one algorithm.
+    /// </summary>
+    public static string? ToAgentSlug(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {

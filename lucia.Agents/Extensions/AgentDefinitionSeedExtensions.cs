@@ -1,6 +1,8 @@
+using System.Text.RegularExpressions;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Orchestration;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Extensions;
@@ -89,6 +91,92 @@ public static class AgentDefinitionSeedExtensions
 
             await repository.UpsertAgentDefinitionAsync(definition, ct).ConfigureAwait(false);
             logger.LogInformation("Seeded AgentDefinition for built-in agent '{AgentId}'.", agentId);
+        }
+    }
+
+    private static readonly Regex KebabCaseIdPattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// One-time startup migration that makes the definition's Id the single routing identity.
+    /// Legacy definitions may have drifted: older versions did not pin Name to Id, and ids
+    /// were never validated, so a definition's kebab-case Id may differ from its Name or not
+    /// be kebab-case at all. This method normalizes both while leaving DisplayName (the
+    /// user-facing label) untouched:
+    /// <list type="bullet">
+    /// <item>Non-kebab-case ids are renamed to their slugified form; a rename whose target id
+    /// already exists is skipped (it would silently replace another agent's definition).</item>
+    /// <item>A Name that differs from the Id is pinned back to the Id.</item>
+    /// </list>
+    /// </summary>
+    public static async Task MigrateRoutingIdentityAsync(
+        this IAgentDefinitionRepository repository,
+        ILogger logger,
+        CancellationToken ct = default)
+    {
+        var definitions = await repository.GetAllAgentDefinitionsAsync(ct).ConfigureAwait(false);
+
+        // Ids already in use (including ones created by an earlier rename in this pass),
+        // so two legacy ids that slugify to the same target cannot clobber each other.
+        var takenIds = new HashSet<string>(definitions.Select(d => d.Id), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var definition in definitions)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (!KebabCaseIdPattern.IsMatch(definition.Id))
+            {
+                var slug = RouterExecutor.ToAgentSlug(definition.Id);
+                if (string.IsNullOrEmpty(slug))
+                {
+                    logger.LogWarning(
+                        "Cannot migrate AgentDefinition '{OldId}': its id has no kebab-case representation.",
+                        definition.Id);
+                    continue;
+                }
+
+                if (!takenIds.Add(slug))
+                {
+                    logger.LogWarning(
+                        "Cannot rename AgentDefinition '{OldId}' to '{NewId}': target id is already in use. " +
+                        "Rename one of them manually to resolve the conflict.",
+                        definition.Id, slug);
+                    continue;
+                }
+
+                var renamed = new AgentDefinition
+                {
+                    Id = slug,
+                    Name = slug,
+                    DisplayName = definition.DisplayName,
+                    Description = definition.Description,
+                    Instructions = definition.Instructions,
+                    Tools = definition.Tools,
+                    ModelConnectionName = definition.ModelConnectionName,
+                    EmbeddingProviderName = definition.EmbeddingProviderName,
+                    Enabled = definition.Enabled,
+                    IsBuiltIn = definition.IsBuiltIn,
+                    IsRemote = definition.IsRemote,
+                    IsOrchestrator = definition.IsOrchestrator,
+                    CreatedAt = definition.CreatedAt,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                await repository.UpsertAgentDefinitionAsync(renamed, ct).ConfigureAwait(false);
+                await repository.DeleteAgentDefinitionAsync(definition.Id, ct).ConfigureAwait(false);
+                logger.LogInformation(
+                    "Migrated AgentDefinition id '{OldId}' to kebab-case id '{NewId}'.",
+                    definition.Id, slug);
+            }
+            else if (definition.Name != definition.Id)
+            {
+                var oldName = definition.Name;
+                definition.Name = definition.Id;
+                definition.UpdatedAt = DateTime.UtcNow;
+                await repository.UpsertAgentDefinitionAsync(definition, ct).ConfigureAwait(false);
+                logger.LogInformation(
+                    "Pinned AgentDefinition '{Id}' Name to its Id (was '{OldName}').",
+                    definition.Id, oldName);
+            }
         }
     }
 

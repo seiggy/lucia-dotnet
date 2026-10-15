@@ -384,12 +384,10 @@ function AgentForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const id = isCreate ? derivedId : form.id.trim()
-    if (!AGENT_ID_PATTERN.test(id)) {
-      setIdError(
-        isCreate
-          ? 'Give the agent a name with at least one letter or number so its ID can be generated.'
-          : 'Agent ID must use lowercase letters, numbers, and hyphens — e.g. research-agent.'
-      )
+    // Ids are immutable after creation (the input is locked in edit mode), so the
+    // kebab-case rule only needs to apply when generating a new one.
+    if (isCreate && !AGENT_ID_PATTERN.test(id)) {
+      setIdError('Give the agent a name with at least one letter or number so its ID can be generated.')
       return
     }
     setSaving(true)
@@ -400,7 +398,9 @@ function AgentForm({
 
       await onSave({
         id,
-        name: id,
+        // On create the API pins name to id; on edit keep the stored name verbatim so the
+        // form never rewrites identity fields the user did not touch.
+        name: isCreate ? id : definition?.name ?? id,
         displayName: form.displayName || undefined,
         description: form.description || undefined,
         instructions: form.instructions || undefined,

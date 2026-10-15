@@ -207,6 +207,67 @@ public sealed class PostgresAgentDefinitionRepository : IAgentDefinitionReposito
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal).UtcDateTime;
     }
 
+    public async Task<bool> InsertAgentDefinitionIfAbsentAsync(AgentDefinition definition, CancellationToken ct = default)
+    {
+        var json = JsonSerializer.Serialize(definition, JsonOptions);
+
+        await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO agent_definitions (id, name, enabled, data)
+            VALUES (
+                @id,
+                @name,
+                @enabled,
+                jsonb_set(
+                    @data,
+                    '{updatedAt}',
+                    '"1970-01-01T00:00:00.000000Z"'::jsonb))
+            ON CONFLICT (id) DO NOTHING;
+            """;
+        insert.Parameters.AddWithValue("id", definition.Id);
+        insert.Parameters.AddWithValue("name", definition.Name);
+        insert.Parameters.AddWithValue("enabled", definition.Enabled);
+        insert.Parameters.Add(new NpgsqlParameter("data", NpgsqlDbType.Jsonb) { Value = json });
+
+        var insertedRows = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (insertedRows == 0)
+        {
+            await transaction.RollbackAsync(ct).ConfigureAwait(false);
+            return false;
+        }
+
+        await using var advanceMarker = connection.CreateCommand();
+        advanceMarker.Transaction = transaction;
+        advanceMarker.CommandText = """
+            UPDATE agent_definitions
+            SET data = jsonb_set(
+                data,
+                '{updatedAt}',
+                to_jsonb(to_char(
+                    GREATEST(
+                        clock_timestamp(),
+                        COALESCE(
+                            (data->>'updatedAt')::timestamptz + INTERVAL '1 microsecond',
+                            '-infinity'::timestamptz))
+                        AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')))
+            WHERE id = @id
+            RETURNING data->>'updatedAt';
+            """;
+        advanceMarker.Parameters.AddWithValue("id", definition.Id);
+
+        var persistedMarker = (string)(await advanceMarker.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        definition.UpdatedAt = DateTimeOffset.Parse(
+            persistedMarker,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal).UtcDateTime;
+        return true;
+    }
+
     public async Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default)
     {
         await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);

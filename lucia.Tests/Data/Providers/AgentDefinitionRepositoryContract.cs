@@ -208,6 +208,38 @@ public abstract class AgentDefinitionRepositoryContract
     }
 
     [Fact]
+    public async Task InsertAgentDefinitionIfAbsentAsync_SecondInsert_ReturnsFalseAndKeepsOriginal()
+    {
+        await using var scope = await CreateAsync();
+        var original = CreateAgentDefinition("alpha", "Alpha", true);
+
+        var inserted = await scope.Store.InsertAgentDefinitionIfAbsentAsync(original);
+        var duplicate = CreateAgentDefinition("alpha", "Alpha Duplicate", false);
+
+        var rejected = await scope.Store.InsertAgentDefinitionIfAbsentAsync(duplicate);
+
+        Assert.True(inserted);
+        Assert.False(rejected);
+        var definitions = await scope.Store.GetAllAgentDefinitionsAsync();
+        var definition = Assert.Single(definitions);
+        Assert.Equal("Alpha", definition.DisplayName);
+    }
+
+    [Fact]
+    public async Task InsertAgentDefinitionIfAbsentAsync_ConcurrentInserts_ExactlyOneWins()
+    {
+        await using var scope = await CreateAsync();
+
+        var results = await Task.WhenAll(
+            scope.Store.InsertAgentDefinitionIfAbsentAsync(CreateAgentDefinition("alpha", "Alpha One", true)),
+            scope.Store.InsertAgentDefinitionIfAbsentAsync(CreateAgentDefinition("alpha", "Alpha Two", false)));
+
+        Assert.Equal([true, false], results.OrderByDescending(r => r).ToArray());
+        var definitions = await scope.Store.GetAllAgentDefinitionsAsync();
+        Assert.Single(definitions);
+    }
+
+    [Fact]
     public async Task UpsertAgentDefinitionAsync_UpdatesTimestampWhenReplacingExistingRecord()
     {
         await using var scope = await CreateAsync();
