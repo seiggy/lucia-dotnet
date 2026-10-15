@@ -186,7 +186,7 @@ function parseArrayItems(
           item[prop.name] = values[simpleKey]
           continue
         }
-        // Array property stored as sub-keys (e.g. 0:AgentSkills:0, 0:AgentSkills:1)
+        // Array property stored as sub-keys (e.g. EntityDomains:0, EntityDomains:1)
         const subValues: string[] = []
         for (const key of Object.keys(values)) {
           if (key.startsWith(`${idx}:${prop.name}:`) && values[key] !== null) {

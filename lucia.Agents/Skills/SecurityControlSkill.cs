@@ -17,7 +17,7 @@ namespace lucia.Agents.Skills;
 /// Skill for controlling Home Assistant security devices such as alarms and locks.
 /// Camera entities can be included in status responses when enabled by configuration.
 /// </summary>
-public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
+public sealed partial class SecurityControlSkill : ILuciaSkill, IOptimizableSkill, ICommandPatternProvider
 {
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.SecurityControl", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.SecurityControl", "1.0.0");

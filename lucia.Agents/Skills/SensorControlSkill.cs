@@ -21,7 +21,7 @@ namespace lucia.Agents.Skills;
 /// Skill for querying sensor and binary_sensor entities in Home Assistant.
 /// Sensors are read-only — this skill provides discovery and state-reading tools only.
 /// </summary>
-public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
+public sealed class SensorControlSkill : ILuciaSkill, IOptimizableSkill, ICommandPatternProvider
 {
     private const string SensorSearchErrorMessage = "Unable to query sensor data. Please try again.";
     private const string AreaSensorSearchErrorMessage = "Unable to query sensors for that area. Please try again.";

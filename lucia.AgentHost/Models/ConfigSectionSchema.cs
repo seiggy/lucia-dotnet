@@ -12,7 +12,7 @@ public sealed class ConfigSectionSchema
     /// <summary>
     /// When true, the section represents a JSON array of items.
     /// Each item has the properties defined in <see cref="Properties"/>.
-    /// Keys are stored with numeric indices (e.g., "Agents:0:AgentName").
+    /// Keys are stored with numeric indices (e.g., "Section:0:Property").
     /// </summary>
     public bool IsArray { get; set; }
 }

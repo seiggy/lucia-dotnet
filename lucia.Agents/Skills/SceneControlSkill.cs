@@ -17,7 +17,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Skill for activating Home Assistant scenes (scene.turn_on).
 /// </summary>
-public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
+public sealed class SceneControlSkill : ILuciaSkill, IOptimizableSkill, ICommandPatternProvider
 {
     public IReadOnlyList<string> EntityDomains => _options.CurrentValue.EntityDomains;
 

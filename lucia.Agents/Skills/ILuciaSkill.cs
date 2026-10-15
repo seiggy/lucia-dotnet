@@ -1,6 +1,10 @@
 ﻿namespace lucia.Agents.Skills;
 
-internal interface IAgentSkill
+/// <summary>
+/// A Lucia skill: a Home Assistant tool set hosted by a Lucia agent. Not to be confused with
+/// <c>A2A.AgentSkill</c> (agent card metadata) or <c>Microsoft.Agents.AI.AgentSkill</c> (Agent Skills spec).
+/// </summary>
+internal interface ILuciaSkill
 {
     /// <summary>
     /// The Home Assistant entity domains this skill operates on (e.g. "light", "switch").
