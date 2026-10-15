@@ -15,6 +15,8 @@ interface ModalProps {
   className?: string
   /** Set to false for forms holding typed input, so a stray click outside cannot discard it. Esc still closes. */
   dismissOnBackdrop?: boolean
+  /** Id of the element that describes the dialog, announced after the title. */
+  descriptionId?: string
 }
 
 const SIZE_CLASS = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl' } as const
@@ -27,7 +29,7 @@ const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select
  * `showModal()` makes the rest of the page inert and traps Tab. Esc and a click on the
  * backdrop call `onClose`. Focus moves into the panel on open and returns to the trigger on close.
  */
-export default function Modal({ open, onClose, title, children, size = 'md', initialFocusRef, className = '', dismissOnBackdrop = true }: ModalProps) {
+export default function Modal({ open, onClose, title, children, size = 'md', initialFocusRef, className = '', dismissOnBackdrop = true, descriptionId }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleId = useId()
 
@@ -51,6 +53,7 @@ export default function Modal({ open, onClose, title, children, size = 'md', ini
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       className="fixed inset-0 z-50 h-dvh w-screen max-h-none max-w-none border-0 bg-transparent p-0 backdrop:bg-black/60 backdrop:backdrop-blur-sm"
       onCancel={(event) => {
         event.preventDefault()

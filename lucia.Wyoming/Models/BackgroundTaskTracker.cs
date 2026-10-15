@@ -92,10 +92,12 @@ public sealed class BackgroundTaskTracker(ILogger<BackgroundTaskTracker> logger)
 
     internal void ReportStageProgress(string taskId, int stageIndex, int percent, string? message)
     {
+        var changed = false;
         _tasks.AddOrUpdate(taskId,
             _ => throw new InvalidOperationException($"Task {taskId} not found"),
             (_, existing) =>
             {
+                changed = false;
                 var stages = existing.Stages.ToList();
                 if (stageIndex >= stages.Count) return existing;
 
@@ -114,10 +116,12 @@ public sealed class BackgroundTaskTracker(ILogger<BackgroundTaskTracker> logger)
                 var msg = stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Running)?.ProgressMessage
                        ?? stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Complete)?.ProgressMessage;
 
-                var updated = existing with { Stages = stages, ProgressPercent = overall, ProgressMessage = msg };
-                NotifyChange();
-                return updated;
+                changed = true;
+                return existing with { Stages = stages, ProgressPercent = overall, ProgressMessage = msg };
             });
+
+        // Notify after the store, so a woken reader sees the new state.
+        if (changed) NotifyChange();
     }
 
     public IReadOnlyList<BackgroundTaskInfo> GetAllTasks()
@@ -147,7 +151,10 @@ public sealed class BackgroundTaskTracker(ILogger<BackgroundTaskTracker> logger)
     {
         _tasks.AddOrUpdate(taskId,
             _ => throw new InvalidOperationException($"Task {taskId} not found"),
-            (_, existing) => { var u = transform(existing); NotifyChange(); return u; });
+            (_, existing) => transform(existing));
+
+        // Notify after the store, so a woken reader sees the new state.
+        NotifyChange();
     }
 
     private void NotifyChange()

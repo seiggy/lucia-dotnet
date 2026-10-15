@@ -676,7 +676,7 @@ function RegisterDialog({
 export default function AgentsPage() {
   const confirmAction = useConfirm()
   const [agents, setAgents] = useState<AgentCard[]>([])
-  const [selectedName, setSelectedName] = useState<string | null>(null)
+  const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [registerOpen, setRegisterOpen] = useState(false)
@@ -748,38 +748,38 @@ export default function AgentsPage() {
       try {
         await unregisterAgent(agent.url)
         showToast('Agent unregistered', 'success')
-        if (selectedName === agent.name) setSelectedName(null)
+        if (selectedUrl === agent.url) setSelectedUrl(null)
         await loadAgents()
       } catch (err) {
         showToast(`Unregister failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
       }
     },
-    [confirmAction, loadAgents, selectedName, showToast],
+    [confirmAction, loadAgents, selectedUrl, showToast],
   )
 
   const handleSendMessage = useCallback(
     async (message: string) => {
-      if (!selectedName) return
-      const agent = agents.find((a) => a.name === selectedName)
+      if (!selectedUrl) return
+      const agent = agents.find((a) => a.url === selectedUrl)
       if (!agent) return
 
       // Add user message to conversation
       setConversations((prev) => ({
         ...prev,
-        [selectedName]: [
-          ...(prev[selectedName] ?? []),
+        [selectedUrl]: [
+          ...(prev[selectedUrl] ?? []),
           { role: 'user', text: message, timestamp: new Date() },
         ],
       }))
 
       setSending(true)
       try {
-        const currentContextId = contextIds[selectedName]
+        const currentContextId = contextIds[selectedUrl]
         const response = await sendA2AMessage(agent.url, message, currentContextId)
 
         // Track the contextId from the response for multi-turn continuity
         if (response?.contextId) {
-          setContextIds((prev) => ({ ...prev, [selectedName]: response.contextId }))
+          setContextIds((prev) => ({ ...prev, [selectedUrl]: response.contextId }))
         }
 
         const responseText =
@@ -788,8 +788,8 @@ export default function AgentsPage() {
 
         setConversations((prev) => ({
           ...prev,
-          [selectedName]: [
-            ...(prev[selectedName] ?? []),
+          [selectedUrl]: [
+            ...(prev[selectedUrl] ?? []),
             { role: 'agent', text: responseText, timestamp: new Date() },
           ],
         }))
@@ -797,8 +797,8 @@ export default function AgentsPage() {
         const errMsg = err instanceof Error ? err.message : 'Unknown error'
         setConversations((prev) => ({
           ...prev,
-          [selectedName]: [
-            ...(prev[selectedName] ?? []),
+          [selectedUrl]: [
+            ...(prev[selectedUrl] ?? []),
             { role: 'agent', text: `⚠ Error: ${errMsg}`, timestamp: new Date() },
           ],
         }))
@@ -807,10 +807,10 @@ export default function AgentsPage() {
         setSending(false)
       }
     },
-    [agents, contextIds, selectedName, showToast],
+    [agents, contextIds, selectedUrl, showToast],
   )
 
-  const selectedAgent = agents.find((a) => a.name === selectedName) ?? null
+  const selectedAgent = agents.find((a) => a.url === selectedUrl) ?? null
 
   // ── Loading / Error ────────────────────────────────────────────
 
@@ -858,7 +858,7 @@ export default function AgentsPage() {
         {/* Mobile: back button when viewing agent detail */}
         {showMobileDetail && (
           <button
-            onClick={() => setSelectedName(null)}
+            onClick={() => setSelectedUrl(null)}
             className="mb-2 flex items-center gap-1.5 text-sm text-amber hover:text-light transition-colors md:hidden"
           >
             ← Back to agents
@@ -907,10 +907,10 @@ export default function AgentsPage() {
           )}
           {agents.map((agent) => (
             <AgentCardView
-              key={agent.name}
+              key={agent.url}
               agent={agent}
-              selected={agent.name === selectedName}
-              onSelect={() => setSelectedName(agent.name)}
+              selected={agent.url === selectedUrl}
+              onSelect={() => setSelectedUrl(agent.url)}
               onRefresh={() => handleRefresh(agent.url)}
               onDelete={() => handleDelete(agent)}
             />
@@ -928,7 +928,7 @@ export default function AgentsPage() {
               agent={selectedAgent}
               onSendMessage={handleSendMessage}
               sending={sending}
-              conversationHistory={conversations[selectedName!] ?? []}
+              conversationHistory={conversations[selectedUrl!] ?? []}
             />
           )}
         </div>

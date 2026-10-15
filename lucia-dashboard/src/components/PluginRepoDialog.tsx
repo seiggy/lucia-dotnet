@@ -159,6 +159,16 @@ export default function PluginRepoDialog({ open, onClose, onNotify }: Props) {
           </div>
         ))}
       </div>
+
+      <div className="mt-5 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          className="min-h-11 rounded-lg px-4 py-2 text-sm text-fog transition-colors hover:bg-stone/40 hover:text-cloud"
+        >
+          Close
+        </button>
+      </div>
     </Modal>
   )
 }

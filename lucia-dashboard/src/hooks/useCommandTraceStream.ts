@@ -8,11 +8,13 @@ export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
  * SSE hook for real-time command trace updates.
  * Connects to `/api/command-traces/live` and emits new traces as they arrive.
  * Disconnects while the browser tab is hidden so background tabs do not hold a connection slot.
+ * connectionCount counts successful (re)connections.
  */
 export function useCommandTraceStream() {
   const visible = usePageVisible()
   const [lastTrace, setLastTrace] = useState<CommandTrace | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
+  const [connectionCount, setConnectionCount] = useState(0)
   const sourceRef = useRef<EventSource | null>(null)
   const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
@@ -33,6 +35,7 @@ export function useCommandTraceStream() {
 
     source.onopen = () => {
       setConnectionState('connected')
+      setConnectionCount(count => count + 1)
       retriesRef.current = 0
     }
 
@@ -86,5 +89,6 @@ export function useCommandTraceStream() {
     }
   }, [connect, visible])
 
-  return { lastTrace, connectionState, reconnect }
+  // The server does not replay events missed while disconnected, so consumers refetch when this grows past 1.
+  return { lastTrace, connectionState, connectionCount, reconnect }
 }

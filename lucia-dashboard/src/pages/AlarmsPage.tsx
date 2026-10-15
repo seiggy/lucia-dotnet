@@ -84,6 +84,7 @@ export default function AlarmsPage() {
 
   // Alarm form state
   const [showAlarmForm, setShowAlarmForm] = useState(false)
+  const [alarmError, setAlarmError] = useState<string | null>(null)
   const [editingAlarm, setEditingAlarm] = useState<AlarmClock | null>(null)
   const [alarmForm, setAlarmForm] = useState({
     name: '', targetEntity: '', alarmSoundId: '',
@@ -97,6 +98,7 @@ export default function AlarmsPage() {
 
   // Sound form state
   const [showSoundForm, setShowSoundForm] = useState(false)
+  const [soundError, setSoundError] = useState<string | null>(null)
   const [soundForm, setSoundForm] = useState({ name: '', mediaSourceUri: '', isDefault: false })
   const [soundMode, setSoundMode] = useState<'upload' | 'uri'>('upload')
   const [soundFile, setSoundFile] = useState<File | null>(null)
@@ -121,6 +123,7 @@ export default function AlarmsPage() {
   // ── Alarm CRUD ──
 
   function openAlarmForm(alarm?: AlarmClock) {
+    setAlarmError(null)
     if (alarm) {
       setEditingAlarm(alarm)
       const isCron = !!alarm.cronSchedule
@@ -179,10 +182,11 @@ export default function AlarmsPage() {
   }
 
   async function saveAlarm() {
+    setAlarmError(null)
     const { name, targetEntity, alarmSoundId, scheduleType, cronPreset, cronHour, cronMinute, cronCustom, nextFireAt, playbackIntervalSec, autoDismissMin, volumeRampEnabled, volumeStart, volumeEnd, volumeRampDurationSec } = alarmForm
 
     if (!name.trim() || !targetEntity.trim()) {
-      addToast('Name and target entity are required', 'error')
+      setAlarmError('Name and target entity are required')
       return
     }
 
@@ -205,7 +209,7 @@ export default function AlarmsPage() {
     }
 
     if (!cronSchedule && !fireAt) {
-      addToast('A schedule (CRON or one-time) is required', 'error')
+      setAlarmError('A schedule (CRON or one-time) is required')
       return
     }
 
@@ -233,7 +237,7 @@ export default function AlarmsPage() {
       setShowAlarmForm(false)
       await loadData()
     } catch (err) {
-      addToast(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+      setAlarmError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }
 
@@ -275,6 +279,7 @@ export default function AlarmsPage() {
   // ── Sound CRUD ──
 
   function openSoundForm() {
+    setSoundError(null)
     setSoundForm({ name: '', mediaSourceUri: '', isDefault: false })
     setSoundMode('upload')
     setSoundFile(null)
@@ -282,16 +287,17 @@ export default function AlarmsPage() {
   }
 
   async function saveSound() {
+    setSoundError(null)
     if (!soundForm.name.trim()) {
-      addToast('Name is required', 'error')
+      setSoundError('Name is required')
       return
     }
     if (soundMode === 'upload' && !soundFile) {
-      addToast('Please select an audio file to upload', 'error')
+      setSoundError('Please select an audio file to upload')
       return
     }
     if (soundMode === 'uri' && !soundForm.mediaSourceUri.trim()) {
-      addToast('Media source URI is required', 'error')
+      setSoundError('Media source URI is required')
       return
     }
     try {
@@ -304,7 +310,7 @@ export default function AlarmsPage() {
       setShowSoundForm(false)
       await loadData()
     } catch (err) {
-      addToast(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+      setSoundError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }
 
@@ -792,6 +798,12 @@ export default function AlarmsPage() {
           </details>
         </div>
 
+        {alarmError && (
+          <div role="alert" className="mt-4 rounded-lg border border-rose/30 bg-rose/10 px-3 py-2 text-sm text-rose">
+            {alarmError}
+          </div>
+        )}
+
         {/* Form actions */}
         <div className="mt-6 flex justify-end gap-3">
           <button
@@ -883,6 +895,12 @@ export default function AlarmsPage() {
             <span className="text-sm text-fog">Set as default sound</span>
           </label>
         </div>
+
+        {soundError && (
+          <div role="alert" className="mt-4 rounded-lg border border-rose/30 bg-rose/10 px-3 py-2 text-sm text-rose">
+            {soundError}
+          </div>
+        )}
 
         <div className="mt-6 flex justify-end gap-3">
           <button

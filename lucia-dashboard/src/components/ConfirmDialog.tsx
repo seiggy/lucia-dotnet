@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useId, useRef } from 'react'
 import Modal from './Modal'
 
 interface ConfirmDialogProps {
@@ -29,10 +29,11 @@ export default function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const cancelButtonRef = useRef<HTMLButtonElement>(null)
+  const messageId = useId()
 
   return (
-    <Modal open={open} onClose={onCancel} title={title} size="sm" initialFocusRef={cancelButtonRef}>
-      <p className="text-sm text-fog">{message}</p>
+    <Modal open={open} onClose={onCancel} title={title} size="sm" initialFocusRef={cancelButtonRef} descriptionId={messageId}>
+      <p id={messageId} className="text-sm text-fog">{message}</p>
       <div className="mt-5 flex justify-end gap-3">
         <button
           ref={cancelButtonRef}

@@ -109,7 +109,7 @@ function ConnectionStringsEditor({
         <span className="text-lg leading-none">+</span>
         Add Connection String
       </button>
-      <Modal open={naming} onClose={closeNaming} title="Name this connection" size="sm">
+      <Modal open={naming} onClose={closeNaming} title="Name this connection" size="sm" dismissOnBackdrop={false}>
         <form
           onSubmit={(e) => {
             e.preventDefault()

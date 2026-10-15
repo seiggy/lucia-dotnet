@@ -44,6 +44,8 @@ any storage driver.
 
 ## Fixes
 
+- The background task stream could show a finished task as Running. The tracker signalled a change
+  before it stored the new state, and the stream read the old state and waited for the next change.
 - SQLite task statistics now count tasks per agent. The query read a field that
   did not exist.
 - Regenerating a revoked API key now fails on SQLite and PostgreSQL instead of
