@@ -572,6 +572,8 @@ function UpdateRail({
     ? Math.min(100, Math.max(0, (completedBytes / progressTotal) * 100))
     : undefined
   const phaseLabel = formatPhase(operation?.phase ?? operation?.status ?? null)
+  // A checked update may replace the failed release; Install still resumes when the tag matches.
+  const retry = available ? null : retryTag
   return (
     <div className="grid gap-4 border-b border-stone p-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="min-w-0">
@@ -603,7 +605,7 @@ function UpdateRail({
             {completedBytes !== null && progressTotal !== null && (
               <p className="text-xs text-fog">{formatBytes(completedBytes)} of {formatBytes(progressTotal)}</p>
             )}
-            {retryTag && (
+            {retry && (
               <p className="text-sm text-fog">
                 Retry resumes from what is already downloaded, then verifies the whole release before installing.
               </p>
@@ -633,7 +635,7 @@ function UpdateRail({
                     ? 'Current'
                     : 'Not checked'}
         </span>
-        {(available || rollbackAvailable || retryTag) && (
+        {(available || rollbackAvailable || retry) && (
           <div className="flex gap-2 whitespace-nowrap">
           {rollbackAvailable && (
             <button
@@ -646,11 +648,11 @@ function UpdateRail({
               Roll back
             </button>
           )}
-          {retryTag && (
+          {retry && (
             <button
               type="button"
-              onClick={() => onRetry(retryTag)}
-              aria-label={`Retry ${title} ${retryTag} download`}
+              onClick={() => onRetry(retry)}
+              aria-label={`Retry ${title} ${retry} download`}
               disabled={busy}
               className={primaryButton}
             >
@@ -658,7 +660,7 @@ function UpdateRail({
               Retry download
             </button>
           )}
-          {available && !retryTag && (
+          {available && (
           <button
             type="button"
             onClick={onInstall}

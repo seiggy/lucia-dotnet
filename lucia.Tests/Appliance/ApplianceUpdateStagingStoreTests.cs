@@ -199,9 +199,9 @@ public sealed class ApplianceUpdateStagingStoreTests
         {
             var store = CreateStore(root);
             Assert.NotNull(store.TryStart("lucia", "v1.5.0"));
-            var partial = store.GetResumableStagePath("v1.5.0");
+            var partial = store.GetResumableStagePath("lucia", "v1.5.0");
             Directory.CreateDirectory(partial);
-            var stale = Path.Combine(root, ".v1.4.0.partial");
+            var stale = Path.Combine(root, ".v1.4.0.lucia.partial");
             Directory.CreateDirectory(stale);
             store.SetFailed("lucia", "v1.5.0", "connection reset");
 
@@ -209,9 +209,11 @@ public sealed class ApplianceUpdateStagingStoreTests
 
             Assert.True(Directory.Exists(partial));
             Assert.False(Directory.Exists(stale));
-            Directory.CreateDirectory(Path.Combine(root, ".v1.6.0.partial"));
-            Assert.Equal(partial, reloaded.GetResumableStagePath("v1.5.0"));
-            Assert.False(Directory.Exists(Path.Combine(root, ".v1.6.0.partial")));
+            var otherChannel = reloaded.GetResumableStagePath("os", "v1.5.0");
+            Assert.NotEqual(partial, otherChannel);
+            Assert.False(Directory.Exists(partial));
+            Directory.CreateDirectory(partial);
+            Assert.Equal(partial, reloaded.GetResumableStagePath("lucia", "v1.5.0"));
             reloaded.Clear();
             Assert.False(Directory.Exists(partial));
         }

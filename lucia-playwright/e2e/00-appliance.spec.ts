@@ -116,6 +116,19 @@ for (const channel of ['lucia', 'os']) {
     await expect(page.getByText(/Retry resumes from what is already downloaded/)).toBeVisible();
     await page.getByRole('button', { name: `Retry ${title} v1.5.0 download` }).click();
     await expect.poll(() => retriedTag).toBe('v1.5.0');
+
+    await page.route('**/api/appliance/updates', route => route.fulfill({ json: {
+      currentLuciaVersion: '1.4.4', currentOsVersion: '1.4.2',
+      latestLuciaVersion: '1.6.0', latestOsVersion: '1.6.0',
+      manifestAvailable: true, compatible: true, luciaCompatible: true, osCompatible: true,
+      luciaNewerDiscovered: true, osNewerDiscovered: true,
+      luciaUpdateAvailable: true, osUpdateAvailable: true,
+      releaseTag: 'v1.6.0', releaseUrl: null, message: null,
+      luciaReleaseTag: 'v1.6.0', osReleaseTag: 'v1.6.0',
+    } }));
+    await page.getByRole('button', { name: 'Check for updates' }).click();
+    await expect(page.getByRole('button', { name: `Install ${title}`, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: `Retry ${title} v1.5.0 download` })).toHaveCount(0);
   });
 }
 

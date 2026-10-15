@@ -480,7 +480,7 @@ public sealed partial class ApplianceUpdateService(
             bundleUrl,
             tag,
             "lucia-appliance-attestations.jsonl");
-        var stage = staging.GetResumableStagePath(tag);
+        var stage = staging.GetResumableStagePath(channel, tag);
         Directory.CreateDirectory(stage);
         {
             var manifestPath = Path.Combine(
@@ -595,7 +595,9 @@ public sealed partial class ApplianceUpdateService(
                     "The selected appliance channel has no newer release.");
             }
             var (parts, channelBytes) = ValidateParts(selectedChannel, tag);
-            var resumedBytes = Directory.EnumerateFiles(stage).Sum(file => new FileInfo(file).Length);
+            var resumedBytes = CountResumableBytes(
+                stage,
+                parts.Select(part => (part.GetProperty("name").GetString()!, part.GetProperty("bytes").GetInt64())));
             EnsureStagingCapacity(staging.Root, channelBytes, resumedBytes);
             long completedBytes = 0;
             var lastProgressAt = Environment.TickCount64;
@@ -949,6 +951,27 @@ public sealed partial class ApplianceUpdateService(
             name => runtime.TryGetProperty(name, out var value)
                 && value.ValueKind == JsonValueKind.String
                 && !string.IsNullOrWhiteSpace(value.GetString()));
+
+    /// <summary>
+    /// Bytes <see cref="DownloadAsync"/> will reuse for the selected parts: a part's partial wins
+    /// over its finished file, and a file larger than its part is discarded, so it earns nothing.
+    /// </summary>
+    internal static long CountResumableBytes(
+        string stage,
+        IEnumerable<(string Name, long Bytes)> parts)
+    {
+        long total = 0;
+        foreach (var (name, bytes) in parts.DistinctBy(part => part.Name))
+        {
+            var temporary = new FileInfo(Path.Combine(stage, name + ".tmp"));
+            var file = temporary.Exists ? temporary : new FileInfo(Path.Combine(stage, name));
+            if (file.Exists && file.Length <= bytes)
+            {
+                total += file.Length;
+            }
+        }
+        return total;
+    }
 
     internal static void EnsureStagingCapacity(
         string stagingRoot,

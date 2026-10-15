@@ -216,6 +216,7 @@ public sealed partial class ApplianceUpdateStagingStore
         lock (_gate)
         {
             var previousTag = _status.Tag;
+            var previousChannel = _status.Channel;
             var status = new ApplianceUpdateOperationStatus(
                 "none",
                 "none",
@@ -226,9 +227,9 @@ public sealed partial class ApplianceUpdateStagingStore
             _status = status;
             _isHandoffRequestActive = false;
             DeleteFinalizedStage(previousTag);
-            if (previousTag is not null && Directory.Exists(PartialPath(previousTag)))
+            if (previousTag is not null && Directory.Exists(PartialPath(previousChannel, previousTag)))
             {
-                Directory.Delete(PartialPath(previousTag), recursive: true);
+                Directory.Delete(PartialPath(previousChannel, previousTag), recursive: true);
             }
         }
     }
@@ -392,7 +393,7 @@ public sealed partial class ApplianceUpdateStagingStore
     {
         // A failed download keeps its partial so a retry resumes instead of starting over.
         var resumable = _status is { Action: "stage", Status: "failed", Tag: { } tag }
-            ? PartialPath(tag)
+            ? PartialPath(_status.Channel, tag)
             : null;
         DeletePartialsExcept(resumable);
     }
@@ -410,17 +411,18 @@ public sealed partial class ApplianceUpdateStagingStore
         }
     }
 
-    private string PartialPath(string tag) => Path.Combine(Root, $".{tag}.partial");
+    // Keyed by channel too: one release carries both Lucia and OS parts.
+    private string PartialPath(string channel, string tag) => Path.Combine(Root, $".{tag}.{channel}.partial");
 
     /// <summary>
-    /// Returns the staging directory for <paramref name="tag"/>, keeping any bytes a previous
-    /// attempt downloaded and deleting partials left by other releases.
+    /// Returns the staging directory for one channel of <paramref name="tag"/>, keeping any bytes a
+    /// previous attempt downloaded and deleting partials left by other channels or releases.
     /// </summary>
-    public string GetResumableStagePath(string tag)
+    public string GetResumableStagePath(string channel, string tag)
     {
         lock (_gate)
         {
-            var path = PartialPath(tag);
+            var path = PartialPath(channel, tag);
             DeletePartialsExcept(path);
             return path;
         }
