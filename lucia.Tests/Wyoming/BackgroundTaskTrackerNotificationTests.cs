@@ -29,6 +29,28 @@ public sealed class BackgroundTaskTrackerNotificationTests
         }
     }
     [Fact]
+    public async Task Version_WhenATaskCompletes_TheNewStateIsAlreadyStored()
+    {
+        var tracker = new BackgroundTaskTracker(NullLogger<BackgroundTaskTracker>.Instance);
+
+        // Same ordering as above, for the transition after Running, so a later change cannot reorder it unnoticed.
+        for (var i = 0; i < 2000; i++)
+        {
+            var handle = tracker.CreateTask("task", ["stage"]);
+            handle.MarkRunning();
+            var version = tracker.Version;
+            var reader = Task.Run(() =>
+            {
+                var changed = SpinWait.SpinUntil(() => tracker.Version != version, TimeSpan.FromSeconds(5));
+                return changed ? tracker.GetTask(handle.TaskId)!.Status : (BackgroundTaskStatus?)null;
+            });
+
+            handle.MarkComplete(1);
+
+            Assert.Equal((BackgroundTaskStatus?)BackgroundTaskStatus.Complete, await reader);
+        }
+    }
+    [Fact]
     public void ReportStageProgress_WhenNothingChanges_DoesNotNotify()
     {
         var tracker = new BackgroundTaskTracker(NullLogger<BackgroundTaskTracker>.Instance);

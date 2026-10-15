@@ -1,6 +1,6 @@
 # Dashboard UI review: index
 
-Date: 2026-10-14. Scope: every `lucia-dashboard` route (28 page files plus the app shell). The review itself changed no code; the fixes made afterwards are listed under Fixed below. The earlier summary is in [../dashboard-audit.md](../dashboard-audit.md).
+Date: 2026-10-14. Scope: every `lucia-dashboard` route (28 page files plus the app shell). The review itself changed no code; the fixes made afterwards are listed under Fix status below. The earlier summary is in [../dashboard-audit.md](../dashboard-audit.md).
 
 ## Read this first: how reliable is this?
 
@@ -47,7 +47,7 @@ Still open: `Field` is used only in the new Register Agent and connection-name d
 ## P0: data loss or broken core behavior (#1 fixed, #2 partly fixed, see above)
 
 1. **Entity Locations bulk "Assign to Agent" races two writes** (`EntityLocationPage.tsx:741`). It calls `handleBulkAssign(null)` (the comment says it won't run, but it does), which resets the selected entities to "all agents", and then fires its own `updateEntityAgents`. Selected entities can silently lose their restrictions. Checked in code by me.
-2. **Agents page keys everything on `agent.url`, which the live `/agents` no longer returns** (`AgentsPage.tsx:737,787,884-889`). The cards carry only `supportedInterfaces[0].url`, so every card selects together, detail shows the first agent, and unregister or refresh hits `/agents/undefined`. Selection and the request paths are fixed, and the server now decodes the encoded address it receives (it used to reject every refresh and unregister with 400). Registering and unregistering still fail for dashboard users because the registry endpoints accept only the internal agent token (tracked in #308). Refresh works for agents with an absolute address and is disabled for the ones that run in this host, whose card URLs are relative. I confirmed the API shape and the page code; I did not confirm in the running UI or check for a mapping layer in `api.ts`.
+2. **Agents page keys everything on `agent.url`, which the live `/agents` no longer returns** (`AgentsPage.tsx:737,787,884-889`). The cards carry only `supportedInterfaces[0].url`, so every card selects together, detail shows the first agent, and unregister or refresh hits `/agents/undefined`. Selection and the request paths are fixed, and the server now decodes the encoded address it receives (it used to reject every refresh with 400 and ignore every unregister). Registering and unregistering still fail for dashboard users because the registry endpoints accept only the internal agent token (tracked in #308). Refresh works for agents with an absolute address and is disabled for the ones that run in this host, whose card URLs are relative. I confirmed the API shape and the page code; I did not confirm in the running UI or check for a mapping layer in `api.ts`.
 
 ## P1 themes that cut across pages
 

@@ -97,8 +97,12 @@ async function registerAgent(agentUri: string): Promise<void> {
   }
 }
 
+// ASP.NET Core leaves %2F encoded in a route value but decodes the rest, and the registry decodes what is left.
+// Encoding twice makes that exact, so a literal % in an address survives.
+const agentRoute = (agentUrl: string) => `/agents/${encodeURIComponent(encodeURIComponent(agentUrl))}`
+
 async function refreshAgent(agentUrl: string): Promise<void> {
-  const res = await fetch(`/agents/${encodeURIComponent(agentUrl)}`, { method: 'PUT' })
+  const res = await fetch(agentRoute(agentUrl), { method: 'PUT' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -106,7 +110,7 @@ async function refreshAgent(agentUrl: string): Promise<void> {
 }
 
 async function unregisterAgent(agentUrl: string): Promise<void> {
-  const res = await fetch(`/agents/${encodeURIComponent(agentUrl)}`, { method: 'DELETE' })
+  const res = await fetch(agentRoute(agentUrl), { method: 'DELETE' })
   if (res.status === 401 || res.status === 403) throw new Error(REGISTRY_TOKEN_ONLY)
   if (!res.ok) throw new Error(`Failed to unregister: ${res.statusText}`)
 }

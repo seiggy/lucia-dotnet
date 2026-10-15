@@ -55,6 +55,18 @@ public sealed class AgentRegistryApiTests
     }
 
     [Fact]
+    public async Task UnregisterAgentAsync_AnAddressWithALiteralPercentEscape_SurvivesTheDoubleEncoding()
+    {
+        // The dashboard encodes the address twice. Kestrel decodes one layer, so a literal %2F in the address arrives as %252F.
+        var registry = A.Fake<IAgentRegistry>();
+
+        await AgentRegistryApi.UnregisterAgentAsync(registry, "http%3A%2F%2Fagent-host%2Fa2a%2Fx%252Fy", CancellationToken.None);
+
+        A.CallTo(() => registry.UnregisterAgentAsync("http://agent-host/a2a/x%2Fy", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task UnregisterAgentAsync_EncodedSlashesInTheRoute_RemovesTheDecodedAddress()
     {
         var registry = A.Fake<IAgentRegistry>();

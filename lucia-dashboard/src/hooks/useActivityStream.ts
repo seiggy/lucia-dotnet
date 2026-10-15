@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import type { LiveEvent } from '../types'
 import { usePageVisible } from './usePageVisible'
 
-const MIN_COUNT_INTERVAL_MS = 5_000
-
 /** Connection state of the SSE activity stream. */
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
@@ -16,38 +14,20 @@ export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
  * Automatically reconnects on error with exponential backoff (up to 10 retries,
  * max 30 second delay). Cleans up the EventSource on unmount and while the
  * browser tab is hidden, so background tabs do not hold a connection slot.
- * The server does not replay events missed while disconnected, so connectionCount, which counts
- * successful (re)connections, tells consumers when to drop state built from earlier events.
+ * The server does not replay events missed while disconnected, so connectionCount, which counts every
+ * successful (re)connection, tells consumers when to drop state built from earlier events. Clearing that
+ * state is cheap, so it is not throttled.
  */
 export function useActivityStream() {
   const visible = usePageVisible()
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const [connectionCount, setConnectionCount] = useState(0)
-  const lastCountedAtRef = useRef(0)
-  const countTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sourceRef = useRef<EventSource | null>(null)
   const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const maxRetries = 10
-
-  // A stream that keeps dropping and reopening would make every consumer refetch each time, so count at most once per interval.
-  // A reconnection inside the interval still counts, once the interval has passed, so missed events are never skipped.
-  const countConnection = useCallback(() => {
-    const wait = lastCountedAtRef.current + MIN_COUNT_INTERVAL_MS - Date.now()
-    if (wait <= 0) {
-      lastCountedAtRef.current = Date.now()
-      setConnectionCount(count => count + 1)
-      return
-    }
-    if (countTimerRef.current) return
-    countTimerRef.current = setTimeout(() => {
-      countTimerRef.current = null
-      lastCountedAtRef.current = Date.now()
-      setConnectionCount(count => count + 1)
-    }, wait)
-  }, [])
 
   const connect = useCallback(() => {
     if (retryTimerRef.current) {
@@ -63,7 +43,7 @@ export function useActivityStream() {
 
     source.onopen = () => {
       setConnectionState('connected')
-      countConnection()
+      setConnectionCount(count => count + 1)
       retriesRef.current = 0
     }
 
@@ -93,7 +73,7 @@ export function useActivityStream() {
         setConnectionState('disconnected')
       }
     }
-  }, [countConnection])
+  }, [])
 
   useEffect(() => {
     connectRef.current = connect
@@ -109,10 +89,6 @@ export function useActivityStream() {
     retriesRef.current = 0
     connect()
     return () => {
-      if (countTimerRef.current) {
-        clearTimeout(countTimerRef.current)
-        countTimerRef.current = null
-      }
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current)
         retryTimerRef.current = null

@@ -44,8 +44,9 @@ any storage driver.
 
 ## Fixes
 
-- Refreshing or unregistering an agent through the registry API failed with 400 whenever the address was
-  URL-encoded, which the dashboard always does. The API now decodes the address.
+- Refreshing an agent through the registry API failed with 400, and unregistering one removed nothing,
+  because ASP.NET Core leaves %2F encoded in route values and the dashboard encodes the address. The API now
+  decodes it, and the dashboard encodes the address twice so a literal % in an address survives.
 - The background task stream could show a finished task as Running. The tracker signalled a change
   before it stored the new state, and the stream read the old state and waited for the next change.
 - SQLite task statistics now count tasks per agent. The query read a field that

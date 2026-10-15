@@ -1,6 +1,6 @@
 # Dashboard design and technical audit
 
-Date: 2026-10-14. Scope: `lucia-dashboard` (React 19, Vite, Tailwind). The audit itself changed no code; see the review README for the fixes made afterwards.
+Date: 2026-10-14. Scope: `lucia-dashboard` (React 19, Vite, Tailwind). The audit itself changed no code; see the Fix status section of the review README for the fixes made afterwards.
 
 ## How this was done
 
