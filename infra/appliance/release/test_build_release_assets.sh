@@ -83,7 +83,7 @@ grep -q 'target: appliance-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0' \
     "$workflow_dir/jetson-voice-assets.yml"
-grep -q 'runs-on: ubuntu-24.04-arm' \
+grep -Fq 'runs-on: [self-hosted, Linux, ARM64, spark]' \
     "$workflow_dir/jetson-voice-assets.yml"
 if grep -q 'docker/setup-qemu-action' \
     "$workflow_dir/jetson-voice-assets.yml"; then
