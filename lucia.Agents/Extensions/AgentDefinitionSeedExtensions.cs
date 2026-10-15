@@ -97,7 +97,7 @@ public static class AgentDefinitionSeedExtensions
     private static readonly Regex KebabCaseIdPattern = new("^[a-z0-9]+(-[a-z0-9]+)*$", RegexOptions.Compiled);
 
     /// <summary>
-    /// One-time startup migration that makes the definition's Id the single routing identity.
+    /// Startup migration that makes the definition's Id the single routing identity.
     /// Legacy definitions may have drifted: older versions did not pin Name to Id, and ids
     /// were never validated, so a definition's kebab-case Id may differ from its Name or not
     /// be kebab-case at all. This method normalizes both while leaving DisplayName (the
@@ -110,6 +110,9 @@ public static class AgentDefinitionSeedExtensions
     /// Renames execute as a single database transaction (<c>INSERT ... SELECT ... ON CONFLICT DO NOTHING</c>
     /// followed by deleting the old row), so concurrent host instances can never clobber an
     /// existing definition: at most one caller wins, everyone else no-ops.
+    /// The migration is idempotent and re-runs on every startup (a no-op once definitions are
+    /// conforming), and it is intentionally non-fatal at the call site: a failure logs an error
+    /// and leaves legacy definitions as-is until the next boot rather than blocking agent start.
     /// </summary>
     public static async Task MigrateRoutingIdentityAsync(
         this IAgentDefinitionRepository repository,

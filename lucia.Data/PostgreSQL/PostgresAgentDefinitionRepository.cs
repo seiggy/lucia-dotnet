@@ -209,8 +209,10 @@ public sealed class PostgresAgentDefinitionRepository : IAgentDefinitionReposito
 
     public async Task<bool> InsertAgentDefinitionIfAbsentAsync(AgentDefinition definition, CancellationToken ct = default)
     {
-        // ON CONFLICT DO NOTHING makes the insert atomic: concurrent creates of the same id
-        // serialize on the unique index, exactly one commits, the others roll back and report false.
+        // Bare ON CONFLICT DO NOTHING (no target) makes the insert atomic: the table has unique
+        // keys on BOTH id and name, and a losing concurrent writer can surface the violation on
+        // either one. Absorbing any uniqueness conflict keeps "insert if absent" total — exactly
+        // one caller commits, the others roll back and report false.
         var json = JsonSerializer.Serialize(definition, JsonOptions);
 
         await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
@@ -227,7 +229,7 @@ public sealed class PostgresAgentDefinitionRepository : IAgentDefinitionReposito
                     @data,
                     '{updatedAt}',
                     '"1970-01-01T00:00:00.000000Z"'::jsonb))
-            ON CONFLICT (id) DO NOTHING;
+            ON CONFLICT DO NOTHING;
             """;
         insert.Parameters.AddWithValue("id", definition.Id);
         insert.Parameters.AddWithValue("name", definition.Name);
@@ -273,9 +275,9 @@ public sealed class PostgresAgentDefinitionRepository : IAgentDefinitionReposito
     public async Task<bool> RenameAgentDefinitionIfTargetFreeAsync(string oldId, string newId, CancellationToken ct = default)
     {
         // Single-transaction rename: the INSERT...SELECT only fires while the old row exists and
-        // the target id is free. ON CONFLICT DO NOTHING resolves the cross-process race — if a
-        // concurrent transaction commits the same target first, this insert yields 0 rows and
-        // rolls back without writing anything, so exactly one caller ever wins.
+        // the target id is free. Bare ON CONFLICT DO NOTHING resolves the cross-process race — if a
+        // concurrent transaction commits the same target first, this insert yields 0 rows (on the
+        // id OR name unique key) and rolls back without writing anything, so exactly one caller wins.
         await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
 
@@ -296,7 +298,7 @@ public sealed class PostgresAgentDefinitionRepository : IAgentDefinitionReposito
             FROM agent_definitions
             WHERE id = @oldId
               AND NOT EXISTS (SELECT 1 FROM agent_definitions WHERE id = @newId)
-            ON CONFLICT (id) DO NOTHING;
+            ON CONFLICT DO NOTHING;
             """;
         insert.Parameters.AddWithValue("oldId", oldId);
         insert.Parameters.AddWithValue("newId", newId);

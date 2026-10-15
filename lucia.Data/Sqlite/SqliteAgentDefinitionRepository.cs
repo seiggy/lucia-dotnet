@@ -199,7 +199,7 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
         using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO agent_definitions (id, name, enabled, data)
+            INSERT OR IGNORE INTO agent_definitions (id, name, enabled, data)
             VALUES (
                 @id,
                 @name,
@@ -211,7 +211,6 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
                         '%Y-%m-%dT%H:%M:%fZ',
                         CAST(ROUND(unixepoch('now', 'subsec') * 1000) AS INTEGER) / 1000.0,
                         'unixepoch')))
-            ON CONFLICT(id) DO NOTHING
             RETURNING json_extract(data, '$.updatedAt');
             """;
         cmd.Parameters.AddWithValue("@id", definition.Id);
@@ -233,16 +232,16 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
     public async Task<bool> RenameAgentDefinitionIfTargetFreeAsync(string oldId, string newId, CancellationToken ct = default)
     {
         // Single-transaction rename: the INSERT...SELECT only fires while the old row exists and
-        // the target id is free. SQLite serializes writers through its file lock (busy_timeout
-        // set on the connection factory), so a concurrent rename either sees the committed
-        // target and yields 0 rows, or waits and then does the same — exactly one caller wins.
+        // the target id is free. OR IGNORE keeps "rename if target free" total — a concurrent
+        // rename that commits the same target first (id OR name unique key) yields 0 rows, so
+        // this caller rolls back without writing anything and exactly one caller wins.
         using var connection = _connectionFactory.CreateConnection();
         using var transaction = connection.BeginTransaction();
 
         using var insert = connection.CreateCommand();
         insert.Transaction = transaction;
         insert.CommandText = """
-            INSERT INTO agent_definitions (id, name, enabled, data)
+            INSERT OR IGNORE INTO agent_definitions (id, name, enabled, data)
             SELECT
                 @newId,
                 @newId,
@@ -258,8 +257,7 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
                         'unixepoch'))
             FROM agent_definitions
             WHERE id = @oldId
-              AND NOT EXISTS (SELECT 1 FROM agent_definitions WHERE id = @newId)
-            ON CONFLICT(id) DO NOTHING;
+              AND NOT EXISTS (SELECT 1 FROM agent_definitions WHERE id = @newId);
             """;
         insert.Parameters.AddWithValue("@oldId", oldId);
         insert.Parameters.AddWithValue("@newId", newId);
