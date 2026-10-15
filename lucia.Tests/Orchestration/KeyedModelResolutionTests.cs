@@ -14,7 +14,6 @@ namespace lucia.Tests.Orchestration;
 /// <list type="bullet">
 ///   <item>Default forwardings route all agent keys to the unkeyed <c>IChatClient</c>.</item>
 ///   <item>Per-agent overrides replace the default forwarding for a specific key.</item>
-///   <item>Config binding for <see cref="AgentConfiguration.ModelConnectionName"/> works.</item>
 ///   <item>The <see cref="OrchestratorServiceKeys"/> mapping resolves correctly.</item>
 /// </list>
 /// </summary>
@@ -186,8 +185,6 @@ public sealed class KeyedModelResolutionTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Agents:0:AgentName"] = "light-agent",
-                ["Agents:0:ModelConnectionName"] = "chat-mini",
                 // Note: NO ConnectionStrings:chat-mini entry!
             })
             .Build();
@@ -223,8 +220,6 @@ public sealed class KeyedModelResolutionTests
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Agents:0:AgentName"] = "light-agent",
-                ["Agents:0:ModelConnectionName"] = "chat-mini",
                 ["ConnectionStrings:chat-mini"] = "Endpoint=https://test.openai.azure.com/;Deployment=gpt-4o-mini",
             })
             .Build();

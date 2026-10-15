@@ -22,7 +22,7 @@ namespace lucia.Agents.Skills;
 /// Skill for controlling fans in Home Assistant.
 /// Provides tools for discovering fans, checking state, and controlling speed/direction.
 /// </summary>
-public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
+public sealed class FanControlSkill : ILuciaSkill, IOptimizableSkill
 {
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.FanControl", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.FanControl", "1.0.0");

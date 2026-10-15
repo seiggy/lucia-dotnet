@@ -1,4 +1,5 @@
 using A2A;
+using AgentSkill = A2A.AgentSkill;
 
 using lucia.Agents.Abstractions;
 using lucia.Agents.Integration;

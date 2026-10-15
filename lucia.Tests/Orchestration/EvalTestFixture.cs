@@ -810,7 +810,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         // Return null for AgentSessionStore so WorkflowFactory falls back to NoopAgentSessionStore.
         // A default FakeItEasy IServiceProvider returns a Castle proxy that cannot be cast to the concrete type.
         var serviceProvider = A.Fake<IServiceProvider>();
-        A.CallTo(() => serviceProvider.GetService(typeof(Microsoft.Agents.AI.Hosting.AgentSessionStore)))
+        A.CallTo(() => serviceProvider.GetService(typeof(Microsoft.Agents.AI.AgentSessionStore)))
             .Returns(null);
 
         var workflowFactory = new WorkflowFactory(

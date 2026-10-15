@@ -12,7 +12,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Skill for adding items to Home Assistant shopping list and todo lists.
 /// </summary>
-public sealed class ListSkill : IAgentSkill
+public sealed class ListSkill : ILuciaSkill
 {
     public IReadOnlyList<string> EntityDomains { get; } = ["todo"];
 

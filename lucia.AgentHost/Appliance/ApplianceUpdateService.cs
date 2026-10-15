@@ -480,17 +480,8 @@ public sealed partial class ApplianceUpdateService(
             bundleUrl,
             tag,
             "lucia-appliance-attestations.jsonl");
-        foreach (var partial in Directory.EnumerateDirectories(
-                     staging.Root,
-                     $".{tag}.*.partial"))
-        {
-            Directory.Delete(partial, recursive: true);
-        }
-        var stage = Path.Combine(
-            staging.Root,
-            $".{tag}.{Guid.NewGuid():N}.partial");
+        var stage = staging.GetResumableStagePath(channel, tag);
         Directory.CreateDirectory(stage);
-        try
         {
             var manifestPath = Path.Combine(
                 stage,
@@ -604,7 +595,10 @@ public sealed partial class ApplianceUpdateService(
                     "The selected appliance channel has no newer release.");
             }
             var (parts, channelBytes) = ValidateParts(selectedChannel, tag);
-            EnsureStagingCapacity(staging.Root, channelBytes);
+            var resumedBytes = CountResumableBytes(
+                stage,
+                parts.Select(part => (part.GetProperty("name").GetString()!, part.GetProperty("bytes").GetInt64())));
+            EnsureStagingCapacity(staging.Root, channelBytes, resumedBytes);
             long completedBytes = 0;
             var lastProgressAt = Environment.TickCount64;
             staging.SetProgress("downloading", 0, channelBytes);
@@ -659,13 +653,6 @@ public sealed partial class ApplianceUpdateService(
             {
                 staging.CompleteHandoffAttempt();
                 throw;
-            }
-        }
-        finally
-        {
-            if (Directory.Exists(stage))
-            {
-                Directory.Delete(stage, recursive: true);
             }
         }
     }
@@ -965,9 +952,31 @@ public sealed partial class ApplianceUpdateService(
                 && value.ValueKind == JsonValueKind.String
                 && !string.IsNullOrWhiteSpace(value.GetString()));
 
+    /// <summary>
+    /// Bytes <see cref="DownloadAsync"/> will reuse for the selected parts: a part's partial wins
+    /// over its finished file, and a file larger than its part is discarded, so it earns nothing.
+    /// </summary>
+    internal static long CountResumableBytes(
+        string stage,
+        IEnumerable<(string Name, long Bytes)> parts)
+    {
+        long total = 0;
+        foreach (var (name, bytes) in parts.DistinctBy(part => part.Name))
+        {
+            var temporary = new FileInfo(Path.Combine(stage, name + ".tmp"));
+            var file = temporary.Exists ? temporary : new FileInfo(Path.Combine(stage, name));
+            if (file.Exists && file.Length <= bytes)
+            {
+                total += file.Length;
+            }
+        }
+        return total;
+    }
+
     internal static void EnsureStagingCapacity(
         string stagingRoot,
-        long payloadBytes)
+        long payloadBytes,
+        long resumedBytes = 0)
     {
         if (payloadBytes < 1)
         {
@@ -989,7 +998,7 @@ public sealed partial class ApplianceUpdateService(
                 "The appliance staging filesystem is unavailable.");
         }
         var requiredBytes = checked(
-            payloadBytes * 2 + (1L << 30));
+            payloadBytes * 2 + (1L << 30) - Math.Clamp(resumedBytes, 0, payloadBytes));
         if (drive.AvailableFreeSpace < requiredBytes)
         {
             throw new IOException(
@@ -1061,7 +1070,15 @@ public sealed partial class ApplianceUpdateService(
             "/seiggy/lucia-dotnet/releases/download/",
             StringComparison.Ordinal);
 
-    private async Task DownloadAsync(
+    private const int DownloadAttempts = 5;
+
+    internal TimeSpan DownloadRetryDelay { get; init; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Downloads an update asset. Assets with a known size and digest resume from any partial
+    /// left by a dropped connection or an earlier attempt; the digest still covers every byte.
+    /// </summary>
+    internal async Task DownloadAsync(
         Uri uri,
         string destination,
         long? expectedBytes,
@@ -1070,75 +1087,195 @@ public sealed partial class ApplianceUpdateService(
         CancellationToken cancellationToken,
         Action<long>? reportProgress = null)
     {
+        var resumable = expectedBytes is not null && expectedSha256 is not null;
+        var temporary = destination + ".tmp";
+        if (resumable && File.Exists(destination) && !File.Exists(temporary))
+        {
+            // A part finished by an earlier attempt is re-verified before reuse.
+            File.Move(destination, temporary);
+        }
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await DownloadAttemptAsync(
+                        uri,
+                        destination,
+                        temporary,
+                        resumable,
+                        expectedBytes,
+                        expectedSha256,
+                        maximumBytes,
+                        reportProgress,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+            catch (Exception exception) when (
+                attempt < DownloadAttempts
+                && !cancellationToken.IsCancellationRequested
+                && IsTransientDownloadFailure(exception))
+            {
+                LogDownloadRetry(exception, uri, attempt, DownloadAttempts);
+                await Task.Delay(DownloadRetryDelay * attempt, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool IsTransientDownloadFailure(Exception exception) =>
+        exception switch
+        {
+            HttpRequestException { StatusCode: null } => true,
+            HttpRequestException { StatusCode: { } status } =>
+                (int)status >= 500
+                || status is System.Net.HttpStatusCode.RequestTimeout
+                    or System.Net.HttpStatusCode.TooManyRequests,
+            IOException or OperationCanceledException => true,
+            _ => false,
+        };
+
+    private async Task DownloadAttemptAsync(
+        Uri uri,
+        string destination,
+        string temporary,
+        bool resumable,
+        long? expectedBytes,
+        string? expectedSha256,
+        long maximumBytes,
+        Action<long>? reportProgress,
+        CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         timeout.CancelAfter(TimeSpan.FromMinutes(30));
         var downloadToken = timeout.Token;
-        using var response = await httpClient
-            .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, downloadToken)
-            .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength is > 0
-            && response.Content.Headers.ContentLength > maximumBytes)
+        var offset = resumable && File.Exists(temporary)
+            ? new FileInfo(temporary).Length
+            : 0;
+        if (offset > expectedBytes)
         {
-            throw new InvalidDataException("Update asset exceeds its size limit.");
+            offset = 0;
         }
 
-        var temporary = destination + ".tmp";
+        HttpResponseMessage? response = null;
         try
         {
-            await using var source = await response.Content
-                .ReadAsStreamAsync(downloadToken)
-                .ConfigureAwait(false);
-            await using var target = new FileStream(
-                temporary,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 1024 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            if (offset == 0 || offset < expectedBytes)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                if (offset > 0)
+                {
+                    request.Headers.Range =
+                        new System.Net.Http.Headers.RangeHeaderValue(offset, null);
+                }
+                response = await httpClient
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, downloadToken)
+                    .ConfigureAwait(false);
+                if (offset > 0
+                    && response.StatusCode == System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+                {
+                    File.Delete(temporary);
+                    throw new IOException("The update asset changed; restarting its download.");
+                }
+                response.EnsureSuccessStatusCode();
+                if (response.StatusCode != System.Net.HttpStatusCode.PartialContent)
+                {
+                    offset = 0;
+                }
+                else if (response.Content.Headers.ContentRange?.From != offset)
+                {
+                    File.Delete(temporary);
+                    throw new IOException("The update server resumed at the wrong offset; restarting its download.");
+                }
+                if (offset + response.Content.Headers.ContentLength > maximumBytes)
+                {
+                    throw new InvalidDataException("Update asset exceeds its size limit.");
+                }
+            }
+
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             var buffer = new byte[1024 * 1024];
             long total = 0;
             int read;
-            while ((read = await source
-                       .ReadAsync(buffer, downloadToken)
-                       .ConfigureAwait(false)) > 0)
+            await using (var target = new FileStream(
+                             temporary,
+                             FileMode.OpenOrCreate,
+                             FileAccess.ReadWrite,
+                             FileShare.None,
+                             bufferSize: 1024 * 1024,
+                             FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                total += read;
-                if (total > maximumBytes)
+                target.SetLength(offset);
+                while (total < offset
+                       && (read = await target
+                           .ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, offset - total)), downloadToken)
+                           .ConfigureAwait(false)) > 0)
                 {
-                    throw new InvalidDataException(
-                        "Update asset exceeds its size limit.");
+                    hash.AppendData(buffer, 0, read);
+                    total += read;
                 }
-                hash.AppendData(buffer, 0, read);
-                await target.WriteAsync(
-                        buffer.AsMemory(0, read),
-                        downloadToken)
-                    .ConfigureAwait(false);
-                reportProgress?.Invoke(total);
+                if (total > 0)
+                {
+                    reportProgress?.Invoke(total);
+                }
+                if (response is not null)
+                {
+                    await using var source = await response.Content
+                        .ReadAsStreamAsync(downloadToken)
+                        .ConfigureAwait(false);
+                    while ((read = await source
+                               .ReadAsync(buffer, downloadToken)
+                               .ConfigureAwait(false)) > 0)
+                    {
+                        total += read;
+                        if (total > maximumBytes)
+                        {
+                            throw new InvalidDataException(
+                                "Update asset exceeds its size limit.");
+                        }
+                        hash.AppendData(buffer, 0, read);
+                        await target.WriteAsync(
+                                buffer.AsMemory(0, read),
+                                downloadToken)
+                            .ConfigureAwait(false);
+                        reportProgress?.Invoke(total);
+                    }
+                }
+                await target.FlushAsync(downloadToken).ConfigureAwait(false);
             }
-            await target.FlushAsync(downloadToken).ConfigureAwait(false);
-            if (expectedBytes is not null && total != expectedBytes)
-            {
-                throw new InvalidDataException("Update asset size mismatch.");
-            }
+
             var actualHash = Convert.ToHexString(hash.GetHashAndReset())
                 .ToLowerInvariant();
-            if (expectedSha256 is not null
-                && !string.Equals(
-                    actualHash,
-                    expectedSha256,
-                    StringComparison.Ordinal))
+            if (expectedBytes is not null && total != expectedBytes
+                || expectedSha256 is not null
+                    && !string.Equals(actualHash, expectedSha256, StringComparison.Ordinal))
             {
-                throw new InvalidDataException("Update asset digest mismatch.");
+                File.Delete(temporary);
+                if (offset > 0)
+                {
+                    throw new IOException(
+                        "A resumed update asset failed verification; restarting its download.");
+                }
+                throw new InvalidDataException(expectedBytes is not null && total != expectedBytes
+                    ? "Update asset size mismatch."
+                    : "Update asset digest mismatch.");
             }
-            await target.DisposeAsync().ConfigureAwait(false);
             File.Move(temporary, destination, overwrite: true);
+        }
+        catch when (!resumable)
+        {
+            File.Delete(temporary);
+            throw;
         }
         finally
         {
-            File.Delete(temporary);
+            response?.Dispose();
         }
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Update download from {Uri} failed on attempt {Attempt} of {Attempts}; resuming.")]
+    private partial void LogDownloadRetry(Exception exception, Uri uri, int attempt, int attempts);
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using A2A;
+using AgentSkill = A2A.AgentSkill;
 using Microsoft.Extensions.AI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging;

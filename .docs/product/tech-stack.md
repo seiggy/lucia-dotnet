@@ -1,6 +1,6 @@
 # Technical Stack
 
-> Last Updated: 2026-09-13
+> Last Updated: 2026-10-15
 > Version: 1.3.0
 
 ## Core Technologies
@@ -12,7 +12,7 @@
 
 ### AI/ML Framework
 - **Primary:** [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/)
-- **Version:** 1.0.0-rc3
+- **Version:** 1.25.0 (A2A, hosting, and hosting adapters on the matching 1.25.0 preview/alpha builds; A2A SDK 1.0.0-preview3)
 - **Orchestration:** Sequential & Fan-out/Fan-in custom orchestration workflow
 
 ### Database
@@ -25,8 +25,9 @@
 
 ### LLM Providers
 - **Online:** Azure OpenAI, OpenAI, Google Gemini, Anthropic Claude
-- **GitHub Copilot:** GitHub.Copilot.SDK 1.0.13 for GitHub authentication, model discovery, context tiers, and reasoning effort. The evaluation harness can use Copilot as its judge while keeping models under test on local backends.
-- **Copilot Agent Framework adapter:** Microsoft.Agents.AI.GitHub.Copilot 1.20.0 preserves the existing `AIAgent` integration. Its shared abstractions require Microsoft.Agents.AI.Abstractions 1.20.0, Microsoft.Extensions.AI.Abstractions 10.9.0, and DI/Logging abstractions 10.0.11. The existing core and workflow versions remain unchanged; the required abstraction updates are API-compatible.
+- **GitHub Copilot:** GitHub.Copilot.SDK 1.0.14 for GitHub authentication, model discovery, context tiers, and reasoning effort. The evaluation harness can use Copilot as its judge while keeping models under test on local backends.
+- **Copilot Agent Framework adapter:** Microsoft.Agents.AI.GitHub.Copilot 1.25.0 preserves the existing `AIAgent` integration, on the same release line as the core and workflow packages.
+- **Evaluation:** AgentEval 0.43.0-beta on Microsoft.Extensions.AI.Evaluation 10.11.0.
 - **Evaluation judge:** Azure OpenAI v1 Responses API through the existing OpenAI and Microsoft.Extensions.AI packages, with an explicit legacy Chat Completions opt-out.
 - **Offline:** OLLaMa and llama.CPP
 - **Embeddings:** Support for Azure OpenAI, OpenAI, and local deployed Embeddings
@@ -41,7 +42,7 @@
 
 ### MCP Tool Servers
 - **Protocol:** [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) over HTTP/SSE
-- **Client:** Microsoft.Extensions.AI ModelContextProtocol (v0.9.0-preview.1)
+- **Client:** ModelContextProtocol C# SDK (v1.4.1)
 - **Transports:** stdio (local processes), HTTP/SSE (remote, e.g. MetaMCP)
 - **Dynamic Agents:** MCP tools are assigned to agent definitions and resolved at runtime via `IMcpToolRegistry`
 - **Python stdio tools:** AgentHost container variants include uv/uvx 0.12.16 from the digest-pinned multi-architecture Astral image. Cache, tools, and managed Python use writable `/tmp/uv-*` directories created by the runtime user. No installer script runs during image builds.

@@ -191,6 +191,38 @@ public sealed class ApplianceUpdateStagingStoreTests
         }
     }
 
+    [Fact]
+    public void FailedDownload_KeepsItsPartialForRetryUntilCleared()
+    {
+        var root = Directory.CreateTempSubdirectory("lucia-staging-").FullName;
+        try
+        {
+            var store = CreateStore(root);
+            Assert.NotNull(store.TryStart("lucia", "v1.5.0"));
+            var partial = store.GetResumableStagePath("lucia", "v1.5.0");
+            Directory.CreateDirectory(partial);
+            var stale = Path.Combine(root, ".v1.4.0.lucia.partial");
+            Directory.CreateDirectory(stale);
+            store.SetFailed("lucia", "v1.5.0", "connection reset");
+
+            var reloaded = CreateStore(root);
+
+            Assert.True(Directory.Exists(partial));
+            Assert.False(Directory.Exists(stale));
+            var otherChannel = reloaded.GetResumableStagePath("os", "v1.5.0");
+            Assert.NotEqual(partial, otherChannel);
+            Assert.False(Directory.Exists(partial));
+            Directory.CreateDirectory(partial);
+            Assert.Equal(partial, reloaded.GetResumableStagePath("lucia", "v1.5.0"));
+            reloaded.Clear();
+            Assert.False(Directory.Exists(partial));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static ApplianceUpdateStagingStore CreateStore(string root) =>
         new(root, NullLogger<ApplianceUpdateStagingStore>.Instance);
 }

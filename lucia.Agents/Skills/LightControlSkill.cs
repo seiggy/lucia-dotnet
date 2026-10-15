@@ -21,7 +21,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Semantic Kernel plugin for Home Assistant light control with caching and similarity search
 /// </summary>
-public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
+public class LightControlSkill : ILuciaSkill, IOptimizableSkill, ICommandPatternProvider
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly ILogger<LightControlSkill> _logger;

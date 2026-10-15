@@ -28,6 +28,11 @@ any storage driver.
 - **Mongo-only settings are removed** from the dashboard and config schema
   (trace capture database and collection names, task archive names, the speaker
   profile database name, and the config and API key collection constants).
+- **A2A REST routes lost the `/v1` prefix.** The A2A SDK (1.0.0-preview3) serves
+  `{agent}/message:send`, `{agent}/tasks` and the other REST routes without
+  `/v1`. Each agent's card moved from `{agent}/v1/card` to
+  `{agent}/.well-known/agent-card.json`. Lucia's own clients use the same SDK
+  and need no change. Point third-party A2A clients at the new routes.
 
 ## Upgrading from 1.5.x
 
@@ -43,6 +48,14 @@ any storage driver.
 5. Re-run setup. Mongo data is not migrated.
 
 ## Fixes
+
+- A failed appliance update download no longer strands the Lucia or Jetson OS update.
+  Downloads retry dropped connections up to five times and resume with HTTP range
+  requests, with a fresh 30-minute timeout per attempt instead of one for the whole
+  part. If the download still fails, the Appliance page shows **Retry download**,
+  which resumes from the bytes already on the Jetson, even after an AgentHost
+  restart. Every part is still checked against its SHA-256 before install, and a
+  partial that fails the check is discarded and downloaded again.
 
 - Refreshing an agent through the registry API failed with 400, and unregistering one removed nothing,
   because ASP.NET Core leaves %2F encoded in route values and the dashboard encodes the address. The API now
@@ -107,6 +120,14 @@ any storage driver.
 - Every `.cs` file now holds one class.
 - In-memory `ExactMatchArea` now matches display names only, like the Redis
   version.
+- Lucia's skill interface `IAgentSkill` is now `ILuciaSkill`, so it no longer
+  reads like the Agent Skills spec type (`Microsoft.Agents.AI.AgentSkill`) or
+  the A2A agent-card `AgentSkill`.
+- Dependencies moved to Aspire 13.6.1, Microsoft Agent Framework 1.25.0
+  (A2A and hosting packages on the matching 1.25.0 previews), A2A SDK
+  1.0.0-preview3, Microsoft.Extensions.AI 10.11.0, OpenTelemetry 1.17.0 and
+  AgentEval 0.43.0-beta. The unused `Microsoft.Agents.AI.AzureAI` reference is
+  removed.
 
 ---
 # Release notes - 1.4.0

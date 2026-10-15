@@ -21,7 +21,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Skill for controlling HVAC / climate entities in Home Assistant
 /// </summary>
-public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
+public sealed class ClimateControlSkill : ILuciaSkill, IOptimizableSkill, ICommandPatternProvider
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly ILogger<ClimateControlSkill> _logger;

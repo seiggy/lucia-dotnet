@@ -67,7 +67,9 @@ public static class JudgeClientFactory
             return legacyClient.GetChatClient(settings.JudgeDeployment).AsIChatClient();
         }
 
-        var clientOptions = new OpenAIClientOptions
+        // The installed Responses SDK and IChatClient adapter still require this opt-in.
+#pragma warning disable OPENAI001
+        var clientOptions = new ResponsesClientOptions
         {
             Endpoint = new Uri(endpoint.GetLeftPart(UriPartial.Authority) + "/openai/v1/")
         };
@@ -76,8 +78,6 @@ public static class JudgeClientFactory
             clientOptions.Transport = new HttpClientPipelineTransport(httpClient);
         }
 
-        // The installed Responses SDK and IChatClient adapter still require this opt-in.
-#pragma warning disable OPENAI001
         var client = hasApiKey
             ? new ResponsesClient(new ApiKeyCredential(settings.ApiKey!), clientOptions)
             : new ResponsesClient(

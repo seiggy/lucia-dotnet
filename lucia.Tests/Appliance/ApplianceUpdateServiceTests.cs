@@ -109,6 +109,31 @@ public sealed class ApplianceUpdateServiceTests
                 long.MaxValue / 3));
     }
 
+    [Fact]
+    public void CountResumableBytes_CreditsOnlySelectedPartsOnce()
+    {
+        var stage = Directory.CreateTempSubdirectory("lucia-resumable-").FullName;
+        try
+        {
+            File.WriteAllBytes(Path.Combine(stage, "part1"), new byte[10]);
+            File.WriteAllBytes(Path.Combine(stage, "part1.tmp"), new byte[4]);
+            File.WriteAllBytes(Path.Combine(stage, "part2.tmp"), new byte[15]);
+            File.WriteAllBytes(Path.Combine(stage, "part3.tmp"), new byte[30]);
+            File.WriteAllBytes(Path.Combine(stage, "unrelated"), new byte[100]);
+            File.WriteAllBytes(Path.Combine(stage, "lucia-appliance-manifest.json"), new byte[50]);
+
+            var credited = ApplianceUpdateService.CountResumableBytes(
+                stage,
+                [("part1", 10L), ("part2", 20L), ("part3", 5L)]);
+
+            Assert.Equal(4 + 15, credited);
+        }
+        finally
+        {
+            Directory.Delete(stage, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData(10_485_761L)]
