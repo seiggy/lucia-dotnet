@@ -279,6 +279,28 @@ public class MusicPlaybackSkillTests
     }
 
     [Fact]
+    public async Task GetNowPlayingAsync_NonMusicContentType_IncludesFriendlyQualifier()
+    {
+        var state = new HomeAssistantState
+        {
+            EntityId = "media_player.satellite1_kitchen",
+            State = "playing",
+            Attributes = new Dictionary<string, object>
+            {
+                ["media_title"] = "The Wire",
+                ["media_content_type"] = "tv"
+            }
+        };
+        A.CallTo(() => _homeAssistantClient.GetStateAsync("media_player.satellite1_kitchen", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(state));
+
+        var response = await _skill.GetNowPlayingAsync("Satellite1 Kitchen");
+
+        Assert.Contains("Playing TV", response);
+        Assert.Contains("The Wire", response);
+    }
+
+    [Fact]
     public async Task GetNowPlayingAsync_ReportsNothingPlayingWhenIdle()
     {
         var state = new HomeAssistantState

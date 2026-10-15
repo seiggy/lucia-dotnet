@@ -188,7 +188,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
         var contentType = state.Attributes.GetValueOrDefault("media_content_type")?.ToString();
 
         var byArtist = string.IsNullOrWhiteSpace(artist) ? string.Empty : $" by '{artist}'";
-        var kind = IsMediaKind(contentType) ? $" {contentType}" : string.Empty;
+        var kind = IsNonMusicContent(contentType) ? $" {ToDisplayContentType(contentType)}" : string.Empty;
 
         if (string.Equals(state.State, "playing", StringComparison.OrdinalIgnoreCase))
         {
@@ -207,9 +207,30 @@ public class MusicPlaybackSkill : IOptimizableSkill
         return $"Nothing is playing on '{player.FriendlyName}' right now.";
     }
 
-    private static bool IsMediaKind(string? contentType) =>
+    /// <summary>
+    /// True when the reported content type is something other than music (e.g. tv, movie, video),
+    /// indicating the now-playing response should mention the content type as a qualifier.
+    /// </summary>
+    private static bool IsNonMusicContent(string? contentType) =>
         !string.IsNullOrWhiteSpace(contentType) &&
         !string.Equals(contentType, "music", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Well-known Home Assistant media content types mapped to display-friendly labels.</summary>
+    private static readonly Dictionary<string, string> ContentTypeDisplayNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["tv"] = "TV",
+        ["tv_show"] = "TV show",
+        ["movie"] = "Movie",
+        ["video"] = "Video",
+        ["home_video"] = "Home video",
+        ["channel"] = "Channel",
+        ["radio"] = "Radio",
+        ["podcast"] = "Podcast",
+        ["audiobook"] = "Audiobook"
+    };
+
+    private static string ToDisplayContentType(string? contentType) =>
+        contentType is null ? string.Empty : ContentTypeDisplayNames.GetValueOrDefault(contentType, contentType);
 
     [Description("Set the volume on a MusicAssistant player. Use this when the user asks to set volume to a specific level (e.g. 50%, half volume, 80).")]
     public async Task<string> SetVolumeAsync(
