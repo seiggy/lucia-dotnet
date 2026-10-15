@@ -152,6 +152,7 @@ WORKDIR /src
 
 # Copy MSBuild infrastructure files required before restore
 COPY ["Directory.Build.props", "."]
+COPY ["Directory.Build.targets", "."]
 COPY ["Directory.Packages.props", "."]
 
 # Copy project files(maintaining directory structure)

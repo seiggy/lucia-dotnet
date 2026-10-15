@@ -128,6 +128,11 @@ any storage driver.
   1.0.0-preview3, Microsoft.Extensions.AI 10.11.0, OpenTelemetry 1.17.0 and
   AgentEval 0.43.0-beta. The unused `Microsoft.Agents.AI.AzureAI` reference is
   removed.
+- Only executables bundle the Copilot CLI, for their own runtime identifier.
+  Agent Framework 1.25 imports the Copilot SDK build targets into every project,
+  so each library also bundled one and the AgentHost image publish failed with
+  duplicate files (NETSDK1152). `Directory.Build.targets` turns the download
+  off for libraries, and every Dockerfile now copies it.
 
 ---
 # Release notes - 1.4.0
