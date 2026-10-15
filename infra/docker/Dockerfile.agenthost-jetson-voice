@@ -317,6 +317,7 @@ FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:3dae2f76
 WORKDIR /src
 
 COPY ["Directory.Build.props", "."]
+COPY ["Directory.Build.targets", "."]
 COPY ["Directory.Packages.props", "."]
 COPY ["lucia.AgentHost/lucia.AgentHost.csproj", "lucia.AgentHost/"]
 COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]

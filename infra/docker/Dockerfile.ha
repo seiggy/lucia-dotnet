@@ -17,7 +17,7 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:c0790639332692a0d56cdd81ed581cfd24
 WORKDIR /src
 
 # Copy solution and project files for restore
-COPY Directory.Build.props Directory.Packages.props lucia-dotnet.slnx ./
+COPY Directory.Build.props Directory.Build.targets Directory.Packages.props lucia-dotnet.slnx ./
 COPY lucia.AgentHost/lucia.AgentHost.csproj lucia.AgentHost/
 COPY lucia.Agents/lucia.Agents.csproj lucia.Agents/
 COPY lucia.Data/lucia.Data.csproj lucia.Data/

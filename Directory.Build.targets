@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- Microsoft.Agents.AI.GitHub.Copilot imports the Copilot SDK targets into every transitive
+       consumer, so each library would bundle its own Copilot CLI and publish fails with
+       NETSDK1152. Libraries skip the download; each executable bundles the CLI for its own
+       runtime identifier. Evaluated here because OutputType is not set yet in Directory.Build.props. -->
+  <PropertyGroup Condition="'$(OutputType)' == 'Library'">
+    <CopilotSkipCliDownload Condition="'$(CopilotSkipCliDownload)' == ''">true</CopilotSkipCliDownload>
+  </PropertyGroup>
+
+</Project>
