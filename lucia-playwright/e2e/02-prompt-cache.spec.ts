@@ -146,13 +146,15 @@ async function clearCache(page: Page) {
   await page.goto('/prompt-cache');
   await page.waitForSelector('table', { timeout: 15_000 });
 
-  // Accept confirm dialogs
-  page.on('dialog', (dialog) => dialog.accept());
+  // Each clear opens a themed confirmation dialog; confirm it.
+  const confirmClear = () => page.getByRole('dialog')
+    .getByRole('button', { name: /^clear (routing|agent) cache$/i }).click();
 
   // Clear Router Cache (default tab)
   const routerClear = page.getByRole('button', { name: /clear all/i });
   if (await routerClear.isEnabled().catch(() => false)) {
     await routerClear.click();
+    await confirmClear();
     await page.waitForTimeout(500);
   }
 
@@ -164,6 +166,7 @@ async function clearCache(page: Page) {
     const agentClear = page.getByRole('button', { name: /clear all/i });
     if (await agentClear.isEnabled().catch(() => false)) {
       await agentClear.click();
+      await confirmClear();
       await page.waitForTimeout(500);
     }
   }

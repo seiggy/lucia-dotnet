@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import ToastContainer from '../components/ToastContainer'
+import Modal from '../components/Modal'
+import Field from '../components/Field'
 import { useToast } from '../hooks/useToast'
+import { useConfirm } from '../hooks/useConfirm'
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -37,6 +40,7 @@ interface AgentCapabilities {
 }
 
 interface AgentCard {
+  /** Address used for proxy, refresh and unregister calls. */
   url: string
   name: string
   description: string
@@ -45,6 +49,12 @@ interface AgentCard {
   defaultInputModes: string[]
   defaultOutputModes: string[]
   skills: AgentSkill[]
+}
+
+/** A2A v1.0 cards carry the endpoint under `supportedInterfaces`; older cards have a top-level `url`. */
+type AgentCardResponse = Omit<AgentCard, 'url'> & {
+  url?: string
+  supportedInterfaces?: { url: string }[]
 }
 
 interface A2AMessagePart {
@@ -66,21 +76,33 @@ interface A2AMessage {
 async function fetchAgents(): Promise<AgentCard[]> {
   const res = await fetch('/agents')
   if (!res.ok) throw new Error(`Failed to fetch agents: ${res.statusText}`)
-  return res.json()
+  const cards: AgentCardResponse[] = await res.json()
+  return cards.map(({ supportedInterfaces, ...card }) => ({
+    ...card,
+    url: card.url || supportedInterfaces?.[0]?.url || card.name,
+  }))
 }
+
+// POST and DELETE on the registry need the platform-injected token that agents use, which a dashboard session cannot present.
+const REGISTRY_TOKEN_ONLY = 'The registry only accepts this from agents that hold the platform token, so the dashboard cannot do it yet.'
 
 async function registerAgent(agentUri: string): Promise<void> {
   const form = new FormData()
   form.append('agentId', agentUri)
   const res = await fetch('/agents/register', { method: 'POST', body: form })
+  if (res.status === 401 || res.status === 403) throw new Error(REGISTRY_TOKEN_ONLY)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
   }
 }
 
+// ASP.NET Core leaves %2F encoded in a route value but decodes the rest, and the registry decodes what is left.
+// Encoding twice makes that exact, so a literal % in an address survives.
+const agentRoute = (agentUrl: string) => `/agents/${encodeURIComponent(encodeURIComponent(agentUrl))}`
+
 async function refreshAgent(agentUrl: string): Promise<void> {
-  const res = await fetch(`/agents/${encodeURIComponent(agentUrl)}`, { method: 'PUT' })
+  const res = await fetch(agentRoute(agentUrl), { method: 'PUT' })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || res.statusText)
@@ -88,7 +110,8 @@ async function refreshAgent(agentUrl: string): Promise<void> {
 }
 
 async function unregisterAgent(agentUrl: string): Promise<void> {
-  const res = await fetch(`/agents/${encodeURIComponent(agentUrl)}`, { method: 'DELETE' })
+  const res = await fetch(agentRoute(agentUrl), { method: 'DELETE' })
+  if (res.status === 401 || res.status === 403) throw new Error(REGISTRY_TOKEN_ONLY)
   if (!res.ok) throw new Error(`Failed to unregister: ${res.statusText}`)
 }
 
@@ -172,6 +195,9 @@ function AgentCardView({
   onDelete: () => void
   selected: boolean
 }) {
+  // The registry refreshes a card by fetching it from an absolute http(s) address; agents that run in this host have relative ones.
+  const canRefresh = /^https?:\/\//i.test(agent.url)
+
   return (
     <div
       onClick={onSelect}
@@ -194,9 +220,11 @@ function AgentCardView({
         </div>
         <div className="flex shrink-0 gap-1 ml-3">
           <button
-            onClick={(e) => { e.stopPropagation(); onRefresh() }}
-            title="Refresh agent card"
-            className="rounded-xl p-1.5 text-dust hover:bg-basalt hover:text-amber transition-colors"
+            onClick={(e) => { e.stopPropagation(); if (canRefresh) onRefresh() }}
+            aria-disabled={!canRefresh}
+            aria-label={canRefresh ? 'Refresh agent card' : 'Refresh unavailable: this agent has no web address to fetch its card from'}
+            title={canRefresh ? 'Refresh agent card' : 'Refresh unavailable: this agent has no web address to fetch its card from'}
+            className={`rounded-xl p-1.5 text-dust transition-colors ${canRefresh ? 'hover:bg-basalt hover:text-amber' : 'cursor-not-allowed opacity-40'}`}
           >
             ↻
           </button>
@@ -596,56 +624,62 @@ function RegisterDialog({
 }: {
   open: boolean
   onClose: () => void
-  onRegister: (uri: string) => void
+  /** Resolves to an error message, or null on success. */
+  onRegister: (uri: string) => Promise<string | null>
 }) {
   const [uri, setUri] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  if (!open) return null
-
-  const handleSubmit = () => {
-    if (!uri.trim()) return
-    onRegister(uri.trim())
-    setUri('')
+  const handleSubmit = async () => {
+    if (!uri.trim() || submitting) return
+    setSubmitting(true)
+    setError(null)
+    const failure = await onRegister(uri.trim())
+    setSubmitting(false)
+    if (failure) setError(failure)
+    else setUri('')
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-xl bg-charcoal p-6 shadow-2xl border border-stone">
-        <h3 className="text-lg font-semibold text-light">Register Agent</h3>
-        <p className="mt-1 text-sm text-dust">
-          Enter the base URL of an A2A-compatible agent. The agent card will be fetched from
-          <code className="ml-1 text-xs bg-basalt px-1 py-0.5 rounded font-mono text-fog">
-            /.well-known/agent-card.json
-          </code>
-        </p>
-        <input
-          type="url"
-          value={uri}
-          onChange={(e) => setUri(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-          placeholder="https://agent-host:port"
-          className="mt-4 w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber input-focus font-mono"
-          autoFocus
-        />
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!uri.trim()}
-            className={`rounded-xl px-4 py-2 text-sm font-medium text-on-accent transition-colors ${
-              !uri.trim() ? 'bg-amber-glow/40 cursor-not-allowed' : 'bg-amber-glow hover:bg-amber-glow'
-            }`}
-          >
-            Register
-          </button>
-        </div>
+    <Modal open={open} onClose={onClose} title="Register Agent">
+      <p className="text-sm text-dust">
+        Enter the base URL of an A2A-compatible agent. The agent card will be fetched from
+        <code className="ml-1 text-xs bg-basalt px-1 py-0.5 rounded font-mono text-fog">
+          /.well-known/agent-card.json
+        </code>
+      </p>
+      <Field label="Agent URL" error={error ?? undefined} className="mt-4">
+        {(control) => (
+          <input
+            {...control}
+            type="url"
+            value={uri}
+            onChange={(e) => setUri(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+            placeholder="https://agent-host:port"
+            className="min-h-11 w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber font-mono"
+          />
+        )}
+      </Field>
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          onClick={onClose}
+          className="min-h-11 rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={!uri.trim() || submitting}
+          className={`min-h-11 rounded-xl px-4 py-2 text-sm font-medium text-on-accent transition-colors ${
+            !uri.trim() || submitting ? 'bg-amber-glow/40 cursor-not-allowed' : 'bg-amber-glow hover:bg-amber-glow'
+          }`}
+        >
+          {submitting ? 'Registering…' : 'Register'}
+        </button>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -654,6 +688,7 @@ function RegisterDialog({
 /* ------------------------------------------------------------------ */
 
 export default function AgentsPage() {
+  const confirmAction = useConfirm()
   const [agents, setAgents] = useState<AgentCard[]>([])
   const [selectedUrl, setSelectedUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -696,8 +731,9 @@ export default function AgentsPage() {
         showToast(`Agent registered from ${uri}`, 'success')
         setRegisterOpen(false)
         await loadAgents()
+        return null
       } catch (err) {
-        showToast(`Registration failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+        return `Registration failed: ${err instanceof Error ? err.message : 'Unknown error'}`
       }
     },
     [loadAgents, showToast],
@@ -717,18 +753,22 @@ export default function AgentsPage() {
   )
 
   const handleDelete = useCallback(
-    async (agentUrl: string) => {
-      if (!window.confirm(`Unregister agent "${agentUrl}"?`)) return
+    async (agent: AgentCard) => {
+      if (!(await confirmAction({
+        title: `Unregister ${agent.name}?`,
+        message: 'The agent is removed from the registry.',
+        confirmLabel: 'Unregister agent',
+      }))) return
       try {
-        await unregisterAgent(agentUrl)
+        await unregisterAgent(agent.url)
         showToast('Agent unregistered', 'success')
-        if (selectedUrl === agentUrl) setSelectedUrl(null)
+        if (selectedUrl === agent.url) setSelectedUrl(null)
         await loadAgents()
       } catch (err) {
         showToast(`Unregister failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
       }
     },
-    [loadAgents, selectedUrl, showToast],
+    [confirmAction, loadAgents, selectedUrl, showToast],
   )
 
   const handleSendMessage = useCallback(
@@ -825,7 +865,8 @@ export default function AgentsPage() {
   return (
     <div className="-mx-4 -my-6 sm:-mx-6 lg:-mx-8 flex h-[calc(100vh-80px)] flex-col">
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
-      <RegisterDialog open={registerOpen} onClose={() => setRegisterOpen(false)} onRegister={handleRegister} />
+      {/* Mounted only while open, so a reopened dialog starts without the last URL or error. */}
+      {registerOpen && <RegisterDialog open onClose={() => setRegisterOpen(false)} onRegister={handleRegister} />}
 
       {/* Header — stacks on mobile */}
       <header className="border-b border-stone px-4 py-3 md:px-6 md:py-4">
@@ -886,7 +927,7 @@ export default function AgentsPage() {
               selected={agent.url === selectedUrl}
               onSelect={() => setSelectedUrl(agent.url)}
               onRefresh={() => handleRefresh(agent.url)}
-              onDelete={() => handleDelete(agent.url)}
+              onDelete={() => handleDelete(agent)}
             />
           ))}
         </div>

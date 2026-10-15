@@ -9,6 +9,7 @@ import {
   evictChatCacheEntry,
   evictAllChatCache,
 } from '../api'
+import { useConfirm } from '../hooks/useConfirm'
 import { Database, Target, Crosshair, X, Loader2, Trash2, Route, Bot } from 'lucide-react'
 
 interface PromptCacheEntry {
@@ -90,6 +91,7 @@ function StatsBar({ stats, label }: { stats: PromptCacheStats | null; label: str
 }
 
 export default function PromptCachePage() {
+  const confirmAction = useConfirm()
   const [tab, setTab] = useState<CacheTab>('routing')
   const [routingEntries, setRoutingEntries] = useState<PromptCacheEntry[]>([])
   const [chatEntries, setChatEntries] = useState<ChatCacheEntry[]>([])
@@ -141,7 +143,11 @@ export default function PromptCachePage() {
   }
 
   async function handleClearAllRouting() {
-    if (!confirm('Clear all routing cache entries?')) return
+    if (!(await confirmAction({
+      title: 'Clear routing cache?',
+      message: 'This removes every entry from the routing cache.',
+      confirmLabel: 'Clear routing cache',
+    }))) return
     try {
       await evictAllPromptCache()
       await loadData()
@@ -160,7 +166,11 @@ export default function PromptCachePage() {
   }
 
   async function handleClearAllChat() {
-    if (!confirm('Clear all agent cache entries?')) return
+    if (!(await confirmAction({
+      title: 'Clear agent cache?',
+      message: 'This removes every entry from the agent cache.',
+      confirmLabel: 'Clear agent cache',
+    }))) return
     try {
       await evictAllChatCache()
       await loadData()

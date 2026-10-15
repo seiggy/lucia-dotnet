@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import EntityOnboardingBanner from '../components/EntityOnboardingBanner'
 import AutoAssignPreviewModal from '../components/AutoAssignPreviewModal'
+import { useConfirm } from '../hooks/useConfirm'
 
 interface FloorInfo {
   floorId: string
@@ -95,6 +96,7 @@ function Badge({ children, color = 'amber' }: { children: React.ReactNode; color
 }
 
 export default function EntityLocationPage() {
+  const confirmAction = useConfirm()
   const [summary, setSummary] = useState<LocationSummary | null>(null)
   const [floors, setFloors] = useState<FloorInfo[]>([])
   const [areas, setAreas] = useState<AreaInfo[]>([])
@@ -360,7 +362,12 @@ export default function EntityLocationPage() {
   }
 
   async function handleInvalidate() {
-    if (!confirm('Invalidate and reload all location data from Home Assistant?')) return
+    if (!(await confirmAction({
+      title: 'Reload location data?',
+      message: 'This discards the cached location data and reloads it from Home Assistant.',
+      confirmLabel: 'Reload data',
+      tone: 'default',
+    }))) return
     setInvalidating(true)
     setError(null)
     try {
@@ -404,7 +411,11 @@ export default function EntityLocationPage() {
   }
 
   async function handleRemoveEntity(entityId: string) {
-    if (!confirm(`Remove "${entityId}" from the entity cache? It will reappear on next cache reload if it still exists in Home Assistant.`)) return
+    if (!(await confirmAction({
+      title: 'Remove entity from cache?',
+      message: `"${entityId}" will be removed from the entity cache. It reappears on the next cache reload if it still exists in Home Assistant.`,
+      confirmLabel: 'Remove entity',
+    }))) return
     setEmbeddingActionKey(`${entityId}:remove`)
     setError(null)
     try {
@@ -501,7 +512,11 @@ export default function EntityLocationPage() {
   }
 
   async function handleClearAllFilters() {
-    if (!confirm('Clear all per-entity agent filters? Every entity will become visible to all agents.')) return
+    if (!(await confirmAction({
+      title: 'Remove all agent restrictions?',
+      message: 'Every entity becomes visible to every agent. Your per-entity agent assignments are deleted.',
+      confirmLabel: 'Remove all restrictions',
+    }))) return
     try {
       await clearAllAgentFilters()
       setEntityAgentMap({})
@@ -515,7 +530,11 @@ export default function EntityLocationPage() {
   }
 
   async function handleStartClean() {
-    if (!confirm('Set all entities to hidden from all agents? You can assign them individually afterwards.')) return
+    if (!(await confirmAction({
+      title: 'Hide every entity from all agents?',
+      message: 'All entities are hidden from all agents. You can assign them individually afterwards.',
+      confirmLabel: 'Hide all entities',
+    }))) return
     setAutoAssignLoading(true)
     setError(null)
     try {
@@ -738,14 +757,19 @@ export default function EntityLocationPage() {
                         }
                       })
                       if (Object.keys(updates).length > 0) {
-                        handleBulkAssign(null) // won't run, we handle inline
                         updateEntityAgents(updates).then(() => {
                           setEntityAgentMap(prev => ({ ...prev, ...updates as Record<string, string[]> }))
                           setEntities(prev => prev.map(e => {
                             if (e.entityId in updates) return { ...e, includeForAgent: updates[e.entityId] }
                             return e
                           }))
+                          setSelectedEntityIds(new Set())
+                        }).catch(err => {
+                          setError(err instanceof Error ? err.message : 'Failed to bulk-assign agents')
                         })
+                      } else {
+                        // Every selected entity already has this agent, so there is nothing to write.
+                        setSelectedEntityIds(new Set())
                       }
                       setBulkAgentDropdownOpen(false)
                     }}
@@ -1093,6 +1117,7 @@ export default function EntityLocationPage() {
           preview={autoAssignPreview}
           loading={autoAssignLoading}
           onApply={handleApplySmartAssign}
+          error={error}
           onClose={() => { setShowPreviewModal(false); setAutoAssignPreview(null) }}
         />
       )}

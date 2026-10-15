@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { McpToolServerDefinition, McpServerStatus, McpToolInfo } from '../types'
 import CustomSelect from '../components/CustomSelect'
+import { useConfirm } from '../hooks/useConfirm'
 import {
   fetchMcpServers,
   createMcpServer,
@@ -21,6 +22,7 @@ const TRANSPORT_TYPE_OPTIONS: { value: TransportType; label: string }[] = [
 ]
 
 export default function McpServersPage() {
+  const confirmAction = useConfirm()
   const [servers, setServers] = useState<McpToolServerDefinition[]>([])
   const [statuses, setStatuses] = useState<Record<string, McpServerStatus>>({})
   const [mode, setMode] = useState<FormMode>('list')
@@ -85,7 +87,12 @@ export default function McpServersPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this MCP server?')) return
+    const name = servers.find(s => s.id === id)?.name ?? id
+    if (!(await confirmAction({
+      title: 'Delete MCP server?',
+      message: `This deletes the MCP server definition "${name}".`,
+      confirmLabel: 'Delete MCP server',
+    }))) return
     try {
       await deleteMcpServer(id)
       await loadData()

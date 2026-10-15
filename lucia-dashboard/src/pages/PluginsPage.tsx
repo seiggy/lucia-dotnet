@@ -333,7 +333,7 @@ export default function PluginsPage() {
       {/* Configuration Tab */}
       {tab === 'config' && <PluginConfigTab />}
 
-      <PluginRepoDialog open={repoDialogOpen} onClose={() => setRepoDialogOpen(false)} onNotify={addToast} />
+      {repoDialogOpen && <PluginRepoDialog open onClose={() => setRepoDialogOpen(false)} />}
 
       {/* Toasts */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
