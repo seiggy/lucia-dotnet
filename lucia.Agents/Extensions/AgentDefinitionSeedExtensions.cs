@@ -107,6 +107,9 @@ public static class AgentDefinitionSeedExtensions
     /// already exists is skipped (it would silently replace another agent's definition).</item>
     /// <item>A Name that differs from the Id is pinned back to the Id.</item>
     /// </list>
+    /// Renames execute as a single database transaction (<c>INSERT ... SELECT ... ON CONFLICT DO NOTHING</c>
+    /// followed by deleting the old row), so concurrent host instances can never clobber an
+    /// existing definition: at most one caller wins, everyone else no-ops.
     /// </summary>
     public static async Task MigrateRoutingIdentityAsync(
         this IAgentDefinitionRepository repository,
@@ -143,26 +146,18 @@ public static class AgentDefinitionSeedExtensions
                     continue;
                 }
 
-                var renamed = new AgentDefinition
+                var renamed = await repository
+                    .RenameAgentDefinitionIfTargetFreeAsync(definition.Id, slug, ct)
+                    .ConfigureAwait(false);
+                if (!renamed)
                 {
-                    Id = slug,
-                    Name = slug,
-                    DisplayName = definition.DisplayName,
-                    Description = definition.Description,
-                    Instructions = definition.Instructions,
-                    Tools = definition.Tools,
-                    ModelConnectionName = definition.ModelConnectionName,
-                    EmbeddingProviderName = definition.EmbeddingProviderName,
-                    Enabled = definition.Enabled,
-                    IsBuiltIn = definition.IsBuiltIn,
-                    IsRemote = definition.IsRemote,
-                    IsOrchestrator = definition.IsOrchestrator,
-                    CreatedAt = definition.CreatedAt,
-                    UpdatedAt = DateTime.UtcNow
-                };
+                    logger.LogWarning(
+                        "Cannot rename AgentDefinition '{OldId}' to '{NewId}': target id is already in use. " +
+                        "Rename one of them manually to resolve the conflict.",
+                        definition.Id, slug);
+                    continue;
+                }
 
-                await repository.UpsertAgentDefinitionAsync(renamed, ct).ConfigureAwait(false);
-                await repository.DeleteAgentDefinitionAsync(definition.Id, ct).ConfigureAwait(false);
                 logger.LogInformation(
                     "Migrated AgentDefinition id '{OldId}' to kebab-case id '{NewId}'.",
                     definition.Id, slug);

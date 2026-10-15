@@ -26,5 +26,13 @@ public interface IAgentDefinitionRepository
     /// Returns <c>false</c> (and writes nothing) when the Id was already in use.
     /// </summary>
     Task<bool> InsertAgentDefinitionIfAbsentAsync(AgentDefinition definition, CancellationToken ct = default);
+
+    /// <summary>
+    /// Atomically renames a definition's Id (Id and Name both move to <paramref name="newId"/>).
+    /// The rename only happens when the old row still exists AND the target id is free, so
+    /// concurrent callers can never clobber an existing definition. Returns <c>false</c> (and
+    /// writes nothing) when either condition does not hold.
+    /// </summary>
+    Task<bool> RenameAgentDefinitionIfTargetFreeAsync(string oldId, string newId, CancellationToken ct = default);
     Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default);
 }

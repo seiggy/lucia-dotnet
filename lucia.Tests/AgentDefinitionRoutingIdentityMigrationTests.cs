@@ -23,10 +23,11 @@ public class AgentDefinitionRoutingIdentityMigrationTests
     }
 
     [Fact]
-    public async Task MigrateRoutingIdentity_RenamesNonKebabIdToSlug()
+    public async Task MigrateRoutingIdentity_RenamesNonKebabIdToSlug_PreservingContent()
     {
         var repository = new InMemoryAgentDefinitionRepository();
-        repository.Definitions["My Garage Agent"] = CreateDefinition(id: "My Garage Agent", name: "my-garage-agent");
+        var original = CreateDefinition(id: "My Garage Agent", name: "my-garage-agent");
+        repository.Definitions["My Garage Agent"] = original;
 
         await repository.MigrateRoutingIdentityAsync(NullLogger.Instance);
 
@@ -34,20 +35,42 @@ public class AgentDefinitionRoutingIdentityMigrationTests
         Assert.Equal("my-garage-agent", definition.Id);
         Assert.Equal("my-garage-agent", definition.Name);
         Assert.False(repository.Definitions.ContainsKey("My Garage Agent"));
+        Assert.Same(original, definition);
+        Assert.Equal("Legacy Label", definition.DisplayName);
+        Assert.Equal("Description", definition.Description);
+        Assert.Equal("Instructions", definition.Instructions);
+        Assert.Single(definition.Tools);
+    }
+
+    [Fact]
+    public async Task MigrateRoutingIdentity_RenamesNonAsciiIdToAsciiSlug()
+    {
+        var repository = new InMemoryAgentDefinitionRepository();
+        repository.Definitions["Café Agent"] = CreateDefinition(id: "Café Agent", name: "legacy-name");
+
+        await repository.MigrateRoutingIdentityAsync(NullLogger.Instance);
+
+        var definition = Assert.Single(repository.Definitions.Values);
+        Assert.Equal("caf-agent", definition.Id);
+        Assert.Equal("caf-agent", definition.Name);
     }
 
     [Fact]
     public async Task MigrateRoutingIdentity_SkipsRename_WhenTargetIdAlreadyInUse()
     {
         var repository = new InMemoryAgentDefinitionRepository();
-        repository.Definitions["my-garage-agent"] = CreateDefinition(id: "my-garage-agent", name: "my-garage-agent");
-        repository.Definitions["My Garage Agent"] = CreateDefinition(id: "My Garage Agent", name: "legacy-name");
+        var existing = CreateDefinition(id: "my-garage-agent", name: "my-garage-agent");
+        var legacy = CreateDefinition(id: "My Garage Agent", name: "legacy-name");
+        repository.Definitions["my-garage-agent"] = existing;
+        repository.Definitions["My Garage Agent"] = legacy;
 
         await repository.MigrateRoutingIdentityAsync(NullLogger.Instance);
 
         // The legacy id is left untouched rather than overwriting the existing definition.
         Assert.Equal(2, repository.Definitions.Count);
         Assert.True(repository.Definitions.ContainsKey("My Garage Agent"));
+        Assert.Same(existing, repository.Definitions["my-garage-agent"]);
+        Assert.Same(legacy, repository.Definitions["My Garage Agent"]);
     }
 
     [Fact]
@@ -150,6 +173,18 @@ public class AgentDefinitionRoutingIdentityMigrationTests
                 return Task.FromResult(false);
 
             Definitions[definition.Id] = definition;
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> RenameAgentDefinitionIfTargetFreeAsync(string oldId, string newId, CancellationToken ct = default)
+        {
+            if (!Definitions.TryGetValue(oldId, out var definition) || Definitions.ContainsKey(newId))
+                return Task.FromResult(false);
+
+            definition.Id = newId;
+            definition.Name = newId;
+            Definitions[newId] = definition;
+            Definitions.Remove(oldId);
             return Task.FromResult(true);
         }
 

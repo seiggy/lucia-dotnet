@@ -431,8 +431,12 @@ public sealed class RouterExecutor : Executor
 
     /// <summary>
     /// Normalizes an agent identifier to a kebab-case slug ("Open Wearables Agent" →
-    /// "open-wearables-agent"). Shared with the startup routing-identity migration so
-    /// both sides of the identity contract use one algorithm.
+    /// "open-wearables-agent"). Canonical rule: lowercase, keep ASCII <c>[a-z0-9]</c>,
+    /// collapse every other character run into one hyphen, trim edge hyphens. This MUST
+    /// stay byte-for-byte identical to <c>toAgentSlug</c> in
+    /// lucia-dashboard/src/pages/AgentDefinitionsPage.tsx — the router, the startup
+    /// routing-identity migration, and the dashboard all derive ids from display names
+    /// with this same algorithm.
     /// </summary>
     public static string? ToAgentSlug(string value)
     {
@@ -445,7 +449,7 @@ public sealed class RouterExecutor : Executor
         var pendingHyphen = false;
         foreach (var ch in value.ToLowerInvariant())
         {
-            if (char.IsLetterOrDigit(ch))
+            if ((ch is >= 'a' and <= 'z') || (ch is >= '0' and <= '9'))
             {
                 sb.Append(ch);
                 pendingHyphen = false;

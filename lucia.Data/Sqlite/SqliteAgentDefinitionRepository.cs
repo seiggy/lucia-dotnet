@@ -230,6 +230,57 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
         return true;
     }
 
+    public async Task<bool> RenameAgentDefinitionIfTargetFreeAsync(string oldId, string newId, CancellationToken ct = default)
+    {
+        // Single-transaction rename: the INSERT...SELECT only fires while the old row exists and
+        // the target id is free. SQLite serializes writers through its file lock (busy_timeout
+        // set on the connection factory), so a concurrent rename either sees the committed
+        // target and yields 0 rows, or waits and then does the same — exactly one caller wins.
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction();
+
+        using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT INTO agent_definitions (id, name, enabled, data)
+            SELECT
+                @newId,
+                @newId,
+                enabled,
+                json_set(
+                    json_set(
+                        json_set(data, '$.id', @newId),
+                        '$.name', @newId),
+                    '$.updatedAt',
+                    strftime(
+                        '%Y-%m-%dT%H:%M:%fZ',
+                        CAST(ROUND(unixepoch('now', 'subsec') * 1000) AS INTEGER) / 1000.0,
+                        'unixepoch'))
+            FROM agent_definitions
+            WHERE id = @oldId
+              AND NOT EXISTS (SELECT 1 FROM agent_definitions WHERE id = @newId)
+            ON CONFLICT(id) DO NOTHING;
+            """;
+        insert.Parameters.AddWithValue("@oldId", oldId);
+        insert.Parameters.AddWithValue("@newId", newId);
+
+        var renamedRows = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (renamedRows == 0)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        using var deleteOld = connection.CreateCommand();
+        deleteOld.Transaction = transaction;
+        deleteOld.CommandText = "DELETE FROM agent_definitions WHERE id = @oldId;";
+        deleteOld.Parameters.AddWithValue("@oldId", oldId);
+        await deleteOld.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+
+        transaction.Commit();
+        return true;
+    }
+
     public async Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();

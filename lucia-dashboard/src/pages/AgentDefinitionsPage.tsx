@@ -25,6 +25,12 @@ type FormMode = 'list' | 'create' | 'edit'
 
 const AGENT_ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
 
+// Canonical agent-id slug rule — MUST stay byte-for-byte identical to
+// RouterExecutor.ToAgentSlug in lucia.Agents/Orchestration/RouterExecutor.cs
+// (parity vectors live in the ToAgentSlug tests in
+// lucia.Tests/Orchestration/RouterExecutorTests.cs). Lowercase, keep ASCII [a-z0-9],
+// collapse every other character run into one hyphen, trim edge hyphens:
+// "Open Wearables Agent" → "open-wearables-agent", "Café Agent" → "caf-agent".
 function toAgentSlug(name: string): string {
   return name
     .trim()
@@ -450,10 +456,11 @@ function AgentForm({
                 <span className="text-sm text-dust">Agent ID *</span>
                 <input
                   value={form.id}
-                  onChange={e => { setForm(f => ({ ...f, id: e.target.value })); setIdError(null) }}
                   placeholder="e.g. research-agent"
                   required
                   disabled={!!definition || isBuiltIn}
+                  readOnly
+                  aria-readonly
                   className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 font-mono text-sm disabled:opacity-50"
                 />
                 <p className="mt-1 text-xs text-dust">

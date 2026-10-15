@@ -240,6 +240,79 @@ public abstract class AgentDefinitionRepositoryContract
     }
 
     [Fact]
+    public async Task RenameAgentDefinitionIfTargetFreeAsync_RenamesAndPinsName_PreservingContent()
+    {
+        await using var scope = await CreateAsync();
+        var original = CreateAgentDefinition("Legacy Agent Id", "Legacy Label", true);
+        await scope.Store.UpsertAgentDefinitionAsync(original);
+
+        var renamed = await scope.Store.RenameAgentDefinitionIfTargetFreeAsync("Legacy Agent Id", "legacy-agent-id");
+
+        Assert.True(renamed);
+        Assert.Null(await scope.Store.GetAgentDefinitionAsync("Legacy Agent Id"));
+        var saved = Assert.Single(await scope.Store.GetAllAgentDefinitionsAsync());
+        Assert.Equal("legacy-agent-id", saved.Id);
+        Assert.Equal("legacy-agent-id", saved.Name);
+        Assert.Equal(original.DisplayName, saved.DisplayName);
+        Assert.Equal(original.Description, saved.Description);
+        Assert.Equal(original.Instructions, saved.Instructions);
+        Assert.Equal(
+            original.Tools.Select(tool => (tool.ServerId, tool.ToolName)).ToArray(),
+            saved.Tools.Select(tool => (tool.ServerId, tool.ToolName)).ToArray());
+        Assert.True(saved.UpdatedAt >= original.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task RenameAgentDefinitionIfTargetFreeAsync_TargetExists_ReturnsFalseAndLeavesBothUntouched()
+    {
+        await using var scope = await CreateAsync();
+        var existing = CreateAgentDefinition("legacy-agent-id", "Existing Label", false);
+        var legacy = CreateAgentDefinition("Legacy Agent Id", "Legacy Label", true);
+        await scope.Store.UpsertAgentDefinitionAsync(existing);
+        await scope.Store.UpsertAgentDefinitionAsync(legacy);
+
+        var renamed = await scope.Store.RenameAgentDefinitionIfTargetFreeAsync("Legacy Agent Id", "legacy-agent-id");
+
+        Assert.False(renamed);
+        var definitions = await scope.Store.GetAllAgentDefinitionsAsync();
+        Assert.Equal(2, definitions.Count);
+        Assert.Equal("Existing Label", definitions.Single(d => d.Id == "legacy-agent-id").DisplayName);
+        Assert.Equal("Legacy Label", definitions.Single(d => d.Id == "Legacy Agent Id").DisplayName);
+    }
+
+    [Fact]
+    public async Task RenameAgentDefinitionIfTargetFreeAsync_OldIdMissing_ReturnsFalse()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.UpsertAgentDefinitionAsync(CreateAgentDefinition("unrelated", "Unrelated", true));
+
+        var renamed = await scope.Store.RenameAgentDefinitionIfTargetFreeAsync("missing-legacy-id", "new-id");
+
+        Assert.False(renamed);
+        var remaining = Assert.Single(await scope.Store.GetAllAgentDefinitionsAsync());
+        Assert.Equal("unrelated", remaining.Id);
+    }
+
+    [Fact]
+    public async Task RenameAgentDefinitionIfTargetFreeAsync_ConcurrentRenamesToSameTarget_ExactlyOneWins()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.UpsertAgentDefinitionAsync(CreateAgentDefinition("Legacy One", "First", true));
+        await scope.Store.UpsertAgentDefinitionAsync(CreateAgentDefinition("Legacy Two", "Second", false));
+
+        var results = await Task.WhenAll(
+            scope.Store.RenameAgentDefinitionIfTargetFreeAsync("Legacy One", "legacy-target"),
+            scope.Store.RenameAgentDefinitionIfTargetFreeAsync("Legacy Two", "legacy-target"));
+
+        Assert.Equal([true, false], results.OrderByDescending(r => r).ToArray());
+        var definitions = await scope.Store.GetAllAgentDefinitionsAsync();
+        // The winner moved to the target id; the loser keeps its legacy id and content.
+        var winner = definitions.Single(d => d.Id == "legacy-target");
+        Assert.True(winner.DisplayName is "First" or "Second");
+        Assert.Single(definitions, d => d.Id is "Legacy One" or "Legacy Two");
+    }
+
+    [Fact]
     public async Task UpsertAgentDefinitionAsync_UpdatesTimestampWhenReplacingExistingRecord()
     {
         await using var scope = await CreateAsync();

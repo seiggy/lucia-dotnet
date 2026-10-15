@@ -259,6 +259,35 @@ public sealed class RouterExecutorTests
         Assert.Equal(RouterExecutorOptions.DefaultFallbackAgentId, result.AgentId);
     }
 
+    [Theory]
+    // Parity vectors: every case below must produce the same output from
+    // lucia-dashboard/src/pages/AgentDefinitionsPage.tsx (toAgentSlug). Keep the two
+    // lists in lockstep when changing either algorithm.
+    [InlineData("Open Wearables Agent", "open-wearables-agent")]
+    [InlineData("research-agent", "research-agent")]
+    [InlineData("My_Garage  Agent!!", "my-garage-agent")]
+    [InlineData("Café Agent", "caf-agent")]
+    [InlineData("Über Agent", "ber-agent")]
+    [InlineData("--Weird-- 123--", "weird-123")]
+    [InlineData("   Spaced   ", "spaced")]
+    [InlineData("Ünïcødé", "n-c-d")]
+    [InlineData("123", "123")]
+    [InlineData("a-b-c", "a-b-c")]
+    public void ToAgentSlug_MatchesDashboardJavaScript(string input, string expected)
+    {
+        Assert.Equal(expected, RouterExecutor.ToAgentSlug(input));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("---")]
+    [InlineData("///")]
+    public void ToAgentSlug_ReturnsNull_WhenNoAsciiCharactersRemain(string input)
+    {
+        Assert.Null(RouterExecutor.ToAgentSlug(input));
+    }
+
     private static AgentCard CreateCard(string name, string description) => new()
     {
         Name = name,
