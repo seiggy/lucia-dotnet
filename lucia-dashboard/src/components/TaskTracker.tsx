@@ -66,6 +66,11 @@ export default function TaskTracker() {
       }
     }
 
+    // A GET can finish after a newer stream snapshot. Once the stream is open it is authoritative, so drop the GET.
+    const applyFetched = (next: BackgroundTask[]) => {
+      if (!disposed && !streamOpenRef.current) setTasks(sortTasks(next))
+    }
+
     const connect = () => {
       clearReconnectTimer()
       sourceRef.current?.close()
@@ -108,7 +113,7 @@ export default function TaskTracker() {
         reconnectTimeoutRef.current = window.setTimeout(() => {
           fetchBackgroundTasks()
             .then(next => {
-              if (!disposed) setTasks(sortTasks(next))
+              applyFetched(next)
             })
             .catch(() => {
               /* ignore fetch failures during reconnect */
@@ -122,7 +127,7 @@ export default function TaskTracker() {
 
     fetchBackgroundTasks()
       .then(next => {
-        if (!disposed) setTasks(sortTasks(next))
+        applyFetched(next)
       })
       .catch(() => {
         /* ignore initial fetch failures */
@@ -135,7 +140,7 @@ export default function TaskTracker() {
       if (disposed || streamOpenRef.current) return
       fetchBackgroundTasks()
         .then(next => {
-          if (!disposed) setTasks(sortTasks(next))
+          applyFetched(next)
         })
         .catch(() => { /* ignore poll failures */ })
     }, 5_000)

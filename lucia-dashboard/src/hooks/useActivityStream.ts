@@ -14,11 +14,14 @@ export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
  * Automatically reconnects on error with exponential backoff (up to 10 retries,
  * max 30 second delay). Cleans up the EventSource on unmount and while the
  * browser tab is hidden, so background tabs do not hold a connection slot.
+ * The server does not replay events missed while disconnected, so connectionCount, which counts
+ * successful (re)connections, tells consumers when to drop state built from earlier events.
  */
 export function useActivityStream() {
   const visible = usePageVisible()
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
+  const [connectionCount, setConnectionCount] = useState(0)
   const sourceRef = useRef<EventSource | null>(null)
   const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
@@ -39,6 +42,7 @@ export function useActivityStream() {
 
     source.onopen = () => {
       setConnectionState('connected')
+      setConnectionCount(count => count + 1)
       retriesRef.current = 0
     }
 
@@ -93,5 +97,5 @@ export function useActivityStream() {
     }
   }, [connect, visible])
 
-  return { lastEvent, connectionState, reconnect }
+  return { lastEvent, connectionState, connectionCount, reconnect }
 }
