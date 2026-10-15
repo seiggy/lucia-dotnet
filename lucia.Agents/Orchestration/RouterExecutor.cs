@@ -96,8 +96,11 @@ public sealed class RouterExecutor : Executor
             {
                 var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
                 var cached = await _promptCache.TryGetCachedRoutingDecisionAsync(cacheMessages, cancellationToken).ConfigureAwait(false);
-                if (cached is not null && IsKnownAgent(cached.RoutingDecision.AgentId, availableAgents))
+                if (cached is not null && TryResolveAgentId(cached.RoutingDecision.AgentId, availableAgents, out var canonicalCachedAgentId))
                 {
+                    // Canonicalize to the exact card name so downstream dispatch keys match;
+                    // cache entries written by older versions may hold a slugified id.
+                    cached.RoutingDecision.AgentId = canonicalCachedAgentId;
                     // Skip stale cache entries that route to multiple agents but lack per-agent instructions
                     if (cached.RoutingDecision.AdditionalAgents is { Count: > 0 }
                         && cached.RoutingDecision.AgentInstructions is null or { Count: 0 })
@@ -165,12 +168,15 @@ public sealed class RouterExecutor : Executor
                 "Routing model failed after {0} attempts: {1}", _options.MaxAttempts, reason), originalUserText);
         }
 
-        if (!IsKnownAgent(parsed.AgentId, availableAgents))
+        if (!TryResolveAgentId(parsed.AgentId, availableAgents, out var canonicalAgentId))
         {
             _logger.LogWarning("RouterExecutor returned unknown agent '{AgentId}'. Falling back.", parsed.AgentId);
             return CreateFallbackResult(string.Format(CultureInfo.InvariantCulture,
                 "Model suggested unknown agent '{0}'.", parsed.AgentId), originalUserText);
         }
+
+        // Canonicalize to the exact card name so downstream dispatch keys match.
+        parsed.AgentId = canonicalAgentId;
 
         NormalizeAdditionalAgents(parsed, availableAgents);
         parsed.OriginalUserText = originalUserText;
@@ -390,9 +396,73 @@ public sealed class RouterExecutor : Executor
         return null;
     }
 
-    private static bool IsKnownAgent(string agentId, IReadOnlyList<AgentCard> agents)
+    private static bool TryResolveAgentId(string agentId, IReadOnlyList<AgentCard> agents, out string canonicalAgentId)
     {
-        return agents.Any(agent => string.Equals(agent.Name, agentId, StringComparison.OrdinalIgnoreCase));
+        canonicalAgentId = agentId;
+
+        var exactMatch = agents.FirstOrDefault(agent => string.Equals(agent.Name, agentId, StringComparison.OrdinalIgnoreCase));
+        if (exactMatch is not null)
+        {
+            canonicalAgentId = exactMatch.Name;
+            return true;
+        }
+
+        // Defensive: card names may be display text while the router emits a kebab-case
+        // slug (or vice versa). Normalize both sides before giving up, but only accept
+        // the match when it is unambiguous — two cards sharing one slug would route the
+        // request to the wrong agent.
+        var requestedSlug = ToAgentSlug(agentId);
+        if (requestedSlug is null)
+        {
+            return false;
+        }
+
+        var slugMatches = agents
+            .Where(agent => string.Equals(ToAgentSlug(agent.Name), requestedSlug, StringComparison.Ordinal))
+            .ToList();
+        if (slugMatches.Count != 1)
+        {
+            return false;
+        }
+
+        canonicalAgentId = slugMatches[0].Name;
+        return true;
+    }
+
+    /// <summary>
+    /// Normalizes an agent identifier to a kebab-case slug ("Open Wearables Agent" →
+    /// "open-wearables-agent"). Canonical rule: lowercase, keep ASCII <c>[a-z0-9]</c>,
+    /// collapse every other character run into one hyphen, trim edge hyphens. This MUST
+    /// stay byte-for-byte identical to <c>toAgentSlug</c> in
+    /// lucia-dashboard/src/pages/AgentDefinitionsPage.tsx — the router, the startup
+    /// routing-identity migration, and the dashboard all derive ids from display names
+    /// with this same algorithm.
+    /// </summary>
+    public static string? ToAgentSlug(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var sb = new System.Text.StringBuilder(value.Length);
+        var pendingHyphen = false;
+        foreach (var ch in value.ToLowerInvariant())
+        {
+            if ((ch is >= 'a' and <= 'z') || (ch is >= '0' and <= '9'))
+            {
+                sb.Append(ch);
+                pendingHyphen = false;
+            }
+            else if (!pendingHyphen)
+            {
+                sb.Append('-');
+                pendingHyphen = true;
+            }
+        }
+
+        var slug = sb.ToString().Trim('-');
+        return slug.Length == 0 ? null : slug;
     }
 
     private void NormalizeAdditionalAgents(AgentChoiceResult result, IReadOnlyList<AgentCard> agents)
