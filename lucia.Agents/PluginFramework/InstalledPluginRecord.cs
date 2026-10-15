@@ -1,10 +1,8 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.Agents.PluginFramework;
 
 /// <summary>
-/// MongoDB document tracking an installed plugin's metadata.
+/// Document tracking an installed plugin's metadata.
 /// The source of truth for enabled/disabled state is <c>lucia-plugins.json</c>;
 /// this record caches metadata for dashboard display.
 /// </summary>
@@ -13,8 +11,6 @@ public sealed class InstalledPluginRecord
     public const string CollectionName = "installedPlugins";
     public const string DatabaseName = "luciaconfig";
 
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = default!;
 
     public string Name { get; set; } = default!;

@@ -1,38 +1,39 @@
-using System.Collections.Concurrent;
+using System.Text.Json;
 using lucia.Agents.Abstractions;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Auth;
 
 /// <summary>
-/// Decorator that caches <see cref="IApiKeyService.ValidateKeyAsync"/> results in memory
-/// to avoid a MongoDB round-trip on every authenticated request. The cache is invalidated
-/// automatically when keys are created, revoked, or regenerated.
+/// Decorator that caches <see cref="IApiKeyService.ValidateKeyAsync"/> results in an
+/// <see cref="IKeyValueCache"/> (in-memory or Redis) to avoid a database round-trip on every
+/// authenticated request. Every mutation moves the cache to a new generation, which orphans
+/// all earlier entries.
 /// </summary>
 public sealed class CachedApiKeyService : IApiKeyService
 {
+    private const string GenerationKey = "lucia:api-keys:generation";
+    private const string EntryKeyPrefix = "lucia:api-keys:entry:";
+
+    // Outlives any entry, so a generation can never be forgotten while its entries are alive.
+    private static readonly TimeSpan GenerationTimeToLive = TimeSpan.FromDays(1);
+
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
     private readonly IApiKeyService _inner;
+    private readonly IKeyValueCache _cache;
     private readonly ILogger<CachedApiKeyService> _logger;
     private readonly TimeSpan _cacheDuration;
-
-    /// <summary>
-    /// Keyed by the SHA-256 hash of the plaintext key (same hash the inner service computes).
-    /// Value is the cached entry (null means "known invalid key").
-    /// </summary>
-    private readonly ConcurrentDictionary<string, CacheEntry> _validationCache = new();
-
-    /// <summary>
-    /// Monotonically increasing version; bumped on any mutation to force stale reads
-    /// to re-validate on their next TTL expiry.
-    /// </summary>
-    private volatile int _generation;
+    private long _bypassUntilTickCount;
 
     public CachedApiKeyService(
         IApiKeyService inner,
+        IKeyValueCache cache,
         ILogger<CachedApiKeyService> logger,
         TimeSpan? cacheDuration = null)
     {
         _inner = inner;
+        _cache = cache;
         _logger = logger;
         _cacheDuration = cacheDuration ?? TimeSpan.FromMinutes(5);
     }
@@ -44,72 +45,72 @@ public sealed class CachedApiKeyService : IApiKeyService
             return null;
         }
 
-        var cacheKey = HashKey(plaintextKey);
-        var now = DateTimeOffset.UtcNow;
-
-        if (_validationCache.TryGetValue(cacheKey, out var cached)
-            && cached.Generation == _generation
-            && now - cached.CachedAt < _cacheDuration)
+        // After a failed invalidation the cache may still hold keys that were just revoked.
+        if (Environment.TickCount64 < Volatile.Read(ref _bypassUntilTickCount))
         {
-            return cached.Entry;
+            return await _inner.ValidateKeyAsync(plaintextKey, cancellationToken).ConfigureAwait(false);
+        }
+
+        string? entryKey = null;
+        try
+        {
+            var generation = await _cache.GetAsync(GenerationKey, cancellationToken).ConfigureAwait(false) ?? "0";
+            entryKey = $"{EntryKeyPrefix}{generation}:{HashKey(plaintextKey)}";
+
+            var cached = await _cache.GetAsync(entryKey, cancellationToken).ConfigureAwait(false);
+            if (cached is not null)
+            {
+                return JsonSerializer.Deserialize<ApiKeyEntry>(cached, JsonOptions);
+            }
+        }
+        catch (Exception ex) when (!ex.IsCancellation())
+        {
+            _logger.LogDebug(ex, "API key cache read failed; validating against the store");
         }
 
         var entry = await _inner.ValidateKeyAsync(plaintextKey, cancellationToken).ConfigureAwait(false);
 
-        _validationCache[cacheKey] = new CacheEntry(entry, now, _generation);
-
-        if (entry is not null)
+        // Invalid keys are not cached. Each one would add an entry to a shared cache that any caller can fill.
+        if (entryKey is not null && entry is not null)
         {
-            _logger.LogDebug("Cached API key validation for prefix {Prefix}", entry.KeyPrefix);
+            try
+            {
+                var payload = JsonSerializer.Serialize(entry, JsonOptions);
+                await _cache.SetAsync(entryKey, payload, _cacheDuration, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (!ex.IsCancellation())
+            {
+                _logger.LogDebug(ex, "API key cache write failed");
+            }
         }
 
         return entry;
     }
-
     public async Task<ApiKeyCreateResponse> CreateKeyAsync(
         string name,
         CancellationToken cancellationToken = default)
     {
-        var result = await _inner
-            .CreateKeyAsync(name, cancellationToken)
-            .ConfigureAwait(false);
-        InvalidateAll();
-        return result;
+        // Creating a key needs no invalidation. Only invalid keys could go stale, and they are not cached.
+        return await _inner.CreateKeyAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
         string name,
         CancellationToken cancellationToken = default)
     {
-        var result = await _inner
-            .CreateAdministratorKeyAsync(name, cancellationToken)
-            .ConfigureAwait(false);
-        InvalidateAll();
-        return result;
+        return await _inner.CreateAdministratorKeyAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
         string name,
         CancellationToken cancellationToken = default)
     {
-        var result = await _inner
-            .CreateAdministratorKeyIfNoneAsync(name, cancellationToken)
-            .ConfigureAwait(false);
-        if (result is not null)
-        {
-            InvalidateAll();
-        }
-        return result;
+        return await _inner.CreateAdministratorKeyIfNoneAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ApiKeyCreateResponse?> CreateKeyFromPlaintextAsync(string name, string plaintextKey, CancellationToken cancellationToken = default)
     {
-        var result = await _inner.CreateKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);
-        if (result is not null)
-        {
-            InvalidateAll();
-        }
-        return result;
+        return await _inner.CreateKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
@@ -117,7 +118,7 @@ public sealed class CachedApiKeyService : IApiKeyService
         var result = await _inner.RevokeKeyAsync(keyId, cancellationToken).ConfigureAwait(false);
         if (result)
         {
-            InvalidateAll();
+            await InvalidateAllAsync().ConfigureAwait(false);
         }
         return result;
     }
@@ -125,7 +126,7 @@ public sealed class CachedApiKeyService : IApiKeyService
     public async Task<ApiKeyCreateResponse> RegenerateKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
         var result = await _inner.RegenerateKeyAsync(keyId, cancellationToken).ConfigureAwait(false);
-        InvalidateAll();
+        await InvalidateAllAsync().ConfigureAwait(false);
         return result;
     }
 
@@ -157,7 +158,7 @@ public sealed class CachedApiKeyService : IApiKeyService
             .ConfigureAwait(false);
         // Invalidate on any valid override attempt: a revoke-only path (Created == null) can still
         // mean a previously-cached valid key must no longer be accepted.
-        InvalidateAll();
+        await InvalidateAllAsync().ConfigureAwait(false);
         return result;
     }
 
@@ -173,15 +174,29 @@ public sealed class CachedApiKeyService : IApiKeyService
                 plaintextKey,
                 cancellationToken)
             .ConfigureAwait(false);
-        InvalidateAll();
+        await InvalidateAllAsync().ConfigureAwait(false);
         return result;
     }
 
-    private void InvalidateAll()
+    private async Task InvalidateAllAsync()
     {
-        Interlocked.Increment(ref _generation);
-        _validationCache.Clear();
-        _logger.LogInformation("API key validation cache invalidated");
+        try
+        {
+            await _cache.SetAsync(GenerationKey, Guid.NewGuid().ToString("N"), GenerationTimeToLive).ConfigureAwait(false);
+            _logger.LogInformation("API key validation cache invalidated");
+        }
+        // Nothing to propagate here: this has no caller token, and failing would only break best-effort work.
+        catch (Exception ex)
+        {
+            // Cached entries may still accept a revoked key. Validate against the store until they have
+            // aged out. Other instances sharing the cache cannot learn this, so they keep serving the
+            // old entries for up to the cache duration.
+            Volatile.Write(ref _bypassUntilTickCount, Environment.TickCount64 + (long)_cacheDuration.TotalMilliseconds);
+            _logger.LogWarning(
+                ex,
+                "Failed to invalidate the API key validation cache. Validating against the store for {Duration}",
+                _cacheDuration);
+        }
     }
 
     private static string HashKey(string plaintextKey)
@@ -190,6 +205,4 @@ public sealed class CachedApiKeyService : IApiKeyService
             System.Text.Encoding.UTF8.GetBytes(plaintextKey));
         return Convert.ToHexStringLower(bytes);
     }
-
-    private sealed record CacheEntry(ApiKeyEntry? Entry, DateTimeOffset CachedAt, int Generation);
 }

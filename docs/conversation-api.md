@@ -255,7 +255,7 @@ speaker confirmed. Onboarding does not infer missing date components, calculate
 ages, or create reminders. A skipped birthday is not stored.
 Existing room and preference memories are preserved and remain editable in the
 dashboard. Already-enrolled users can ask Lucia to remember their birthday
-without enrolling again. Memories use the existing `IMemoryStore` and configured MongoDB,
+without enrolling again. Memories use the existing `IMemoryStore` and configured database,
 SQLite, or PostgreSQL provider, with the existing in-memory fallback when no
 durable provider is registered.
 

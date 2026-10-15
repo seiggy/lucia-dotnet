@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Loader2, Pencil, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { useConfirm } from '../hooks/useConfirm'
 import { deleteUserMemory, fetchUserMemories, listSpeakerProfiles, updateUserMemory } from '../api'
 import type { UserMemoryEntry } from '../api'
 
@@ -25,6 +26,7 @@ interface MemoryFocus {
 
 /** Inspect and manage personal memories through stable enrolled-profile identities. */
 export default function UserMemoriesPage() {
+  const confirmAction = useConfirm()
   const [parameters, setParameters] = useSearchParams()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
@@ -123,7 +125,11 @@ export default function UserMemoriesPage() {
   async function removeMemory(entry: UserMemoryEntry) {
     if (!profile || controlsLocked) return
     const label = memoryLabels[entry.key] ?? entry.key
-    if (!window.confirm(`Delete "${label}" for ${profile.name}? This removes only this memory, not the voice profile.`)) return
+    if (!(await confirmAction({
+      title: 'Delete memory?',
+      message: `Delete "${label}" for ${profile.name}? This removes only this memory, not the voice profile.`,
+      confirmLabel: 'Delete memory',
+    }))) return
     const index = memories.findIndex(candidate => candidate.key === entry.key)
     const focusKeys = [...memories.slice(index + 1), ...memories.slice(0, index).reverse()]
       .map(candidate => candidate.key)

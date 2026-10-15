@@ -31,7 +31,7 @@ public interface IOptimizableSkill
     IReadOnlyList<string> SearchToolNames { get; }
 
     /// <summary>
-    /// Configuration section name in MongoDB for this skill's options
+    /// Configuration section name for this skill's options
     /// (e.g. "LightControlSkill"). Used to save optimized values.
     /// </summary>
     string ConfigSectionName { get; }

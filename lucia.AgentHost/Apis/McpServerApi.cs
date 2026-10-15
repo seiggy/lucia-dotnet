@@ -92,6 +92,16 @@ public static class McpServerApi
     private static async Task<Results<Ok<string>, ProblemHttpResult>> ConnectServerAsync(
         string id,
         [FromServices] IMcpToolRegistry toolRegistry,
+        [FromServices] IDynamicAgentLoader agentLoader,
+        CancellationToken cancellationToken)
+    {
+        return await ConnectCoreAsync(id, toolRegistry, agentLoader, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<Results<Ok<string>, ProblemHttpResult>> ConnectCoreAsync(
+        string id,
+        IMcpToolRegistry toolRegistry,
+        IDynamicAgentLoader agentLoader,
         CancellationToken cancellationToken)
     {
         // MCP connect can hang if server is unreachable; enforce 30s timeout
@@ -101,6 +111,11 @@ public static class McpServerApi
         try
         {
             await toolRegistry.ConnectServerAsync(id, cts.Token).ConfigureAwait(false);
+
+            // Rebuild dynamic agents so their MCP tool wrappers reference the fresh client —
+            // existing agents still hold wrappers bound to the disposed old client.
+            await agentLoader.ReloadAsync(cancellationToken).ConfigureAwait(false);
+
             return TypedResults.Ok("Connected");
         }
         catch (OperationCanceledException) when (cts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)

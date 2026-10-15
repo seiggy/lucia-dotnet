@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   AlarmClock as AlarmClockIcon, Plus, Trash2, Pencil, Power, PowerOff,
-  Volume2, Star, X, Clock, Speaker, Bell, BellOff, Pause, Music, Upload
+  Volume2, Star, Clock, Speaker, Bell, BellOff, Pause, Music, Upload
 } from 'lucide-react'
 import type { AlarmClock, AlarmSound } from '../types'
 import {
@@ -12,6 +12,7 @@ import {
 import CustomSelect from '../components/CustomSelect'
 import ToastContainer from '../components/ToastContainer'
 import ConfirmDialog from '../components/ConfirmDialog'
+import Modal from '../components/Modal'
 import { useToast } from '../hooks/useToast'
 
 // ── Tab type ──
@@ -83,6 +84,7 @@ export default function AlarmsPage() {
 
   // Alarm form state
   const [showAlarmForm, setShowAlarmForm] = useState(false)
+  const [alarmError, setAlarmError] = useState<string | null>(null)
   const [editingAlarm, setEditingAlarm] = useState<AlarmClock | null>(null)
   const [alarmForm, setAlarmForm] = useState({
     name: '', targetEntity: '', alarmSoundId: '',
@@ -96,6 +98,7 @@ export default function AlarmsPage() {
 
   // Sound form state
   const [showSoundForm, setShowSoundForm] = useState(false)
+  const [soundError, setSoundError] = useState<string | null>(null)
   const [soundForm, setSoundForm] = useState({ name: '', mediaSourceUri: '', isDefault: false })
   const [soundMode, setSoundMode] = useState<'upload' | 'uri'>('upload')
   const [soundFile, setSoundFile] = useState<File | null>(null)
@@ -120,6 +123,7 @@ export default function AlarmsPage() {
   // ── Alarm CRUD ──
 
   function openAlarmForm(alarm?: AlarmClock) {
+    setAlarmError(null)
     if (alarm) {
       setEditingAlarm(alarm)
       const isCron = !!alarm.cronSchedule
@@ -178,10 +182,11 @@ export default function AlarmsPage() {
   }
 
   async function saveAlarm() {
+    setAlarmError(null)
     const { name, targetEntity, alarmSoundId, scheduleType, cronPreset, cronHour, cronMinute, cronCustom, nextFireAt, playbackIntervalSec, autoDismissMin, volumeRampEnabled, volumeStart, volumeEnd, volumeRampDurationSec } = alarmForm
 
     if (!name.trim() || !targetEntity.trim()) {
-      addToast('Name and target entity are required', 'error')
+      setAlarmError('Name and target entity are required')
       return
     }
 
@@ -204,7 +209,7 @@ export default function AlarmsPage() {
     }
 
     if (!cronSchedule && !fireAt) {
-      addToast('A schedule (CRON or one-time) is required', 'error')
+      setAlarmError('A schedule (CRON or one-time) is required')
       return
     }
 
@@ -232,7 +237,7 @@ export default function AlarmsPage() {
       setShowAlarmForm(false)
       await loadData()
     } catch (err) {
-      addToast(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+      setAlarmError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }
 
@@ -274,6 +279,7 @@ export default function AlarmsPage() {
   // ── Sound CRUD ──
 
   function openSoundForm() {
+    setSoundError(null)
     setSoundForm({ name: '', mediaSourceUri: '', isDefault: false })
     setSoundMode('upload')
     setSoundFile(null)
@@ -281,16 +287,17 @@ export default function AlarmsPage() {
   }
 
   async function saveSound() {
+    setSoundError(null)
     if (!soundForm.name.trim()) {
-      addToast('Name is required', 'error')
+      setSoundError('Name is required')
       return
     }
     if (soundMode === 'upload' && !soundFile) {
-      addToast('Please select an audio file to upload', 'error')
+      setSoundError('Please select an audio file to upload')
       return
     }
     if (soundMode === 'uri' && !soundForm.mediaSourceUri.trim()) {
-      addToast('Media source URI is required', 'error')
+      setSoundError('Media source URI is required')
       return
     }
     try {
@@ -303,7 +310,7 @@ export default function AlarmsPage() {
       setShowSoundForm(false)
       await loadData()
     } catch (err) {
-      addToast(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`, 'error')
+      setSoundError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
     }
   }
 
@@ -595,328 +602,321 @@ export default function AlarmsPage() {
       )}
 
       {/* Alarm Form Modal */}
-      {showAlarmForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-xl border border-stone/40 bg-obsidian p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-semibold text-light">
-                {editingAlarm ? 'Edit Alarm' : 'New Alarm'}
-              </h3>
-              <button onClick={() => setShowAlarmForm(false)} className="rounded-md p-1.5 text-fog hover:text-cloud hover:bg-stone/40">
-                <X className="h-4.5 w-4.5" />
-              </button>
-            </div>
+      <Modal open={showAlarmForm} onClose={() => setShowAlarmForm(false)} title={editingAlarm ? 'Edit Alarm' : 'New Alarm'} dismissOnBackdrop={false}>
+        <div className="space-y-4">
+          {/* Name */}
+          <div>
+            <label htmlFor="alarm-name" className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Name</label>
+            <input id="alarm-name"
+              value={alarmForm.name}
+              onChange={e => setAlarmForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="Morning Wake Up"
+              className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus"
+            />
+          </div>
 
-            <div className="space-y-4">
-              {/* Name */}
-              <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Name</label>
-                <input
-                  value={alarmForm.name}
-                  onChange={e => setAlarmForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="Morning Wake Up"
-                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus"
-                />
-              </div>
+          {/* Target Entity */}
+          <div>
+            <label htmlFor="alarm-target" className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Target Entity</label>
+            <input id="alarm-target"
+              value={alarmForm.targetEntity}
+              onChange={e => setAlarmForm(f => ({ ...f, targetEntity: e.target.value }))}
+              placeholder='media_player.bedroom or "presence"'
+              className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus"
+            />
+            <p className="mt-1 text-xs text-dust">Use "presence" for automatic room detection</p>
+          </div>
 
-              {/* Target Entity */}
-              <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Target Entity</label>
-                <input
-                  value={alarmForm.targetEntity}
-                  onChange={e => setAlarmForm(f => ({ ...f, targetEntity: e.target.value }))}
-                  placeholder='media_player.bedroom or "presence"'
-                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus"
-                />
-                <p className="mt-1 text-xs text-dust">Use "presence" for automatic room detection</p>
-              </div>
+          {/* Alarm Sound */}
+          <div>
+            <span className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Alarm Sound</span>
+            <CustomSelect
+              options={[
+                { value: '', label: 'TTS Announcement (default)' },
+                ...sounds.map(s => ({
+                  value: s.id,
+                  label: `${s.name}${s.isDefault ? ' \u2605' : ''}`,
+                })),
+              ]}
+              label="Alarm sound"
+                value={alarmForm.alarmSoundId}
+              onChange={value => setAlarmForm(f => ({ ...f, alarmSoundId: value }))}
+              className="w-full"
+            />
+          </div>
 
-              {/* Alarm Sound */}
-              <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Alarm Sound</label>
-                <CustomSelect
-                  options={[
-                    { value: '', label: 'TTS Announcement (default)' },
-                    ...sounds.map(s => ({
-                      value: s.id,
-                      label: `${s.name}${s.isDefault ? ' \u2605' : ''}`,
-                    })),
-                  ]}
-                  value={alarmForm.alarmSoundId}
-                  onChange={value => setAlarmForm(f => ({ ...f, alarmSoundId: value }))}
-                  className="w-full"
-                />
-              </div>
-
-              {/* Schedule Type */}
-              <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Schedule</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setAlarmForm(f => ({ ...f, scheduleType: 'cron' }))}
-                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      alarmForm.scheduleType === 'cron' ? 'bg-amber/10 text-amber' : 'bg-stone/30 text-fog hover:text-cloud'
-                    }`}
-                  >
-                    Recurring
-                  </button>
-                  <button
-                    onClick={() => setAlarmForm(f => ({ ...f, scheduleType: 'once' }))}
-                    className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      alarmForm.scheduleType === 'once' ? 'bg-amber/10 text-amber' : 'bg-stone/30 text-fog hover:text-cloud'
-                    }`}
-                  >
-                    One-time
-                  </button>
-                </div>
-              </div>
-
-              {/* CRON schedule */}
-              {alarmForm.scheduleType === 'cron' && (
-                <div className="space-y-3">
-                  <div className="flex gap-2">
-                    {CRON_PRESETS.map(p => (
-                      <button
-                        key={p.label}
-                        onClick={() => setAlarmForm(f => ({ ...f, cronPreset: p.label }))}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                          alarmForm.cronPreset === p.label ? 'bg-amber/10 text-amber' : 'bg-stone/30 text-fog hover:text-cloud'
-                        }`}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                  {alarmForm.cronPreset !== 'Custom' ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-fog">Time:</span>
-                      <input
-                        type="number" min="0" max="23"
-                        value={alarmForm.cronHour}
-                        onChange={e => setAlarmForm(f => ({ ...f, cronHour: e.target.value.padStart(2, '0') }))}
-                        className="w-16 rounded-lg border border-stone/40 bg-basalt px-2 py-2 text-center text-sm text-light input-focus"
-                      />
-                      <span className="text-lg text-fog">:</span>
-                      <input
-                        type="number" min="0" max="59"
-                        value={alarmForm.cronMinute}
-                        onChange={e => setAlarmForm(f => ({ ...f, cronMinute: e.target.value.padStart(2, '0') }))}
-                        className="w-16 rounded-lg border border-stone/40 bg-basalt px-2 py-2 text-center text-sm text-light input-focus"
-                      />
-                    </div>
-                  ) : (
-                    <input
-                      value={alarmForm.cronCustom}
-                      onChange={e => setAlarmForm(f => ({ ...f, cronCustom: e.target.value }))}
-                      placeholder="0 7 * * 1-5"
-                      className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus font-mono"
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* One-time schedule */}
-              {alarmForm.scheduleType === 'once' && (
-                <input
-                  type="datetime-local"
-                  value={alarmForm.nextFireAt}
-                  onChange={e => setAlarmForm(f => ({ ...f, nextFireAt: e.target.value }))}
-                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light input-focus"
-                />
-              )}
-
-              {/* Advanced options */}
-              <details className="group">
-                <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-dust hover:text-fog">
-                  Advanced options
-                </summary>
-                <div className="mt-3 grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs text-dust mb-1">Repeat interval (sec)</label>
-                    <input
-                      type="number" min="10" max="300"
-                      value={alarmForm.playbackIntervalSec}
-                      onChange={e => setAlarmForm(f => ({ ...f, playbackIntervalSec: Number(e.target.value) }))}
-                      className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-dust mb-1">Auto-dismiss (min)</label>
-                    <input
-                      type="number" min="1" max="60"
-                      value={alarmForm.autoDismissMin}
-                      onChange={e => setAlarmForm(f => ({ ...f, autoDismissMin: Number(e.target.value) }))}
-                      className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
-                    />
-                  </div>
-                </div>
-
-                {/* Volume Ramping */}
-                <div className="mt-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={alarmForm.volumeRampEnabled}
-                      onChange={e => setAlarmForm(f => ({ ...f, volumeRampEnabled: e.target.checked }))}
-                      className="rounded border-stone/40 bg-basalt text-amber focus:ring-amber/50"
-                    />
-                    <span className="text-sm text-fog">Enable volume ramping</span>
-                  </label>
-                  {alarmForm.volumeRampEnabled && (
-                    <div className="grid grid-cols-3 gap-3 mt-3">
-                      <div>
-                        <label className="block text-xs text-dust mb-1">Start volume ({Math.round(alarmForm.volumeStart * 100)}%)</label>
-                        <input
-                          type="range" min="0" max="1" step="0.05"
-                          value={alarmForm.volumeStart}
-                          onChange={e => setAlarmForm(f => ({ ...f, volumeStart: Number(e.target.value) }))}
-                          className="w-full accent-amber"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-dust mb-1">End volume ({Math.round(alarmForm.volumeEnd * 100)}%)</label>
-                        <input
-                          type="range" min="0" max="1" step="0.05"
-                          value={alarmForm.volumeEnd}
-                          onChange={e => setAlarmForm(f => ({ ...f, volumeEnd: Number(e.target.value) }))}
-                          className="w-full accent-amber"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-dust mb-1">Ramp duration (sec)</label>
-                        <input
-                          type="number" min="5" max="300"
-                          value={alarmForm.volumeRampDurationSec}
-                          onChange={e => setAlarmForm(f => ({ ...f, volumeRampDurationSec: Number(e.target.value) }))}
-                          className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </details>
-            </div>
-
-            {/* Form actions */}
-            <div className="mt-6 flex justify-end gap-3">
+          {/* Schedule Type */}
+          <div>
+            <span className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Schedule</span>
+            <div className="flex gap-2">
               <button
-                onClick={() => setShowAlarmForm(false)}
-                className="rounded-lg px-4 py-2.5 text-sm text-fog hover:text-cloud hover:bg-stone/40"
+                onClick={() => setAlarmForm(f => ({ ...f, scheduleType: 'cron' }))}
+                className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  alarmForm.scheduleType === 'cron' ? 'bg-amber/10 text-amber' : 'bg-stone/30 text-fog hover:text-cloud'
+                }`}
               >
-                Cancel
+                Recurring
               </button>
               <button
-                onClick={saveAlarm}
-                className="rounded-lg bg-amber/10 px-5 py-2.5 text-sm font-medium text-amber hover:bg-amber/20"
+                onClick={() => setAlarmForm(f => ({ ...f, scheduleType: 'once' }))}
+                className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  alarmForm.scheduleType === 'once' ? 'bg-amber/10 text-amber' : 'bg-stone/30 text-fog hover:text-cloud'
+                }`}
               >
-                {editingAlarm ? 'Save Changes' : 'Create Alarm'}
+                One-time
               </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Sound Form Modal */}
-      {showSoundForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-xl border border-stone/40 bg-obsidian p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-semibold text-light">Add Alarm Sound</h3>
-              <button onClick={() => setShowSoundForm(false)} className="rounded-md p-1.5 text-fog hover:text-cloud hover:bg-stone/40">
-                <X className="h-4.5 w-4.5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Name</label>
-                <input
-                  value={soundForm.name}
-                  onChange={e => setSoundForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="Gentle Chime"
-                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus"
-                />
+          {/* CRON schedule */}
+          {alarmForm.scheduleType === 'cron' && (
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                {CRON_PRESETS.map(p => (
+                  <button
+                    key={p.label}
+                    onClick={() => setAlarmForm(f => ({ ...f, cronPreset: p.label }))}
+                    className={`min-h-11 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      alarmForm.cronPreset === p.label ? 'bg-amber/10 text-amber' : 'bg-stone/30 text-fog hover:text-cloud'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
               </div>
-
-              {/* Mode toggle */}
-              <div className="flex gap-1 rounded-lg border border-stone/40 bg-obsidian p-1">
-                <button
-                  onClick={() => setSoundMode('upload')}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${soundMode === 'upload' ? 'bg-amber/10 text-amber' : 'text-dust hover:text-fog'}`}
-                >
-                  <Upload className="h-3.5 w-3.5" /> Upload File
-                </button>
-                <button
-                  onClick={() => setSoundMode('uri')}
-                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${soundMode === 'uri' ? 'bg-amber/10 text-amber' : 'text-dust hover:text-fog'}`}
-                >
-                  <Music className="h-3.5 w-3.5" /> HA Media URI
-                </button>
-              </div>
-
-              {soundMode === 'upload' ? (
-                <div>
-                  <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Audio File</label>
-                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-stone/40 bg-basalt px-4 py-6 text-sm text-fog transition-colors hover:border-amber/40 hover:bg-stone/10">
-                    <Upload className="h-5 w-5 text-dust" />
-                    <span>{soundFile ? soundFile.name : 'Choose audio file (.mp3, .wav, .ogg)'}</span>
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      className="hidden"
-                      onChange={e => {
-                        const file = e.target.files?.[0] || null
-                        setSoundFile(file)
-                        if (file && !soundForm.name.trim()) {
-                          const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
-                          setSoundForm(f => ({ ...f, name: nameWithoutExt }))
-                        }
-                      }}
-                    />
-                  </label>
-                  <p className="mt-1 text-xs text-dust">Uploaded to Home Assistant media library at /local/alarms/</p>
+              {alarmForm.cronPreset !== 'Custom' ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-fog">Time:</span>
+                  <input
+                    type="number" min="0" max="23"
+                    aria-label="Hour"
+                    value={alarmForm.cronHour}
+                    onChange={e => setAlarmForm(f => ({ ...f, cronHour: e.target.value.padStart(2, '0') }))}
+                    className="w-16 rounded-lg border border-stone/40 bg-basalt px-2 py-2 text-center text-sm text-light input-focus"
+                  />
+                  <span className="text-lg text-fog">:</span>
+                  <input
+                    type="number" min="0" max="59"
+                    aria-label="Minute"
+                    value={alarmForm.cronMinute}
+                    onChange={e => setAlarmForm(f => ({ ...f, cronMinute: e.target.value.padStart(2, '0') }))}
+                    className="w-16 rounded-lg border border-stone/40 bg-basalt px-2 py-2 text-center text-sm text-light input-focus"
+                  />
                 </div>
               ) : (
-                <div>
-                  <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Media Source URI</label>
-                  <input
-                    value={soundForm.mediaSourceUri}
-                    onChange={e => setSoundForm(f => ({ ...f, mediaSourceUri: e.target.value }))}
-                    placeholder="media-source://media_source/local/alarm-gentle.mp3"
-                    className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus font-mono text-xs"
-                  />
-                  <p className="mt-1 text-xs text-dust">Home Assistant media-source:// URI for an existing file</p>
-                </div>
+                <input
+                  aria-label="Cron expression"
+                  value={alarmForm.cronCustom}
+                  onChange={e => setAlarmForm(f => ({ ...f, cronCustom: e.target.value }))}
+                  placeholder="0 7 * * 1-5"
+                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus font-mono"
+                />
               )}
+            </div>
+          )}
 
-              <label className="flex items-center gap-3 cursor-pointer">
+          {/* One-time schedule */}
+          {alarmForm.scheduleType === 'once' && (
+            <input
+              type="datetime-local"
+              aria-label="Run at"
+                value={alarmForm.nextFireAt}
+              onChange={e => setAlarmForm(f => ({ ...f, nextFireAt: e.target.value }))}
+              className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light input-focus"
+            />
+          )}
+
+          {/* Advanced options */}
+          <details className="group">
+            <summary className="cursor-pointer text-xs font-medium uppercase tracking-wider text-dust hover:text-fog">
+              Advanced options
+            </summary>
+            <div className="mt-3 grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="alarm-interval" className="block text-xs text-dust mb-1">Repeat interval (sec)</label>
+                <input id="alarm-interval"
+                  type="number" min="10" max="300"
+                  value={alarmForm.playbackIntervalSec}
+                  onChange={e => setAlarmForm(f => ({ ...f, playbackIntervalSec: Number(e.target.value) }))}
+                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
+                />
+              </div>
+              <div>
+                <label htmlFor="alarm-dismiss" className="block text-xs text-dust mb-1">Auto-dismiss (min)</label>
+                <input id="alarm-dismiss"
+                  type="number" min="1" max="60"
+                  value={alarmForm.autoDismissMin}
+                  onChange={e => setAlarmForm(f => ({ ...f, autoDismissMin: Number(e.target.value) }))}
+                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
+                />
+              </div>
+            </div>
+
+            {/* Volume Ramping */}
+            <div className="mt-4">
+              <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={soundForm.isDefault}
-                  onChange={e => setSoundForm(f => ({ ...f, isDefault: e.target.checked }))}
-                  className="h-4 w-4 rounded border-stone/40 bg-basalt accent-amber"
+                  checked={alarmForm.volumeRampEnabled}
+                  onChange={e => setAlarmForm(f => ({ ...f, volumeRampEnabled: e.target.checked }))}
+                  className="rounded border-stone/40 bg-basalt text-amber focus:ring-amber/50"
                 />
-                <span className="text-sm text-fog">Set as default sound</span>
+                <span className="text-sm text-fog">Enable volume ramping</span>
               </label>
+              {alarmForm.volumeRampEnabled && (
+                <div className="grid grid-cols-3 gap-3 mt-3">
+                  <div>
+                    <label htmlFor="alarm-vol-start" className="block text-xs text-dust mb-1">Start volume ({Math.round(alarmForm.volumeStart * 100)}%)</label>
+                    <input id="alarm-vol-start"
+                      type="range" min="0" max="1" step="0.05"
+                      value={alarmForm.volumeStart}
+                      onChange={e => setAlarmForm(f => ({ ...f, volumeStart: Number(e.target.value) }))}
+                      className="w-full accent-amber"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="alarm-vol-end" className="block text-xs text-dust mb-1">End volume ({Math.round(alarmForm.volumeEnd * 100)}%)</label>
+                    <input id="alarm-vol-end"
+                      type="range" min="0" max="1" step="0.05"
+                      value={alarmForm.volumeEnd}
+                      onChange={e => setAlarmForm(f => ({ ...f, volumeEnd: Number(e.target.value) }))}
+                      className="w-full accent-amber"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="alarm-ramp-duration" className="block text-xs text-dust mb-1">Ramp duration (sec)</label>
+                    <input id="alarm-ramp-duration"
+                      type="number" min="5" max="300"
+                      value={alarmForm.volumeRampDurationSec}
+                      onChange={e => setAlarmForm(f => ({ ...f, volumeRampDurationSec: Number(e.target.value) }))}
+                      className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => setShowSoundForm(false)}
-                className="rounded-lg px-4 py-2.5 text-sm text-fog hover:text-cloud hover:bg-stone/40"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={saveSound}
-                className="rounded-lg bg-amber/10 px-5 py-2.5 text-sm font-medium text-amber hover:bg-amber/20"
-              >
-                Add Sound
-              </button>
-            </div>
-          </div>
+          </details>
         </div>
-      )}
+
+        {alarmError && (
+          <div role="alert" className="mt-4 rounded-lg border border-rose/30 bg-rose/10 px-3 py-2 text-sm text-rose">
+            {alarmError}
+          </div>
+        )}
+
+        {/* Form actions */}
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            onClick={() => setShowAlarmForm(false)}
+            className="min-h-11 rounded-lg px-4 py-2.5 text-sm text-fog hover:text-cloud hover:bg-stone/40"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={saveAlarm}
+            className="min-h-11 rounded-lg bg-amber/10 px-5 py-2.5 text-sm font-medium text-amber hover:bg-amber/20"
+          >
+            {editingAlarm ? 'Save Changes' : 'Create Alarm'}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Sound Form Modal */}
+      <Modal open={showSoundForm} onClose={() => setShowSoundForm(false)} title="Add Alarm Sound" dismissOnBackdrop={false}>
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="sound-name" className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Name</label>
+            <input id="sound-name"
+              value={soundForm.name}
+              onChange={e => setSoundForm(f => ({ ...f, name: e.target.value }))}
+              placeholder="Gentle Chime"
+              className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus"
+            />
+          </div>
+
+          {/* Mode toggle */}
+          <div className="flex gap-1 rounded-lg border border-stone/40 bg-obsidian p-1">
+            <button
+              onClick={() => setSoundMode('upload')}
+              className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${soundMode === 'upload' ? 'bg-amber/10 text-amber' : 'text-dust hover:text-fog'}`}
+            >
+              <Upload className="h-3.5 w-3.5" /> Upload File
+            </button>
+            <button
+              onClick={() => setSoundMode('uri')}
+              className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${soundMode === 'uri' ? 'bg-amber/10 text-amber' : 'text-dust hover:text-fog'}`}
+            >
+              <Music className="h-3.5 w-3.5" /> HA Media URI
+            </button>
+          </div>
+
+          {soundMode === 'upload' ? (
+            <div>
+              <span className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Audio File</span>
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-stone/40 bg-basalt px-4 py-6 text-sm text-fog transition-colors hover:border-amber/40 hover:bg-stone/10">
+                <Upload className="h-5 w-5 text-dust" />
+                <span>{soundFile ? soundFile.name : 'Choose audio file (.mp3, .wav, .ogg)'}</span>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0] || null
+                    setSoundFile(file)
+                    if (file && !soundForm.name.trim()) {
+                      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+                      setSoundForm(f => ({ ...f, name: nameWithoutExt }))
+                    }
+                  }}
+                />
+              </label>
+              <p className="mt-1 text-xs text-dust">Uploaded to Home Assistant media library at /local/alarms/</p>
+            </div>
+          ) : (
+            <div>
+              <label htmlFor="sound-uri" className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Media Source URI</label>
+              <input id="sound-uri"
+                value={soundForm.mediaSourceUri}
+                onChange={e => setSoundForm(f => ({ ...f, mediaSourceUri: e.target.value }))}
+                placeholder="media-source://media_source/local/alarm-gentle.mp3"
+                className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus font-mono text-xs"
+              />
+              <p className="mt-1 text-xs text-dust">Home Assistant media-source:// URI for an existing file</p>
+            </div>
+          )}
+
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={soundForm.isDefault}
+              onChange={e => setSoundForm(f => ({ ...f, isDefault: e.target.checked }))}
+              className="h-4 w-4 rounded border-stone/40 bg-basalt accent-amber"
+            />
+            <span className="text-sm text-fog">Set as default sound</span>
+          </label>
+        </div>
+
+        {soundError && (
+          <div role="alert" className="mt-4 rounded-lg border border-rose/30 bg-rose/10 px-3 py-2 text-sm text-rose">
+            {soundError}
+          </div>
+        )}
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            onClick={() => setShowSoundForm(false)}
+            className="min-h-11 rounded-lg px-4 py-2.5 text-sm text-fog hover:text-cloud hover:bg-stone/40"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={saveSound}
+            className="min-h-11 rounded-lg bg-amber/10 px-5 py-2.5 text-sm font-medium text-amber hover:bg-amber/20"
+          >
+            Add Sound
+          </button>
+        </div>
+      </Modal>
 
       {/* Confirm delete */}
       <ConfirmDialog

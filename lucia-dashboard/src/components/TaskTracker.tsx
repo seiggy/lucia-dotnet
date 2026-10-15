@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, ChevronDown, Loader2, XCircle } from 'lucide-react'
 import type { BackgroundTask } from '../api'
 import { fetchBackgroundTasks } from '../api'
+import { usePageVisible } from '../hooks/usePageVisible'
 
 const COMPLETE_FADE_DELAY_MS = 4_000
 const COMPLETE_HIDE_DELAY_MS = 4_800
@@ -48,9 +49,14 @@ export default function TaskTracker() {
   const sourceRef = useRef<EventSource | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
   const retriesRef = useRef(0)
+  const streamOpenRef = useRef(false)
+  const visible = usePageVisible()
   const completeTimersRef = useRef<Record<string, { fade: number; hide: number }>>({})
 
   useEffect(() => {
+    // Hidden tabs release the stream so they do not use up the browser's per-host connection cap.
+    if (!visible) return
+
     let disposed = false
 
     const clearReconnectTimer = () => {
@@ -58,6 +64,11 @@ export default function TaskTracker() {
         window.clearTimeout(reconnectTimeoutRef.current)
         reconnectTimeoutRef.current = null
       }
+    }
+
+    // A GET can finish after a newer stream snapshot. Once the stream is open it is authoritative, so drop the GET.
+    const applyFetched = (next: BackgroundTask[]) => {
+      if (!disposed && !streamOpenRef.current) setTasks(sortTasks(next))
     }
 
     const connect = () => {
@@ -69,6 +80,7 @@ export default function TaskTracker() {
 
       source.onopen = () => {
         retriesRef.current = 0
+        streamOpenRef.current = true
       }
 
       source.addEventListener('snapshot', event => {
@@ -92,6 +104,7 @@ export default function TaskTracker() {
       source.onerror = () => {
         source.close()
         sourceRef.current = null
+        streamOpenRef.current = false
 
         if (disposed) return
 
@@ -100,7 +113,7 @@ export default function TaskTracker() {
         reconnectTimeoutRef.current = window.setTimeout(() => {
           fetchBackgroundTasks()
             .then(next => {
-              if (!disposed) setTasks(sortTasks(next))
+              applyFetched(next)
             })
             .catch(() => {
               /* ignore fetch failures during reconnect */
@@ -114,7 +127,7 @@ export default function TaskTracker() {
 
     fetchBackgroundTasks()
       .then(next => {
-        if (!disposed) setTasks(sortTasks(next))
+        applyFetched(next)
       })
       .catch(() => {
         /* ignore initial fetch failures */
@@ -122,29 +135,32 @@ export default function TaskTracker() {
 
     connect()
 
-    // Poll every 5 seconds as a fallback for missed SSE updates
+    // Poll only while the stream is down; the stream sends a snapshot on every (re)connect.
     const pollInterval = window.setInterval(() => {
-      if (disposed) return
+      if (disposed || streamOpenRef.current) return
       fetchBackgroundTasks()
         .then(next => {
-          if (!disposed) setTasks(sortTasks(next))
+          applyFetched(next)
         })
         .catch(() => { /* ignore poll failures */ })
-    }, 2_000)
+    }, 5_000)
 
     return () => {
       disposed = true
+      streamOpenRef.current = false
       clearReconnectTimer()
       window.clearInterval(pollInterval)
       sourceRef.current?.close()
       sourceRef.current = null
-
-      Object.values(completeTimersRef.current).forEach(timer => {
-        window.clearTimeout(timer.fade)
-        window.clearTimeout(timer.hide)
-      })
-      completeTimersRef.current = {}
     }
+  }, [visible])
+
+  useEffect(() => () => {
+    Object.values(completeTimersRef.current).forEach(timer => {
+      window.clearTimeout(timer.fade)
+      window.clearTimeout(timer.hide)
+    })
+    completeTimersRef.current = {}
   }, [])
 
   useEffect(() => {

@@ -1,10 +1,11 @@
+using lucia.Agents;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.TimerAgent.ScheduledTasks;
 
 /// <summary>
-/// Startup service that loads recoverable tasks from MongoDB into the
+/// Startup service that loads recoverable tasks from the store into the
 /// in-memory <see cref="ScheduledTaskStore"/>. Tasks that are too old
 /// to be meaningful are marked as failed and skipped.
 /// </summary>
@@ -86,9 +87,9 @@ public sealed class ScheduledTaskRecoveryService : BackgroundService
                 "ScheduledTaskRecoveryService finished — recovered: {Recovered}, expired: {Expired}, total: {Total}",
                 recovered, expired, documents.Count);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
-            _logger.LogError(ex, "Failed to recover scheduled tasks from MongoDB");
+            _logger.LogError(ex, "Failed to recover scheduled tasks from the store");
         }
     }
 }

@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 namespace lucia.Wyoming.Telemetry;
 
 /// <summary>
-/// In-memory transcript store used as a fallback when MongoDB is not available.
+/// In-memory transcript store used as a fallback when no persistent store is configured.
 /// Caps storage at <see cref="MaxRecords"/> and drops the oldest records on overflow.
 /// </summary>
 public sealed class InMemoryTranscriptStore : ITranscriptStore

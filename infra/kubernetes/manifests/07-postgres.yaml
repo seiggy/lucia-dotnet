@@ -1,0 +1,131 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lucia-postgres-init
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+    app.kubernetes.io/component: postgres
+data:
+  01-create-databases.sql: |
+    CREATE DATABASE luciaconfig;
+    CREATE DATABASE luciatraces;
+    CREATE DATABASE luciatasks;
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lucia-postgres
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+    app.kubernetes.io/component: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/name: lucia
+    app.kubernetes.io/component: postgres
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: lucia-postgres
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: lucia-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lucia
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lucia
+        app.kubernetes.io/component: postgres
+    spec:
+      securityContext:
+        runAsNonRoot: false
+        fsGroup: 999
+
+      containers:
+        - name: postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: lucia
+                  key: POSTGRES_PASSWORD
+            # A subdirectory keeps initdb away from the volume's lost+found entry.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: postgres-init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+
+      volumes:
+        - name: postgres-init
+          configMap:
+            name: lucia-postgres-init
+
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+        labels:
+          app.kubernetes.io/name: lucia
+          app.kubernetes.io/component: postgres
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 10Gi

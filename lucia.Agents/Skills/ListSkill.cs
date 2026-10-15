@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Text;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
@@ -19,6 +20,8 @@ public sealed class ListSkill : IAgentSkill
     private readonly ILogger<ListSkill> _logger;
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.List", "1.0.0");
+    private static readonly Meter Meter = new("Lucia.Skills.List", "1.0.0");
+    private static readonly ToolMetrics Metrics = ToolMetrics.Create(Meter, "list", "list tool");
 
     public ListSkill(IHomeAssistantClient ha, ILogger<ListSkill> logger)
     {
@@ -49,19 +52,14 @@ public sealed class ListSkill : IAgentSkill
         [Description("The item name to add (e.g. 'milk', 'eggs')")] string itemName,
         CancellationToken cancellationToken = default)
     {
-        using var _ = ActivitySource.StartActivity();
-        try
+        using var activity = ActivitySource.StartActivity();
+        return await ToolRunner.RunAsync(_logger, activity, Metrics.ForTool(nameof(AddToShoppingListAsync)), "Unable to add to the shopping list. Please try again.", async () =>
         {
             if (string.IsNullOrWhiteSpace(itemName))
                 return "Item name cannot be empty.";
             await _ha.CallServiceAsync("shopping_list", "add_item", request: new ServiceCallRequest { { "name", itemName.Trim() } }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return $"Added '{itemName.Trim()}' to the shopping list.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to add item to shopping list");
-            return $"Failed to add to shopping list: {ex.Message}";
-        }
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Add an item to a Home Assistant todo list. entityId is the todo entity (e.g. todo.grocery, todo.personal_tasks).")]
@@ -70,8 +68,8 @@ public sealed class ListSkill : IAgentSkill
         [Description("The task or item to add")] string itemName,
         CancellationToken cancellationToken = default)
     {
-        using var _ = ActivitySource.StartActivity();
-        try
+        using var activity = ActivitySource.StartActivity();
+        return await ToolRunner.RunAsync(_logger, activity, Metrics.ForTool(nameof(AddToTodoListAsync)), "Unable to add to the todo list. Please try again.", async () =>
         {
             if (string.IsNullOrWhiteSpace(entityId) || string.IsNullOrWhiteSpace(itemName))
                 return "Entity ID and item name are required.";
@@ -80,19 +78,14 @@ public sealed class ListSkill : IAgentSkill
                 eid = "todo." + eid;
             await _ha.CallServiceAsync("todo", "add_item", request: new ServiceCallRequest { { "entity_id", eid }, { "item", itemName.Trim() } }, cancellationToken: cancellationToken).ConfigureAwait(false);
             return $"Added '{itemName.Trim()}' to todo list {eid}.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to add item to todo list");
-            return $"Failed to add to todo list: {ex.Message}";
-        }
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("List all items on the Home Assistant shopping list.")]
     public async Task<string> ListShoppingItemsAsync(CancellationToken cancellationToken = default)
     {
-        using var _ = ActivitySource.StartActivity();
-        try
+        using var activity = ActivitySource.StartActivity();
+        return await ToolRunner.RunAsync(_logger, activity, Metrics.ForTool(nameof(ListShoppingItemsAsync)), "Unable to list the shopping items. Please try again.", async () =>
         {
             var items = await _ha.GetShoppingListItemsAsync(cancellationToken).ConfigureAwait(false);
             if (items.Length == 0)
@@ -101,30 +94,20 @@ public sealed class ListSkill : IAgentSkill
             foreach (var i in items)
                 sb.AppendLine($"- {(i.Complete ? "[done] " : "")}{i.Name}");
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to list shopping items");
-            return $"Failed to list shopping items: {ex.Message}";
-        }
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("List todo list entities available in Home Assistant (e.g. todo.grocery).")]
     public async Task<string> ListTodoEntitiesAsync(CancellationToken cancellationToken = default)
     {
-        using var _ = ActivitySource.StartActivity();
-        try
+        using var activity = ActivitySource.StartActivity();
+        return await ToolRunner.RunAsync(_logger, activity, Metrics.ForTool(nameof(ListTodoEntitiesAsync)), "Unable to list the todo lists. Please try again.", async () =>
         {
             var ids = await _ha.GetTodoListEntityIdsAsync(cancellationToken).ConfigureAwait(false);
             if (ids.Length == 0)
                 return "No todo lists found in Home Assistant. Add the Local todo integration to create lists.";
             return "Available todo lists: " + string.Join(", ", ids);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to list todo entities");
-            return $"Failed to list todo lists: {ex.Message}";
-        }
+        }, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     [Description("List items on a specific Home Assistant todo list. Use entityId from ListTodoEntitiesAsync.")]
@@ -132,8 +115,8 @@ public sealed class ListSkill : IAgentSkill
         [Description("The todo list entity ID (e.g. todo.grocery)")] string entityId,
         CancellationToken cancellationToken = default)
     {
-        using var _ = ActivitySource.StartActivity();
-        try
+        using var activity = ActivitySource.StartActivity();
+        return await ToolRunner.RunAsync(_logger, activity, Metrics.ForTool(nameof(ListTodoItemsAsync)), "Unable to list the todo items. Please try again.", async () =>
         {
             var eid = entityId.Trim();
             if (!eid.StartsWith("todo.", StringComparison.OrdinalIgnoreCase))
@@ -145,11 +128,6 @@ public sealed class ListSkill : IAgentSkill
             foreach (var i in items)
                 sb.AppendLine($"- {(i.Status == "completed" ? "[done] " : "")}{i.Summary}");
             return sb.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to list todo items");
-            return $"Failed to list todo items: {ex.Message}";
-        }
+        }, detail: entityId, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

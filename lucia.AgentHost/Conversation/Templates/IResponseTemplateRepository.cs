@@ -8,7 +8,7 @@ public interface IResponseTemplateRepository
     /// <summary>Returns every stored template.</summary>
     Task<IReadOnlyList<ResponseTemplate>> GetAllAsync(CancellationToken ct = default);
 
-    /// <summary>Returns a single template by its MongoDB ObjectId.</summary>
+    /// <summary>Returns a single template by its id.</summary>
     Task<ResponseTemplate?> GetByIdAsync(string id, CancellationToken ct = default);
 
     /// <summary>Returns the template registered for a specific skill and action pair.</summary>
@@ -20,7 +20,7 @@ public interface IResponseTemplateRepository
     /// <summary>Replaces an existing template identified by <paramref name="id"/>.</summary>
     Task<ResponseTemplate> UpdateAsync(string id, ResponseTemplate template, CancellationToken ct = default);
 
-    /// <summary>Deletes a template by its ObjectId. Returns <c>true</c> when a document was removed.</summary>
+    /// <summary>Deletes a template by its id. Returns <c>true</c> when a document was removed.</summary>
     Task<bool> DeleteAsync(string id, CancellationToken ct = default);
 
     /// <summary>Drops all templates and re-seeds the collection with <see cref="DefaultResponseTemplates"/>.</summary>

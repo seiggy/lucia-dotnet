@@ -1,5 +1,3 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.Agents.Mcp;
 
@@ -12,8 +10,6 @@ public sealed class McpToolServerDefinition
     /// <summary>
     /// Unique identifier for the MCP server (e.g., "github-mcp").
     /// </summary>
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = default!;
 
     /// <summary>

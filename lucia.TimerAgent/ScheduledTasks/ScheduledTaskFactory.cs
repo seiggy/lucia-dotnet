@@ -7,7 +7,7 @@ namespace lucia.TimerAgent.ScheduledTasks;
 public static class ScheduledTaskFactory
 {
     /// <summary>
-    /// Reconstitutes an <see cref="IScheduledTask"/> from a MongoDB document.
+    /// Reconstitutes an <see cref="IScheduledTask"/> from a stored document.
     /// Returns null if the task type is unknown or the document is invalid.
     /// </summary>
     public static IScheduledTask? FromDocument(ScheduledTaskDocument doc)

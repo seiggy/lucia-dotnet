@@ -75,14 +75,18 @@ curl http://localhost:8080/health
 
 ### External PostgreSQL
 
+By default the chart runs a single-node PostgreSQL StatefulSet (`bundledPostgres`)
+with a generated password in the `<release>-postgres` Secret. To use your own server
+instead, disable it and set `postgres.enabled=true`.
+
 Create the `luciaconfig`, `luciatraces`, and `luciatasks` databases on your
-PostgreSQL server. Lucia creates its tables, not the databases. In the release
+external PostgreSQL server. Lucia creates its tables, not the databases. In the release
 namespace, create an existing Secret with one complete Npgsql connection string
 per key. Keep passwords and TLS options in that Secret, not in Helm values.
 The default keys are `luciaconfig`, `luciatraces`, and `luciatasks`.
 
 ```yaml
-mongodb:
+bundledPostgres:
   enabled: false
 postgres:
   enabled: true
@@ -102,11 +106,10 @@ strings in a Secret, or map `connectionStringKeys` to existing DSN keys.
 
 The chart selects `DataProvider__Store=PostgreSQL`, waits for the external host's
 TCP port, and injects each connection string through `secretKeyRef` into both
-AgentHost and the enabled Timer Agent pod. The Timer Agent waits for AgentHost
-health before starting. The chart neither deploys PostgreSQL nor reads Secret
-contents during rendering. Enabling both
-MongoDB and PostgreSQL is rejected. Redis configuration is unchanged.
-Restart both deployments after rotating the external Secret.
+the AgentHost pod. The chart does not read Secret contents during rendering when
+using an external server. Enabling both `bundledPostgres` and `postgres` is
+rejected, and so is disabling both. Redis configuration is unchanged.
+Restart the AgentHost deployment after rotating the external Secret.
 
 Run chart regressions with `python tests/render_regressions.py`.
 

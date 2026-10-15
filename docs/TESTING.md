@@ -19,14 +19,15 @@ Unit tests verify individual classes in isolation using [FakeItEasy](https://fak
 
 | Area | Test Files | What's Tested |
 |------|-----------|---------------|
-| Auth | `Auth/HmacSessionServiceTests.cs`, `OnboardingMiddlewareTests.cs`, `MongoApiKeyServiceTests.cs`, `InternalTokenAuthenticationHandlerTests.cs` | HMAC signing, middleware gating, API key hashing, internal token validation |
+| Auth | `Auth/HmacSessionServiceTests.cs`, `OnboardingMiddlewareTests.cs`, `InternalTokenAuthenticationHandlerTests.cs` | HMAC signing, middleware gating, API key hashing, internal token validation |
 | Orchestration Models | `Models/AgentChoiceResultTests.cs`, `AgentResponseTests.cs`, `InputRequiredPipelineTests.cs` | Router decision parsing, response aggregation, input-required flow |
 | Services | `Services/ContextExtractorTests.cs`, `EntityMatchNameFormatterTests.cs`, `PromptCachingChatClientTests.cs`, `ProviderModelCatalogServiceTests.cs`, `TaskPersistenceMetricsTests.cs` | Context extraction, entity name formatting, cache key hashing, provider catalog, task metrics |
 | Timer & Alarms | `Timer/TimerSkillTests.cs`, `AlarmSkillTests.cs`, `SchedulerSkillTests.cs` | Timer creation/cancellation, alarm CRUD, scheduler CRON parsing |
 | Scheduled Tasks | `ScheduledTasks/` (9 files) | CRON scheduling, task factory, recovery, alarm/timer/agent task execution |
 | Training | `Training/ConversationTraceTests.cs`, `JsonlExportTests.cs`, `TraceCaptureObserverTests.cs` | Trace model serialization, JSONL export format, observer lifecycle |
 | Plugins | `Plugins/PluginSystemTests.cs`, `PluginConfigSchemaTests.cs`, `PluginUpdateDetectionTests.cs` | Plugin loading, config schema validation, version comparison |
-| Presence | `Presence/PresenceDetectionServiceTests.cs`, `MongoPresenceSensorRepositoryTests.cs` | Sensor discovery, occupancy logic, MongoDB mapping persistence |
+| Data providers | `Data/Providers/*Contract.cs`, `Sqlite*Tests.cs`, `Postgres*Tests.cs` | One abstract contract per store interface (API keys, memory, traces, tasks, alarms, speaker profiles, templates, and more) run against SQLite and PostgreSQL on the real migrated schema |
+| Presence | `Presence/PresenceDetectionServiceTests.cs` | Sensor discovery, occupancy logic |
 | Home Assistant | `HomeAssistantApiTests.cs`, `HomeAssistantClientConfigurationTests.cs`, `HomeAssistantErrorHandlingTests.cs`, `HomeAssistantModelsTests.cs`, `HomeAssistantTemplateClientTests.cs` | HA API calls, configuration, error handling, model deserialization |
 | Diagnostics | `Diagnostics/EmbeddingMatchingTests.cs` | Entity matcher scoring and ranking |
 
@@ -62,13 +63,13 @@ public class MyServiceTests
 
 ## Integration Tests
 
-Integration tests verify components with real infrastructure (Redis, MongoDB) using [Testcontainers](https://dotnet.testcontainers.org/) to spin up Docker containers on-demand.
+Integration tests verify components with real infrastructure (Redis, PostgreSQL) using [Testcontainers](https://dotnet.testcontainers.org/) to spin up Docker containers on-demand.
 
 ### Infrastructure Requirements
 
 - **Docker** must be running for Testcontainers-based tests
 - Redis tests use `Testcontainers.Redis` to start a real Redis instance
-- MongoDB tests may require a running MongoDB instance or Testcontainers
+- Postgres store tests (`Data/Providers/Postgres*`) share one `postgres:17-alpine` container through the `PostgresStores` collection; they carry `[Trait("Category", "Integration")]`
 
 ### Key Integration Tests
 

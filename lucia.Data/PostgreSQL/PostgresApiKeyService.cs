@@ -444,7 +444,7 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         await using var getCmd = connection.CreateCommand();
         getCmd.Transaction = transaction;
         getCmd.CommandText = """
-            SELECT name, scopes::text
+            SELECT name, scopes::text, is_revoked
             FROM api_keys
             WHERE id = @id
             FOR UPDATE;
@@ -460,7 +460,12 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         var name = reader.GetString(0);
         var scopes =
             JsonSerializer.Deserialize<string[]>(reader.GetString(1)) ?? ["*"];
+        var isRevoked = reader.GetBoolean(2);
         await reader.DisposeAsync().ConfigureAwait(false);
+        if (isRevoked)
+        {
+            throw new InvalidOperationException($"API key with ID '{keyId}' is revoked and cannot be regenerated.");
+        }
 
         var plaintextKey = GenerateKey();
         var hash = HashKey(plaintextKey);

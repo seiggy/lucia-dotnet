@@ -1,11 +1,13 @@
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
 using lucia.Agents.CommandTracing;
 using lucia.Agents.DataStores;
 using lucia.Agents.Services;
 using lucia.Agents.Training;
 using lucia.Data.InMemory;
 using lucia.Data.PostgreSQL;
+using lucia.Data.Redis;
 using lucia.Data.Sqlite;
 using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Diarization;
@@ -26,6 +28,35 @@ namespace lucia.Data.Extensions;
 public static class ServiceCollectionExtensions
 {
     /// <summary>
+    /// Registers the Redis cache providers: session, device and prompt caches, the task store
+    /// (with archiving), the shared key-value cache and the entity location service.
+    /// </summary>
+    public static IHostApplicationBuilder AddRedisCacheProviders(
+        this IHostApplicationBuilder builder)
+    {
+        // Redis through the Aspire client integration
+        builder.AddRedisClient(connectionName: "redis");
+
+        builder.Services.AddSingleton<RedisTaskStore>();
+        builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<RedisTaskStore>());
+        builder.Services.AddSingleton<ITaskStore>(sp => new ArchivingTaskStore(
+            sp.GetRequiredService<RedisTaskStore>(),
+            sp.GetRequiredService<ITaskArchiveStore>(),
+            sp.GetRequiredService<ILogger<ArchivingTaskStore>>()));
+
+        builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+        builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
+        builder.Services.AddSingleton<IPromptCacheService, RedisPromptCacheService>();
+        builder.Services.AddSingleton<IKeyValueCache, RedisKeyValueCache>();
+
+        // Shared floor/area/entity resolution, persisted to Redis
+        builder.Services.AddSingleton<ILocationSnapshotStore, RedisLocationSnapshotStore>();
+        builder.Services.AddSingleton<IVisibilityConfigStore, RedisVisibilityConfigStore>();
+        builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
+
+        return builder;
+    }
+    /// <summary>
     /// Registers InMemory cache services (replacing Redis).
     /// </summary>
     public static IHostApplicationBuilder AddInMemoryCacheProviders(
@@ -35,6 +66,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISessionCacheService, lucia.Data.InMemory.InMemorySessionCacheService>();
         builder.Services.AddSingleton<IDeviceCacheService, lucia.Data.InMemory.InMemoryDeviceCacheService>();
         builder.Services.AddSingleton<IPromptCacheService, lucia.Data.InMemory.InMemoryPromptCacheService>();
+        builder.Services.AddSingleton<IKeyValueCache, lucia.Data.InMemory.InMemoryKeyValueCache>();
 
         // Task store + task ID index (wraps with ArchivingTaskStore decorator when available)
         builder.Services.AddSingleton<InMemoryTaskStore>();
@@ -51,8 +83,11 @@ public static class ServiceCollectionExtensions
         });
         builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<InMemoryTaskStore>());
 
-        // Entity location service (in-memory, no Redis needed)
-        builder.Services.AddSingleton<IEntityLocationService, lucia.Data.InMemory.InMemoryEntityLocationService>();
+        // Same entity location service as the Redis mode; the snapshot stays in this process and
+        // visibility settings persist in the SQLite or PostgreSQL configuration store.
+        builder.Services.AddSingleton<ILocationSnapshotStore, InProcessLocationSnapshotStore>();
+        builder.Services.AddSingleton<IVisibilityConfigStore, ConfigStoreVisibilityConfigStore>();
+        builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
         // Only register in-memory IMemoryStore if no durable store has been registered yet
         builder.Services.TryAddSingleton<IMemoryStore, lucia.Data.InMemory.InMemoryMemoryStore>();
         AddMemorySupportServices(builder.Services);
@@ -62,7 +97,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Registers SQLite repository implementations with three keyed connection factories
-    /// mirroring the MongoDB/PostgreSQL three-database pattern (luciaconfig, luciatraces, luciatasks).
+    /// mirroring the PostgreSQL three-database pattern (luciaconfig, luciatraces, luciatasks).
     /// </summary>
     public static IHostApplicationBuilder AddSqliteStoreProviders(
         this IHostApplicationBuilder builder)
@@ -99,8 +134,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IAgentDefinitionRepository, SqliteAgentDefinitionRepository>();
         builder.Services.AddSingleton<IPresenceSensorRepository, SqlitePresenceSensorRepository>();
         builder.Services.AddSingleton<IPluginManagementRepository, SqlitePluginManagementRepository>();
-        builder.Services.AddSingleton<IApiKeyService, SqliteApiKeyService>();
-        builder.Services.AddSingleton<ISpeakerProfileStore, SqliteSpeakerProfileStore>();
+        AddCachedApiKeyService<SqliteApiKeyService>(builder.Services);
+        AddSpeakerProfileStore<SqliteSpeakerProfileStore>(builder.Services);
         builder.Services.AddSingleton<ITranscriptStore, SqliteTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, SqliteModelPreferenceStore>();
         builder.Services.AddSingleton<IMemoryStore, SqliteMemoryStore>();
@@ -121,7 +156,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Registers PostgreSQL repository implementations with three keyed connection factories
-    /// mirroring the MongoDB three-database pattern (luciaconfig, luciatraces, luciatasks).
+    /// mirroring the three-database pattern (luciaconfig, luciatraces, luciatasks).
     /// </summary>
     public static IHostApplicationBuilder AddPostgresStoreProviders(
         this IHostApplicationBuilder builder)
@@ -163,8 +198,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IAgentDefinitionRepository, PostgresAgentDefinitionRepository>();
         builder.Services.AddSingleton<IPresenceSensorRepository, PostgresPresenceSensorRepository>();
         builder.Services.AddSingleton<IPluginManagementRepository, PostgresPluginManagementRepository>();
-        builder.Services.AddSingleton<IApiKeyService, PostgresApiKeyService>();
-        builder.Services.AddSingleton<ISpeakerProfileStore, PostgresSpeakerProfileStore>();
+        AddCachedApiKeyService<PostgresApiKeyService>(builder.Services);
+        AddSpeakerProfileStore<PostgresSpeakerProfileStore>(builder.Services);
         builder.Services.AddSingleton<ITranscriptStore, PostgresTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, PostgresModelPreferenceStore>();
         builder.Services.AddSingleton<IMemoryStore, PostgresMemoryStore>();
@@ -187,5 +222,43 @@ public static class ServiceCollectionExtensions
     {
         services.TryAddSingleton<ChatHistoryProvider>();
         services.TryAddSingleton<UserContextProvider>();
+    }
+
+    /// <summary>
+    /// Registers <typeparamref name="TService"/> behind <see cref="CachedApiKeyService"/> so key
+    /// validation skips the database on every authenticated request. The cache lives in the
+    /// configured <see cref="IKeyValueCache"/> (Redis, or in-memory when none is registered).
+    /// </summary>
+    private static void AddCachedApiKeyService<TService>(IServiceCollection services)
+        where TService : class, IApiKeyService
+    {
+        AddKeyValueCacheFallback(services);
+        services.AddSingleton<TService>();
+        services.AddSingleton<IApiKeyService>(sp => new CachedApiKeyService(
+            sp.GetRequiredService<TService>(),
+            sp.GetRequiredService<IKeyValueCache>(),
+            sp.GetRequiredService<ILogger<CachedApiKeyService>>()));
+    }
+
+    /// <summary>
+    /// Registers <typeparamref name="TStore"/> behind <see cref="CachedSpeakerProfileStore"/> for fast
+    /// enrolled-profile reads, using the configured <see cref="IKeyValueCache"/>.
+    /// </summary>
+    private static void AddSpeakerProfileStore<TStore>(IServiceCollection services)
+        where TStore : class, ISpeakerProfileStore
+    {
+        AddKeyValueCacheFallback(services);
+        services.AddSingleton<TStore>();
+        services.AddSingleton<ISpeakerProfileStore>(sp => new CachedSpeakerProfileStore(
+            sp.GetRequiredService<TStore>(),
+            sp.GetRequiredService<IKeyValueCache>(),
+            sp.GetRequiredService<ILogger<CachedSpeakerProfileStore>>()));
+    }
+
+    // Keeps a Redis registration made earlier; otherwise caches in process.
+    private static void AddKeyValueCacheFallback(IServiceCollection services)
+    {
+        services.AddMemoryCache();
+        services.TryAddSingleton<IKeyValueCache, InMemoryKeyValueCache>();
     }
 }

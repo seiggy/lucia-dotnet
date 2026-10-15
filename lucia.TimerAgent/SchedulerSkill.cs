@@ -134,7 +134,7 @@ public sealed class SchedulerSkill
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update task {TaskId} status to Cancelled in MongoDB", actionId);
+                _logger.LogWarning(ex, "Failed to update task {TaskId} status to Cancelled in the database", actionId);
             }
 
             _logger.LogInformation("Scheduled action {ActionId} cancelled", actionId);
@@ -195,14 +195,14 @@ public sealed class SchedulerSkill
             EntityContext = entityContext
         };
 
-        // Persist to MongoDB for crash recovery
+        // Persist for crash recovery
         try
         {
             await _taskRepository.UpsertAsync(agentTask.ToDocument()).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to persist agent task {TaskId} to MongoDB — task will still run in-memory", taskInstanceId);
+            _logger.LogWarning(ex, "Failed to persist agent task {TaskId} to the database — task will still run in-memory", taskInstanceId);
         }
 
         _taskStore.Add(agentTask);

@@ -14,6 +14,9 @@ namespace lucia.AgentHost.Conversation.Templates;
 /// </summary>
 public sealed class SqliteResponseTemplateRepository : IResponseTemplateRepository
 {
+    private const int SqliteConstraintUnique = 2067; // SQLITE_CONSTRAINT_UNIQUE
+    private const int SqliteConstraintPrimaryKey = 1555; // SQLITE_CONSTRAINT_PRIMARYKEY
+
     private readonly SqliteConnectionFactory _connectionFactory;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -97,7 +100,15 @@ public sealed class SqliteResponseTemplateRepository : IResponseTemplateReposito
         cmd.Parameters.AddWithValue("@action", template.Action);
         cmd.Parameters.AddWithValue("@data", JsonSerializer.Serialize(template, JsonOptions));
 
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        catch (SqliteException ex) when (ex.SqliteExtendedErrorCode is SqliteConstraintUnique or SqliteConstraintPrimaryKey)
+        {
+            throw new DuplicateResponseTemplateException(template.SkillId, template.Action, ex);
+        }
+
         return template;
     }
 

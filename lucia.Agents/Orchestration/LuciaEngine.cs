@@ -202,7 +202,7 @@ public class LuciaEngine
             activity?.SetStatus(ActivityStatusCode.Ok);
             return new OrchestratorResult { Text = finalText, NeedsInput = needsInput };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Error processing user request: {Request}", userRequest);
             activity?.SetStatus(ActivityStatusCode.Error);
@@ -215,7 +215,7 @@ public class LuciaEngine
                 {
                     await _observer.OnResponseAggregatedAsync(requestId, errorResponse, CancellationToken.None).ConfigureAwait(false);
                 }
-                catch (Exception traceEx)
+                catch (Exception traceEx) when (!traceEx.IsCancellation())
                 {
                     _logger.LogError(traceEx, "Failed to persist error trace");
                 }
@@ -244,7 +244,7 @@ public class LuciaEngine
                     _logger.LogInformation("Task {TaskId} marked as failed", failedTaskId);
                 }
             }
-            catch (Exception taskEx)
+            catch (Exception taskEx) when (!taskEx.IsCancellation())
             {
                 _logger.LogError(taskEx, "Failed to update task status to Failed");
             }

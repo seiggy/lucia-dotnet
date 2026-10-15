@@ -20,7 +20,6 @@
     <PackageReference Include="Aspire.StackExchange.Redis" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
-    <PackageReference Include="Aspire.MongoDB.Driver.v3" />
     <PackageReference Include="Microsoft.Agents.AI.AzureAI" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" />

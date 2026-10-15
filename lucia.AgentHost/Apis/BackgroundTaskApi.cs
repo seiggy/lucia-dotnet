@@ -37,9 +37,9 @@ public static class BackgroundTaskApi
             ctx.Response.Headers.CacheControl = "no-cache";
             ctx.Response.Headers.Connection = "keep-alive";
 
-            // Send initial snapshot
-            await WriteSseAsync(ctx.Response, "snapshot", tracker.GetAllTasks(), ct).ConfigureAwait(false);
+            // Read the version first, so a change between the version and the snapshot sends another snapshot.
             var lastVersion = tracker.Version;
+            await WriteSseAsync(ctx.Response, "snapshot", tracker.GetAllTasks(), ct).ConfigureAwait(false);
 
             while (!ct.IsCancellationRequested)
             {

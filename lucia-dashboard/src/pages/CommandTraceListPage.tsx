@@ -46,7 +46,7 @@ export default function CommandTraceListPage() {
   const [toDate, setToDate] = useState('')
 
   // SSE live updates
-  const { lastTrace, connectionState } = useCommandTraceStream()
+  const { lastTrace, connectionState, connectionCount } = useCommandTraceStream()
 
   useEffect(() => {
     if (lastTrace) {
@@ -54,6 +54,14 @@ export default function CommandTraceListPage() {
       queryClient.invalidateQueries({ queryKey: ['command-trace-stats'] })
     }
   }, [lastTrace, queryClient])
+
+  // Traces that arrived while the tab was hidden are not replayed, so refetch after each reconnection.
+  useEffect(() => {
+    if (connectionCount > 1) {
+      queryClient.invalidateQueries({ queryKey: ['command-traces'] })
+      queryClient.invalidateQueries({ queryKey: ['command-trace-stats'] })
+    }
+  }, [connectionCount, queryClient])
 
   const params: Record<string, string> = { page: String(page), pageSize: '20' }
   if (search) params.search = search

@@ -177,9 +177,8 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.area", area);
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         AlarmRequests.Add(1);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to arm the alarm right now.", async () =>
         {
             var alarms = await ResolveEntitiesAsync(["alarm_control_panel"], area, null).ConfigureAwait(false);
             if (alarms.Count == 0)
@@ -201,18 +200,11 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Armed", alarms);
-        }
-        catch (Exception ex)
-        {
-            AlarmFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            LogSecurityOperationFailed(_logger, ex, "arm alarm", area ?? "all visible areas");
-            return "Unable to arm the alarm right now.";
-        }
-        finally
-        {
-            RecordDuration(activity, start, "arm_alarm");
-        }
+        },
+            onFailure: () => AlarmFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: OperationDurationMs,
+            detail: area ?? "all visible areas",
+            durationTag: new("operation", "arm_alarm")).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -228,9 +220,8 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.area", area);
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         AlarmRequests.Add(1, [new KeyValuePair<string, object?>("action", "disarm")]);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to disarm the alarm right now.", async () =>
         {
             var alarms = await ResolveEntitiesAsync(["alarm_control_panel"], area, null).ConfigureAwait(false);
             if (alarms.Count == 0)
@@ -252,18 +243,11 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Disarmed", alarms);
-        }
-        catch (Exception ex)
-        {
-            AlarmFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            LogSecurityOperationFailed(_logger, ex, "disarm alarm", area ?? "all visible areas");
-            return "Unable to disarm the alarm right now.";
-        }
-        finally
-        {
-            RecordDuration(activity, start, "disarm_alarm");
-        }
+        },
+            onFailure: () => AlarmFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: OperationDurationMs,
+            detail: area ?? "all visible areas",
+            durationTag: new("operation", "disarm_alarm")).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -286,9 +270,8 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.entity_name", entityName);
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         LockRequests.Add(1, [new KeyValuePair<string, object?>("action", "lock")]);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to lock the requested door right now.", async () =>
         {
             var locks = await ResolveEntitiesAsync(["lock"], area, entityName).ConfigureAwait(false);
             if (locks.Count == 0)
@@ -308,18 +291,11 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Locked", locks);
-        }
-        catch (Exception ex)
-        {
-            LockFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            LogSecurityOperationFailed(_logger, ex, "lock door", BuildTarget(area, entityName));
-            return "Unable to lock the requested door right now.";
-        }
-        finally
-        {
-            RecordDuration(activity, start, "lock_door");
-        }
+        },
+            onFailure: () => LockFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: OperationDurationMs,
+            detail: BuildTarget(area, entityName),
+            durationTag: new("operation", "lock_door")).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -342,9 +318,8 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.entity_name", entityName);
         activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         LockRequests.Add(1, [new KeyValuePair<string, object?>("action", "unlock")]);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to unlock the requested door right now.", async () =>
         {
             var locks = await ResolveEntitiesAsync(["lock"], area, entityName).ConfigureAwait(false);
             if (locks.Count == 0)
@@ -364,18 +339,11 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return BuildActionResponse("Unlocked", locks);
-        }
-        catch (Exception ex)
-        {
-            LockFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            LogSecurityOperationFailed(_logger, ex, "unlock door", BuildTarget(area, entityName));
-            return "Unable to unlock the requested door right now.";
-        }
-        finally
-        {
-            RecordDuration(activity, start, "unlock_door");
-        }
+        },
+            onFailure: () => LockFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: OperationDurationMs,
+            detail: BuildTarget(area, entityName),
+            durationTag: new("operation", "unlock_door")).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -389,9 +357,8 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.operation", "get_status");
         activity?.SetTag("security.area", area);
         StatusRequests.Add(1);
-        var start = Stopwatch.GetTimestamp();
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to retrieve security status right now.", async () =>
         {
             var statusDomains = GetStatusDomains();
             var entities = await ResolveEntitiesAsync(statusDomains, area, null).ConfigureAwait(false);
@@ -426,18 +393,11 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return builder.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            StatusFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]);
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            LogSecurityOperationFailed(_logger, ex, "get security status", area ?? "all visible areas");
-            return "Unable to retrieve security status right now.";
-        }
-        finally
-        {
-            RecordDuration(activity, start, "get_status");
-        }
+        },
+            onFailure: () => StatusFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: OperationDurationMs,
+            detail: area ?? "all visible areas",
+            durationTag: new("operation", "get_status")).ConfigureAwait(false);
     }
 
     private static ServiceCallRequest CreateSecurityRequest(string entityId, string? code)
@@ -528,13 +488,6 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         }
 
         return domains;
-    }
-
-    private void RecordDuration(Activity? activity, long start, string operation)
-    {
-        var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
-        OperationDurationMs.Record(elapsedMs, [new KeyValuePair<string, object?>("operation", operation)]);
-        activity?.SetTag("elapsed_ms", elapsedMs);
     }
 
     private string? ResolveCode(string? code)
@@ -634,7 +587,4 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
 
     [LoggerMessage(EventId = 3002, Level = LogLevel.Information, Message = "Starting {Operation} for {Target} across {EntityCount} lock entity/entities.")]
     private static partial void LogLockOperationStarted(ILogger logger, string operation, string target, int entityCount);
-
-    [LoggerMessage(EventId = 3003, Level = LogLevel.Error, Message = "Security operation '{Operation}' failed for {Target}.")]
-    private static partial void LogSecurityOperationFailed(ILogger logger, Exception exception, string operation, string target);
 }

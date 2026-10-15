@@ -1,9 +1,7 @@
-using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
-using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -35,17 +33,12 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     private static readonly Counter<long> CacheRefreshes = Meter.CreateCounter<long>("fan.cache.refreshes");
 
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingProviderResolver _embeddingResolver;
-    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly IDeviceCacheService _cacheService;
     private readonly IEntityLocationService _locationService;
     private readonly IHybridEntityMatcher _entityMatcher;
     private readonly IOptionsMonitor<FanControlSkillOptions> _options;
     private readonly ILogger<FanControlSkill> _logger;
-
-    private ImmutableArray<FanEntity> _fans = [];
-    private long _lastCacheRefreshTicks = DateTime.MinValue.Ticks;
-    private readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private readonly SkillEntityIndex<FanEntity> _index;
 
     public FanControlSkill(
         IHomeAssistantClient homeAssistantClient,
@@ -57,38 +50,36 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         ILogger<FanControlSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingResolver = embeddingResolver;
         _cacheService = cacheService;
         _locationService = locationService;
         _entityMatcher = entityMatcher;
         _options = options;
         _logger = logger;
+        _index = new SkillEntityIndex<FanEntity>(
+            embeddingResolver,
+            logger,
+            "fan",
+            LoadFansAsync,
+            () => TimeSpan.FromMinutes(options.CurrentValue.CacheRefreshMinutes));
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing FanControlSkill...");
 
-        _embeddingGenerator = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
-        if (_embeddingGenerator is null)
-        {
-            _logger.LogWarning("No embedding provider configured — fan semantic search will not be available.");
+        await _index.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (_index.Embeddings is null)
             return;
-        }
 
-        await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("FanControlSkill initialized with {Count} fans", _fans.Length);
+        _logger.LogInformation("FanControlSkill initialized with {Count} fans", _index.Items.Length);
     }
 
     /// <summary>
     /// Re-resolves the embedding generator using the specified provider name.
     /// Called by the owning agent when the embedding configuration changes.
     /// </summary>
-    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
-    {
-        _embeddingGenerator = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("FanControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
-    }
+    public Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+        => _index.UpdateEmbeddingProviderAsync(providerName, cancellationToken);
 
     public IList<AITool> GetTools()
     {
@@ -145,38 +136,28 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search_term", searchTerm);
-        var start = Stopwatch.GetTimestamp();
         FanControlRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to search for fans. Please try again.", async () =>
         {
-            await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
+            await _index.EnsureCurrentAsync().ConfigureAwait(false);
 
-            var fans = _fans;
+            var fans = _index.Items;
             if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
-            if (_embeddingGenerator is null)
+            var embeddings = _index.Embeddings;
+            if (embeddings is null)
             {
                 FanControlFailures.Add(1);
                 return "Embedding provider not available for fan search.";
             }
 
-            var opts = _options.CurrentValue;
-            var matchOptions = new HybridMatchOptions
-            {
-                Threshold = opts.HybridSimilarityThreshold,
-                EmbeddingWeight = opts.EmbeddingWeight,
-                ScoreDropoffRatio = opts.ScoreDropoffRatio,
-                DisagreementPenalty = opts.DisagreementPenalty,
-                EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
-            };
-
             var matches = await _entityMatcher.FindMatchesAsync(
                 searchTerm,
                 (IReadOnlyList<FanEntity>)fans,
-                _embeddingGenerator,
-                matchOptions).ConfigureAwait(false);
+                embeddings,
+                GetCurrentMatchOptions()).ConfigureAwait(false);
 
             if (matches.Count > 0)
             {
@@ -216,17 +197,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"No fans found matching '{searchTerm}'.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error finding fan for '{SearchTerm}'", searchTerm);
-            FanControlFailures.Add(1);
-            return $"Error searching for fan: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        }, onFailure: () => FanControlFailures.Add(1), duration: FanControlDurationMs, detail: searchTerm).ConfigureAwait(false);
     }
 
     [Description("Find all fans in a specific area/room.")]
@@ -235,14 +206,13 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("area_name", areaName);
-        var start = Stopwatch.GetTimestamp();
         FanControlRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to search for fans in that area. Please try again.", async () =>
         {
-            await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
+            await _index.EnsureCurrentAsync().ConfigureAwait(false);
 
-            var fans = _fans;
+            var fans = _index.Items;
             if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
@@ -276,17 +246,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return sb.ToString();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error finding fans in area '{AreaName}'", areaName);
-            FanControlFailures.Add(1);
-            return $"Error searching fans by area: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        }, onFailure: () => FanControlFailures.Add(1), duration: FanControlDurationMs, detail: areaName).ConfigureAwait(false);
     }
 
     [Description("Get the current state of a fan including on/off status, speed percentage, and direction.")]
@@ -295,31 +255,19 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
-        var start = Stopwatch.GetTimestamp();
         FanControlRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to get the state of fan '{entityId}'. Please try again.", async () =>
         {
             var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
             if (state is null)
                 return $"Fan '{entityId}' not found.";
 
-            var fans = _fans;
-            var device = fans.FirstOrDefault(f => f.EntityId == entityId);
+            var device = _index.Items.FirstOrDefault(f => f.EntityId == entityId);
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return FormatFanState(state, device);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting state for fan {EntityId}", entityId);
-            FanControlFailures.Add(1);
-            return $"Error getting fan state: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        }, onFailure: () => FanControlFailures.Add(1), duration: FanControlDurationMs, detail: entityId).ConfigureAwait(false);
     }
 
     [Description("Turn a fan on or off.")]
@@ -330,10 +278,9 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
         activity?.SetTag("state", state);
-        var start = Stopwatch.GetTimestamp();
         FanControlRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to set the fan state. Please try again.", async () =>
         {
             var service = state.Equals("on", StringComparison.OrdinalIgnoreCase) ? "turn_on" : "turn_off";
             var request = new ServiceCallRequest { EntityId = entityId };
@@ -343,128 +290,64 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             _logger.LogInformation("Set fan {EntityId} to {State}", entityId, state);
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Turned {state} fan '{entityId}'.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting fan {EntityId} to {State}", entityId, state);
-            FanControlFailures.Add(1);
-            return $"Failed to set fan state: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        }, onFailure: () => FanControlFailures.Add(1), duration: FanControlDurationMs, detail: entityId).ConfigureAwait(false);
     }
 
     [Description("Set the speed of a fan as a percentage (0-100). Setting to 0 turns the fan off.")]
-    public async Task<string> SetFanSpeedAsync(
+    public Task<string> SetFanSpeedAsync(
         [Description("The entity ID of the fan")] string entityId,
         [Description("The speed percentage (0-100)")] int percentage)
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("percentage", percentage);
-        var start = Stopwatch.GetTimestamp();
-        FanControlRequests.Add(1);
-
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                EntityId = entityId,
-                ["percentage"] = percentage
-            };
-
-            await _homeAssistantClient.CallServiceAsync("fan", "set_percentage", request: request).ConfigureAwait(false);
-
-            _logger.LogInformation("Set fan {EntityId} speed to {Percentage}%", entityId, percentage);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set fan '{entityId}' speed to {percentage}%.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting fan {EntityId} speed", entityId);
-            FanControlFailures.Add(1);
-            return $"Failed to set fan speed: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
+        => CallFanServiceAsync(
+            "set_percentage", entityId, "percentage", percentage, "speed",
+            $"Set fan '{entityId}' speed to {percentage}%.");
 
     [Description("Set the direction of a fan (forward or reverse). Reverse is commonly used in winter to circulate warm air.")]
-    public async Task<string> SetFanDirectionAsync(
+    public Task<string> SetFanDirectionAsync(
         [Description("The entity ID of the fan")] string entityId,
         [Description("The direction: 'forward' or 'reverse'")] string direction)
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("direction", direction);
-        var start = Stopwatch.GetTimestamp();
-        FanControlRequests.Add(1);
-
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                EntityId = entityId,
-                ["direction"] = direction
-            };
-
-            await _homeAssistantClient.CallServiceAsync("fan", "set_direction", request: request).ConfigureAwait(false);
-
-            _logger.LogInformation("Set fan {EntityId} direction to {Direction}", entityId, direction);
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set fan '{entityId}' direction to '{direction}'.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting fan {EntityId} direction", entityId);
-            FanControlFailures.Add(1);
-            return $"Failed to set fan direction: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
-    }
+        => CallFanServiceAsync(
+            "set_direction", entityId, "direction", direction, "direction",
+            $"Set fan '{entityId}' direction to '{direction}'.");
 
     [Description("Toggle oscillation on a fan that supports it.")]
-    public async Task<string> SetFanOscillationAsync(
+    public Task<string> SetFanOscillationAsync(
         [Description("The entity ID of the fan")] string entityId,
         [Description("Whether to enable oscillation (true/false)")] bool oscillating)
+        => CallFanServiceAsync(
+            "oscillate", entityId, "oscillating", oscillating, "oscillation",
+            $"Set fan '{entityId}' oscillation to {(oscillating ? "on" : "off")}.");
+
+    /// <summary>
+    /// Calls one <c>fan</c> service with a single data field. The control tools differ only in the
+    /// service name, the field, and the wording.
+    /// </summary>
+    private async Task<string> CallFanServiceAsync(
+        string service,
+        string entityId,
+        string dataKey,
+        object value,
+        string what,
+        string successMessage)
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
-        activity?.SetTag("oscillating", oscillating);
-        var start = Stopwatch.GetTimestamp();
+        activity?.SetTag(dataKey, value);
         FanControlRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, $"Unable to set fan {what}. Please try again.", async () =>
         {
             var request = new ServiceCallRequest
             {
                 EntityId = entityId,
-                ["oscillating"] = oscillating
+                [dataKey] = value
             };
 
-            await _homeAssistantClient.CallServiceAsync("fan", "oscillate", request: request).ConfigureAwait(false);
+            await _homeAssistantClient.CallServiceAsync("fan", service, request: request).ConfigureAwait(false);
 
-            _logger.LogInformation("Set fan {EntityId} oscillation to {Oscillating}", entityId, oscillating);
+            _logger.LogInformation("Set fan {EntityId} {What} to {Value}", entityId, what, value);
             activity?.SetStatus(ActivityStatusCode.Ok);
-            return $"Set fan '{entityId}' oscillation to {(oscillating ? "on" : "off")}.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting fan {EntityId} oscillation", entityId);
-            FanControlFailures.Add(1);
-            return $"Failed to set fan oscillation: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+            return successMessage;
+        }, onFailure: () => FanControlFailures.Add(1), duration: FanControlDurationMs, detail: entityId).ConfigureAwait(false);
     }
 
     [Description("Set a fan's preset mode (e.g., auto, nature, sleep). Use GetFanState to check available presets first.")]
@@ -475,13 +358,12 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
         activity?.SetTag("preset_mode", presetMode);
-        var start = Stopwatch.GetTimestamp();
         FanControlRequests.Add(1);
 
-        try
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to set the fan preset mode. Please try again.", async () =>
         {
-            await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
-            var fan = _fans.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));
+            await _index.EnsureCurrentAsync().ConfigureAwait(false);
+            var fan = _index.Items.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));
 
             // If the fan has a companion select entity for modes, use that instead
             if (fan?.ModeSelectEntityId is { Length: > 0 } selectEntityId)
@@ -517,17 +399,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             _logger.LogInformation("Set fan {EntityId} preset mode to {PresetMode}", entityId, presetMode);
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"Set fan '{entityId}' preset mode to '{presetMode}'.";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting fan {EntityId} preset mode", entityId);
-            FanControlFailures.Add(1);
-            return $"Failed to set fan preset mode: {ex.Message}";
-        }
-        finally
-        {
-            FanControlDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
-        }
+        }, onFailure: () => FanControlFailures.Add(1), duration: FanControlDurationMs, detail: entityId).ConfigureAwait(false);
     }
 
     private static string FormatFanState(HomeAssistantState state, FanEntity? device)
@@ -566,187 +438,124 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         return sb.ToString();
     }
 
-    private async Task RefreshFanCacheAsync(CancellationToken cancellationToken = default)
+    private async Task<IReadOnlyList<FanEntity>> LoadFansAsync(
+        IEmbeddingGenerator<string, Embedding<float>> embeddings,
+        CancellationToken cancellationToken)
     {
-        if (_embeddingGenerator is null)
-        {
-            _logger.LogWarning("Skipping fan cache refresh — no embedding provider available.");
-            return;
-        }
-
-        using var activity = ActivitySource.StartActivity();
+        using var activity = ActivitySource.StartActivity("RefreshFanCacheAsync");
         CacheRefreshes.Add(1);
 
-        try
+        var cached = await TryLoadFromDeviceCacheAsync(embeddings, cancellationToken).ConfigureAwait(false);
+        if (cached is not null)
         {
-            // Try Redis first (device data only — areas come from IEntityLocationService)
-            var cachedFans = await _cacheService.GetCachedFansAsync(cancellationToken).ConfigureAwait(false);
-
-            if (cachedFans is not null && cachedFans.Count > 0)
-            {
-                var names = cachedFans.Select(f => f.FriendlyName).ToList();
-                var embeddings = await _embeddingGenerator.GenerateAsync(names, cancellationToken: cancellationToken).ConfigureAwait(false);
-                for (var i = 0; i < cachedFans.Count; i++)
-                {
-                    cachedFans[i].NameEmbedding = embeddings[i];
-                    if (cachedFans[i].PhoneticKeys.Length == 0)
-                        cachedFans[i].PhoneticKeys = StringSimilarity.BuildPhoneticKeys(cachedFans[i].FriendlyName);
-                }
-
-                _fans = [.. cachedFans];
-                Volatile.Write(ref _lastCacheRefreshTicks, DateTime.UtcNow.Ticks);
-                _logger.LogInformation("Loaded {Count} fans from Redis cache", cachedFans.Count);
-                return;
-            }
-
-            // Fetch from Home Assistant
-            var states = await _homeAssistantClient.GetStatesAsync(cancellationToken).ConfigureAwait(false);
-
-            var fanEntities = states
-                .Where(s => s.EntityId.StartsWith("fan.", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (fanEntities.Count == 0)
-            {
-                _logger.LogInformation("No fan entities found in Home Assistant");
-                _fans = [];
-                return;
-            }
-
-            // Build a lookup of companion select entities that control fan modes.
-            // Some integrations (e.g., LocalTuya) expose fan modes as a separate
-            // select entity named select.{fan_suffix}_mode rather than using the
-            // fan entity's native preset_modes attribute.
-            var modeSelectLookup = BuildModeSelectLookup(states, fanEntities);
-
-            var newFans = new List<FanEntity>();
-
-            foreach (var entity in fanEntities)
-            {
-                var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
-                    ? nameObj?.ToString() ?? entity.EntityId
-                    : entity.EntityId;
-
-                // Resolve area from the shared entity location service
-                var areaInfo = _locationService.GetAreaForEntity(entity.EntityId);
-                var area = areaInfo?.Name;
-
-                var percentageStep = 1;
-                if (entity.Attributes.TryGetValue("percentage_step", out var stepObj) && int.TryParse(stepObj?.ToString(), out var step))
-                    percentageStep = step;
-
-                var presetModes = ParseStringListAttribute(entity.Attributes, "preset_modes");
-
-                // Check for a companion select entity that controls modes
-                string? modeSelectEntityId = null;
-                if (presetModes.Count == 0
-                    && modeSelectLookup.TryGetValue(entity.EntityId, out var selectInfo))
-                {
-                    modeSelectEntityId = selectInfo.EntityId;
-                    presetModes = selectInfo.Options;
-                    _logger.LogDebug("Fan {FanId} uses companion select entity {SelectId} for modes: [{Modes}]",
-                        entity.EntityId, modeSelectEntityId, string.Join(", ", presetModes));
-                }
-
-                var supportedFeatures = 0;
-                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
-                    supportedFeatures = feat;
-
-                var embedding = await _embeddingGenerator.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                newFans.Add(new FanEntity
-                {
-                    EntityId = entity.EntityId,
-                    FriendlyName = friendlyName,
-                    NameEmbedding = embedding,
-                    PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
-                    Area = area,
-                    PercentageStep = percentageStep,
-                    PresetModes = presetModes,
-                    ModeSelectEntityId = modeSelectEntityId,
-                    SupportedFeatures = supportedFeatures
-                });
-            }
-
-            // Atomic swap
-            _fans = [.. newFans];
-            Volatile.Write(ref _lastCacheRefreshTicks, DateTime.UtcNow.Ticks);
-
-            // Persist to Redis
-            var cacheTtl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
-            await _cacheService.SetCachedFansAsync(newFans, cacheTtl, cancellationToken).ConfigureAwait(false);
-
-            _logger.LogInformation("Refreshed fan cache: {Count} fans", newFans.Count);
+            _logger.LogInformation("Loaded {Count} fans from Redis cache", cached.Count);
+            return cached;
         }
-        catch (Exception ex)
+
+        var states = await _homeAssistantClient.GetStatesAsync(cancellationToken).ConfigureAwait(false);
+
+        var fanEntities = states
+            .Where(s => s.EntityId.StartsWith("fan.", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (fanEntities.Count == 0)
         {
-            _logger.LogError(ex, "Error refreshing fan cache");
-        }
-    }
-
-    private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
-    {
-        var cacheTtl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
-        if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < cacheTtl)
-            return;
-
-        await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            cacheTtl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
-            if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < cacheTtl)
-                return;
-
-            await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _refreshLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// Safely parses a JSON array attribute that may contain strings, numbers, or null.
-    /// HA devices can return null for preset_modes when no presets are available.
-    /// </summary>
-    private static List<string> ParseStringListAttribute(Dictionary<string, object> attributes, string key)
-    {
-        if (!attributes.TryGetValue(key, out var value))
+            _logger.LogInformation("No fan entities found in Home Assistant");
             return [];
+        }
 
+        // Some integrations (e.g., LocalTuya) expose fan modes as a separate select entity named
+        // select.{fan_suffix}_mode rather than using the fan entity's native preset_modes attribute.
+        var modeSelectLookup = BuildModeSelectLookup(states, fanEntities);
+
+        var fans = new List<FanEntity>();
+        foreach (var entity in fanEntities)
+            fans.Add(await BuildFanAsync(entity, modeSelectLookup, embeddings, cancellationToken).ConfigureAwait(false));
+
+        await StoreInDeviceCacheAsync(fans, cancellationToken).ConfigureAwait(false);
+        return fans;
+    }
+
+    /// <summary>Device data only. Areas come from <see cref="IEntityLocationService"/>. Names are embedded again in one batch.</summary>
+    private async Task<List<FanEntity>?> TryLoadFromDeviceCacheAsync(
+        IEmbeddingGenerator<string, Embedding<float>> embeddings,
+        CancellationToken cancellationToken)
+    {
+        var cachedFans = await _cacheService.GetCachedFansAsync(cancellationToken).ConfigureAwait(false);
+        if (cachedFans is null or { Count: 0 })
+            return null;
+
+        var names = cachedFans.Select(f => f.FriendlyName).ToList();
+        var generated = await embeddings.GenerateAsync(names, cancellationToken: cancellationToken).ConfigureAwait(false);
+        for (var i = 0; i < cachedFans.Count; i++)
+        {
+            cachedFans[i].NameEmbedding = generated[i];
+            if (cachedFans[i].PhoneticKeys.Length == 0)
+                cachedFans[i].PhoneticKeys = StringSimilarity.BuildPhoneticKeys(cachedFans[i].FriendlyName);
+        }
+
+        return cachedFans;
+    }
+
+    private async Task<FanEntity> BuildFanAsync(
+        HomeAssistantState entity,
+        Dictionary<string, ModeSelectInfo> modeSelectLookup,
+        IEmbeddingGenerator<string, Embedding<float>> embeddings,
+        CancellationToken cancellationToken)
+    {
+        var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
+            ? nameObj?.ToString() ?? entity.EntityId
+            : entity.EntityId;
+
+        var percentageStep = 1;
+        if (entity.Attributes.TryGetValue("percentage_step", out var stepObj) && int.TryParse(stepObj?.ToString(), out var step))
+            percentageStep = step;
+
+        var presetModes = AttributeParser.ParseStringList(entity.Attributes, "preset_modes");
+
+        // Check for a companion select entity that controls modes
+        string? modeSelectEntityId = null;
+        if (presetModes.Count == 0
+            && modeSelectLookup.TryGetValue(entity.EntityId, out var selectInfo))
+        {
+            modeSelectEntityId = selectInfo.EntityId;
+            presetModes = selectInfo.Options;
+            _logger.LogDebug("Fan {FanId} uses companion select entity {SelectId} for modes: [{Modes}]",
+                entity.EntityId, modeSelectEntityId, string.Join(", ", presetModes));
+        }
+
+        var supportedFeatures = 0;
+        if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
+            supportedFeatures = feat;
+
+        return new FanEntity
+        {
+            EntityId = entity.EntityId,
+            FriendlyName = friendlyName,
+            NameEmbedding = await embeddings.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false),
+            PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
+            Area = _locationService.GetAreaForEntity(entity.EntityId)?.Name,
+            PercentageStep = percentageStep,
+            PresetModes = presetModes,
+            ModeSelectEntityId = modeSelectEntityId,
+            SupportedFeatures = supportedFeatures
+        };
+    }
+
+    /// <summary>A failed write must not discard fans that were just loaded, so it only logs.</summary>
+    private async Task StoreInDeviceCacheAsync(List<FanEntity> fans, CancellationToken cancellationToken)
+    {
         try
         {
-            if (value is JsonElement jsonElement)
-            {
-                if (jsonElement.ValueKind is JsonValueKind.Null or not JsonValueKind.Array)
-                    return [];
+            var cacheTtl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+            await _cacheService.SetCachedFansAsync(fans, cacheTtl, cancellationToken).ConfigureAwait(false);
 
-                return jsonElement.EnumerateArray()
-                    .Select(item => item.ValueKind switch
-                    {
-                        JsonValueKind.String => item.GetString(),
-                        JsonValueKind.Number => item.GetRawText(),
-                        _ => item.GetRawText()
-                    })
-                    .OfType<string>()
-                    .ToList();
-            }
-
-            var json = value?.ToString() ?? "[]";
-            var modes = JsonSerializer.Deserialize<JsonElement>(json);
-            if (modes.ValueKind == JsonValueKind.Array)
-            {
-                return modes.EnumerateArray()
-                    .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString()! : e.GetRawText())
-                    .ToList();
-            }
+            _logger.LogInformation("Refreshed fan cache: {Count} fans", fans.Count);
         }
-        catch (JsonException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
-            // Swallow parse failures
+            _logger.LogError(ex, "Error caching fans");
         }
-
-        return [];
     }
 
     /// <summary>
@@ -780,7 +589,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             if (!selectStates.TryGetValue(candidateSelectId, out var selectState))
                 continue;
 
-            var options = ParseStringListAttribute(selectState.Attributes, "options");
+            var options = AttributeParser.ParseStringList(selectState.Attributes, "options");
             if (options.Count == 0)
                 continue;
 

@@ -81,7 +81,7 @@ public sealed class ConfigSeeder : IHostedService
                 _logger.LogDebug("Config store up to date ({Count} entries). No new sections to seed.", existingCount);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Failed to seed configuration store. Application will use appsettings defaults.");
         }

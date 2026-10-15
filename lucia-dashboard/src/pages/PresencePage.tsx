@@ -7,6 +7,7 @@ import {
 import CustomSelect from '../components/CustomSelect'
 import ToastContainer from '../components/ToastContainer'
 import { useToast } from '../hooks/useToast'
+import { useConfirm } from '../hooks/useConfirm'
 import type { PresenceSensorMapping, OccupiedArea, PresenceConfidence } from '../types'
 
 const CONFIDENCE_LABELS: Record<PresenceConfidence, { label: string; color: string }> = {
@@ -25,6 +26,7 @@ function isPresenceConfidence(value: string): value is PresenceConfidence {
 }
 
 export default function PresencePage() {
+  const confirmAction = useConfirm()
   const [sensors, setSensors] = useState<PresenceSensorMapping[]>([])
   const [occupiedAreas, setOccupiedAreas] = useState<OccupiedArea[]>([])
   const [enabled, setEnabled] = useState(true)
@@ -96,7 +98,11 @@ export default function PresencePage() {
   }
 
   async function removeSensor(entityId: string) {
-    if (!confirm(`Remove sensor mapping for ${entityId}?`)) return
+    if (!(await confirmAction({
+      title: 'Remove sensor mapping?',
+      message: `This removes the sensor mapping for ${entityId}.`,
+      confirmLabel: 'Remove mapping',
+    }))) return
     try {
       await deletePresenceSensor(entityId)
       setSensors(s => s.filter(x => x.entityId !== entityId))

@@ -8,10 +8,10 @@ Lucia supports two deployment topologies, controlled by the `Deployment__Mode` e
 
 | Mode           | Default? | Description                                                                                                                                                   |
 | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standalone** | ✅ Yes   | All agents (Music, Timer, Orchestrator) run embedded in a single AgentHost process. Simplest setup — single container plus Redis and MongoDB.                 |
-| **Mesh**       | No       | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution. |
+| **Standalone** | ✅ Yes   | All agents (Music, Timer, Orchestrator) run embedded in a single AgentHost process. Simplest setup — single container plus Redis and PostgreSQL.               |
+| **Mesh**       | No       | Agents run as separate A2A containers that register with the AgentHost over the network. The Timer Agent is only available in standalone mode.                   |
 
-**Standalone** is the default for Docker Compose and systemd. **Mesh** is the default for Kubernetes (Helm/manifests). External A2A agents can connect to a standalone AgentHost — the modes are not mutually exclusive.
+**Standalone** is the default for Docker Compose, systemd and Kubernetes (Helm/manifests). External A2A agents can connect to a standalone AgentHost — the modes are not mutually exclusive.
 
 ## Quick Navigation
 
@@ -19,15 +19,14 @@ Choose your deployment method below:
 
 ### Local Development Topology (AppHost-first)
 
-For local development, start the solution through `lucia.AppHost` so supporting services and agent hosts start in a consistent composition. The AppHost always runs in **mesh mode** (separate processes) for development.
+For local development, start the solution through `lucia.AppHost` so supporting services start in a consistent composition. The AppHost runs the AgentHost in **standalone mode** for development.
 
 Current AppHost composition includes:
 
-- `lucia-agenthost` (agent registry/API, includes music agent in-process)
-- `timer-agent` (`lucia.A2AHost` with timer plugin)
+- `lucia-agenthost` (agent registry/API, includes the music and timer agents in-process)
 - `lucia-dashboard` (Vite app)
 - Redis (persistent container + RedisInsight)
-- MongoDB (persistent container + mongo-express)
+- PostgreSQL (persistent container + pgAdmin, when `DataProvider__Store=PostgreSQL`, the default)
 
 Recommended startup from repository root:
 
@@ -65,7 +64,7 @@ For Unraid, use the [Community Apps templates](./unraid/README.md) for Lucia, Po
 
 ### ☸️ [Kubernetes Deployment](./kubernetes/helm/README.md) — **For Production & High Availability**
 
-Deploy Lucia on Kubernetes clusters using Helm charts or raw manifests. Runs in **mesh mode** by default, with Timer Agent as a separate pod. Music Agent runs in-process with AgentHost.
+Deploy Lucia on Kubernetes clusters using Helm charts or raw manifests. Runs in **standalone mode** by default, with every agent in the AgentHost pod and a bundled PostgreSQL StatefulSet.
 
 - **Best for**: Production deployments, high availability, auto-scaling
 - **Time to deploy**: ~20 minutes
@@ -139,7 +138,7 @@ Automated Docker image building and publishing to Docker Hub.
 | **Complexity**    | Very Easy     | Advanced               | Intermediate  | N/A        |
 | **Setup Time**    | ~5 min        | ~20 min                | ~25 min       | <10 min    |
 | **Best For**      | Home servers  | Production             | Linux servers | Automation |
-| **Default Mode**  | Standalone    | Mesh                   | Standalone    | N/A        |
+| **Default Mode**  | Standalone    | Standalone             | Standalone    | N/A        |
 | **Config Method** | Setup wizard  | Helm values / env vars | env vars      | N/A        |
 | **Scalability**   | Single host   | Multi-host             | Single host   | N/A        |
 | **HA/Failover**   | Manual        | Automatic              | Manual        | N/A        |
@@ -152,7 +151,7 @@ Automated Docker image building and publishing to Docker Hub.
 
 ### Docker Compose
 
-Configuration is handled automatically by the **setup wizard** on first launch. Open `http://localhost:7233` and follow the prompts to connect your LLM provider and Home Assistant. Settings are stored in MongoDB.
+Configuration is handled automatically by the **setup wizard** on first launch. Open `http://localhost:7233` and follow the prompts to connect your LLM provider and Home Assistant. Settings are stored in PostgreSQL (or SQLite for the lightweight image).
 
 For headless/automated deployments, pass config as environment variables in `docker-compose.yml`. See the [Docker deployment guide](./docker/DEPLOYMENT.md#advanced-environment-variable-overrides) for details.
 
@@ -178,18 +177,16 @@ Essential variables for manual/headless configuration:
 ## Architecture
 
 ```
-lucia.AppHost (dev orchestration — mesh mode)
-    ├── lucia-agenthost (registry + APIs)
-    ├── timer-agent (A2AHost plugin)
-    ├── timer-agent (A2AHost plugin)
+lucia.AppHost (dev orchestration — standalone mode)
+    ├── lucia-agenthost (registry + APIs, all agents in-process)
     ├── lucia-dashboard (UI)
     ├── redis (state persistence)
-    └── mongodb (traces/config/tasks stores)
+    └── postgres (traces/config/tasks stores)
 
 Docker Compose (production — standalone mode)
     └── lucia (AgentHost with all agents in-process)
         ├── redis
-        └── mongodb
+        └── postgres
 
 Home Assistant (custom component) ↔ agent endpoints
 LLM provider(s) consumed by agent hosts
@@ -197,8 +194,8 @@ LLM provider(s) consumed by agent hosts
 
 **Deployment Options**:
 
-1. **Docker Compose** — Standalone AgentHost + Redis + MongoDB in containers (recommended for most users)
-2. **Kubernetes** — Mesh mode with separate agent pods, Redis, MongoDB, Ingress
+1. **Docker Compose** — Standalone AgentHost + Redis + PostgreSQL in containers (recommended for most users)
+2. **Kubernetes** — Standalone AgentHost pod with Redis, a bundled PostgreSQL StatefulSet and Ingress
 3. **Linux systemd** — Standalone AgentHost + Redis as systemd services
 4. **Hybrid** — Application in one method, backing services in another
 

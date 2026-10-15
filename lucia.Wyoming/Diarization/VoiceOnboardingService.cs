@@ -1,3 +1,4 @@
+using lucia.Agents;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -405,7 +406,7 @@ public sealed class VoiceOnboardingService : BackgroundService
                     throw new OnboardingConflictException(ex.Message, ex);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 var persisted = await GetPersistedEnrollmentAsync(session, ct).ConfigureAwait(false);
                 if (persisted is null)

@@ -190,6 +190,14 @@ html[data-theme='light'] .bg-observatory {
     var(--color-void);
 }
 
+/* ── Keyboard focus ──
+   One amber ring for every interactive element. :where() keeps specificity at zero so any
+   component that sets its own focus style (like .input-focus) still wins. */
+:where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex='-1'])):focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
 /* ── Input focus ring ── */
 .input-focus:focus {
   outline: none;

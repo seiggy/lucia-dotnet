@@ -10,7 +10,7 @@ namespace lucia.Agents.Providers;
 
 /// <summary>
 /// Resolves <see cref="IEmbeddingGenerator{String, Embedding}"/> instances from
-/// the MongoDB-backed <see cref="ModelProvider"/> system. Caches generators by
+/// the database-backed <see cref="ModelProvider"/> system. Caches generators by
 /// provider ID so repeated calls return the same instance.
 /// </summary>
 public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver

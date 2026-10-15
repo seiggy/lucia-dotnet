@@ -1,10 +1,8 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.Agents.Configuration.UserConfiguration;
 
 /// <summary>
-/// User-defined agent configuration stored in MongoDB.
+/// User-defined agent configuration stored in the database.
 /// Loaded at runtime to dynamically construct agents with MCP tools.
 /// </summary>
 public sealed class AgentDefinition
@@ -12,8 +10,6 @@ public sealed class AgentDefinition
     /// <summary>
     /// Unique identifier / routing key (e.g., "research-agent").
     /// </summary>
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
     public string Id { get; set; } = default!;
 
     /// <summary>

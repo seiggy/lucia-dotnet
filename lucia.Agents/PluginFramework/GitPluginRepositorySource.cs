@@ -103,7 +103,7 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
         {
             releaseResponse = await client.GetAsync(releaseUrl, ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogWarning(ex,
                 "Failed to fetch releases for '{RepoId}' — falling back to branch archive.", repo.Id);

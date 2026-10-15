@@ -32,7 +32,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
 - **⏰ Alarm Clock System** — CRON-scheduled alarms with volume ramping, voice dismissal/snooze, presence-based speaker routing, and sound library with file upload
 - **📡 Presence Detection** — Auto-discovered motion/occupancy/mmWave sensors with room-level confidence scoring for context-aware automations
-- **📅 Scheduled Task System** — Extensible CRON-based scheduler with MongoDB persistence supporting alarms, timers, and deferred agent actions
+- **📅 Scheduled Task System** — Extensible CRON-based scheduler with database persistence supporting alarms, timers, and deferred agent actions
 - **🔌 Extensible** — Script-based plugin system for adding capabilities without recompiling. Plugin repository for discovery and one-click install.
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
 - **🔌 Model Provider System** — Configure OpenAI, llama.cpp, OpenRouter, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, and Google Gemini from the dashboard with per-agent model assignment
@@ -132,17 +132,22 @@ as "office lights on" keep the fast path.
          retries: 3
        restart: unless-stopped
 
-     lucia-mongo:
-       image: mongo:8.0
-       container_name: lucia-mongo
+     lucia-postgres:
+       image: postgres:17-alpine
+       container_name: lucia-postgres
        networks: [lucia-network]
-       ports: ["127.0.0.1:27017:27017"]
-       volumes: [lucia-mongo-data:/data/db]
+       environment:
+         # Pick a password without ';' (it is also used in the connection strings below)
+         - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+       volumes: [lucia-postgres-data:/var/lib/postgresql/data]
+       configs:
+         - source: lucia-postgres-init
+           target: /docker-entrypoint-initdb.d/01-create-databases.sql
        healthcheck:
-         test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
-         interval: 30s
-         timeout: 10s
-         retries: 3
+         test: ["CMD", "pg_isready", "-U", "postgres"]
+         interval: 10s
+         timeout: 5s
+         retries: 5
        restart: unless-stopped
 
      lucia:
@@ -150,15 +155,17 @@ as "office lights on" keep the fast path.
        container_name: lucia
        depends_on:
          lucia-redis: { condition: service_healthy }
-         lucia-mongo: { condition: service_healthy }
+         lucia-postgres: { condition: service_healthy }
        networks: [lucia-network]
        ports: ["7233:8080"]
        environment:
          - ASPNETCORE_ENVIRONMENT=Production
          - ASPNETCORE_URLS=http://+:8080
-         - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
-         - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
-         - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
+         - DataProvider__Store=PostgreSQL
+         - DataProvider__Cache=Redis
+         - ConnectionStrings__luciaconfig=Host=lucia-postgres;Database=luciaconfig;Username=postgres;Password=${POSTGRES_PASSWORD}
+         - ConnectionStrings__luciatraces=Host=lucia-postgres;Database=luciatraces;Username=postgres;Password=${POSTGRES_PASSWORD}
+         - ConnectionStrings__luciatasks=Host=lucia-postgres;Database=luciatasks;Username=postgres;Password=${POSTGRES_PASSWORD}
          - ConnectionStrings__redis=lucia-redis:6379
          - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
          - DOTNET_RUNNING_IN_CONTAINER=true
@@ -173,10 +180,19 @@ as "office lights on" keep the fast path.
      lucia-network:
        driver: bridge
 
+   configs:
+     lucia-postgres-init:
+       content: |
+         CREATE DATABASE luciaconfig;
+         CREATE DATABASE luciatraces;
+         CREATE DATABASE luciatasks;
+
    volumes:
      lucia-redis-data:
-     lucia-mongo-data:
+     lucia-postgres-data:
    ```
+
+   Set `POSTGRES_PASSWORD` in your shell or a `.env` file next to the compose file. The inline `configs` block needs Docker Compose 2.23.1 or newer.
 
 2. **Start the stack**
 
@@ -191,7 +207,7 @@ as "office lights on" keep the fast path.
 | `seiggy/lucia-agenthost:latest` | None | ~250MB | Base orchestration (no voice) |
 | `seiggy/lucia-agenthost:voice` | NVIDIA CUDA 12.8 | ~3GB | Voice + NVIDIA GPU acceleration |
 | `seiggy/lucia-agenthost:voice-cpu` | None | ~3GB | Voice with CPU-only inference |
-| `seiggy/lucia-agenthost:ha-mono` | None | ~350MB | Home Assistant add-on (mono-container, no Redis/MongoDB) |
+| `seiggy/lucia-agenthost:ha-mono` | None | ~350MB | Home Assistant add-on (mono-container, no Redis/PostgreSQL) |
 | *Self-build only* | AMD ROCm 6.4 | ~25GB | Voice + AMD GPU acceleration |
 
 The application images include `uv` and `uvx` for local Python MCP servers.
@@ -218,7 +234,7 @@ image: seiggy/lucia-agenthost:voice-cpu
 
 ### Home Assistant Add-on (Mono-Container)
 
-The `ha` image variant runs Lucia as a single container with **no external dependencies** — no Redis, no MongoDB. It uses in-memory caching and SQLite for persistence, making it ideal for Home Assistant add-on deployments or resource-constrained devices.
+The `ha` image variant runs Lucia as a single container with **no external dependencies** — no Redis, no PostgreSQL. It uses in-memory caching and SQLite for persistence, making it ideal for Home Assistant add-on deployments or resource-constrained devices.
 
 #### Quick Start
 
@@ -254,20 +270,20 @@ docker run -d \
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DataProvider__Cache` | `InMemory` | Cache backend (`InMemory` or `Redis`) |
-| `DataProvider__Store` | `SQLite` | Persistence backend (`SQLite` or `MongoDB`) |
+| `DataProvider__Store` | `SQLite` | Persistence backend (`SQLite` or `PostgreSQL`) |
 | `DataProvider__SqlitePath` | `/data/lucia.db` | SQLite database file path |
 | `HomeAssistant__BaseUrl` | — | Home Assistant URL (e.g. `http://homeassistant.local:8123`) |
 | `HomeAssistant__AccessToken` | — | Home Assistant long-lived access token |
 
 #### Data Provider Configuration
 
-Lucia supports pluggable data providers, letting you choose between full-scale (Redis + MongoDB) and lightweight (InMemory + SQLite) backends:
+Lucia supports pluggable data providers, letting you choose between full-scale (Redis + PostgreSQL) and lightweight (InMemory + SQLite) backends:
 
 | Configuration | Cache | Store | Use Case |
 |--------------|-------|-------|----------|
-| **Default** | Redis | MongoDB | Full deployment with dedicated infrastructure |
-| **Lightweight** | InMemory | SQLite | Home Assistant add-on, single-container, resource-constrained |
-| **Hybrid** | InMemory | MongoDB | Reduce infrastructure while keeping durable document store |
+| **Full** | Redis | PostgreSQL | Full deployment with dedicated infrastructure |
+| **Lightweight** (default store) | InMemory | SQLite | Home Assistant add-on, single-container, resource-constrained |
+| **Hybrid** | InMemory | PostgreSQL | Reduce infrastructure while keeping a shared relational store |
 | **Hybrid** | Redis | SQLite | Shared cache with embedded persistence |
 
 To switch providers on any deployment, set the environment variables:
@@ -276,12 +292,12 @@ To switch providers on any deployment, set the environment variables:
 -e DataProvider__Cache=InMemory
 -e DataProvider__Store=SQLite
 
-# Default mode (requires Redis + MongoDB)
+# Full mode (requires Redis + PostgreSQL)
 -e DataProvider__Cache=Redis
--e DataProvider__Store=MongoDB
+-e DataProvider__Store=PostgreSQL
 ```
 
-> **Note:** The HA image (`Dockerfile.ha`) defaults to InMemory + SQLite. The standard images (`Dockerfile`, `Dockerfile.voice*`) default to Redis + MongoDB.
+> **Note:** The HA image (`Dockerfile.ha`) defaults to InMemory + SQLite. The standard compose files (`infra/docker/docker-compose*.yml`) run Redis + PostgreSQL. MongoDB is no longer supported; set up fresh on PostgreSQL or SQLite.
 
 3. **Open the Lucia Dashboard**
 
@@ -353,7 +369,7 @@ View all registered agents with their capabilities, skills, and connection statu
 
 ![Agent Definitions](docs/images/agent-definitions.png)
 
-Create and manage custom agents at runtime—no code changes required. Each agent definition includes a name, system prompt, optional model connection override, and a granular MCP tool picker. Tags indicate system vs. user-defined agents. Changes take effect immediately; agents are loaded from MongoDB on each invocation.
+Create and manage custom agents at runtime—no code changes required. Each agent definition includes a name, system prompt, optional model connection override, and a granular MCP tool picker. Tags indicate system vs. user-defined agents. Changes take effect immediately; agents are loaded from the database on each invocation.
 
 ### Model Providers
 
@@ -371,7 +387,7 @@ Register and manage MCP (Model Context Protocol) tool servers. Add stdio-based l
 
 ![Configuration](docs/images/configuration.png)
 
-Schema-driven configuration editor with categorized settings. Manage Home Assistant connection details, orchestration parameters (RouterExecutor, AgentInvoker, ResultAggregator), Redis/MongoDB connection strings, Music Assistant integration, trace capture settings, and agent definitions—all from one page. Sensitive values are masked with a "Show secrets" toggle. Mobile-friendly with a dropdown category selector on small screens.
+Schema-driven configuration editor with categorized settings. Manage Home Assistant connection details, orchestration parameters (RouterExecutor, AgentInvoker, ResultAggregator), Redis/PostgreSQL connection strings, Music Assistant integration, trace capture settings, and agent definitions—all from one page. Sensitive values are masked with a "Show secrets" toggle. Mobile-friendly with a dropdown category selector on small screens.
 
 ### Dataset Exports
 
@@ -418,12 +434,10 @@ graph TB
     Dispatch <--> SA[SceneAgent]
     Dispatch <--> LiA[ListsAgent]
     Dispatch <--> GA[GeneralAgent]
-    Dispatch <-->|A2A| A2A[A2AHost]
+    Dispatch <--> MA[MusicAgent]
+    Dispatch <--> TA[TimerAgent]
 
-    A2A <--> MA[MusicAgent]
-    A2A <--> TA[TimerAgent]
-
-    AH <--> DB[(MongoDB)]
+    AH <--> DB[(PostgreSQL / SQLite)]
     AH <--> Cache[(Redis)]
     AH <--> Dashboard[React Dashboard]
 
@@ -456,7 +470,8 @@ graph TB
 | Component | Description |
 |-----------|-------------|
 | **AgentHost** (`lucia.AgentHost`) | Main API server hosting the orchestrator, agents, auth, configuration, and dashboard proxy |
-| **A2AHost** (`lucia.A2AHost`) | Satellite host for running agents as separate processes (MusicAgent, TimerAgent) |
++
+
 | **Orchestrator** (`lucia.Agents/Orchestration`) | Router → Dispatch → Aggregator pipeline for multi-agent coordination |
 | **Dashboard** (`lucia-dashboard`) | React 19 SPA with 20+ pages for management, traces, entity control, exports, and configuration |
 | **Home Assistant Integration** (`custom_components/lucia`) | Python custom component with conversation platform |
@@ -477,10 +492,7 @@ lucia-dotnet/
 │   ├── Auth/                     # API key authentication and session management
 │   ├── Extensions/               # Setup, Configuration, A2A, Plugin, and Auth API endpoints
 │   └── plugins/                  # Agent Framework plugins
-├── lucia.A2AHost/                # A2A satellite agent host
-│   ├── AgentRegistry/            # Agent card registration
-│   ├── Extensions/               # A2A endpoint mapping
-│   └── Services/                 # Agent initialization
+
 ├── lucia.Agents/                 # Shared agent implementations and orchestration
 │   ├── Abstractions/             # ILuciaPlugin, IWebSearchSkill, IEntityLocationService, IHybridEntityMatcher
 │   ├── Agents/                   # GeneralAgent, LightAgent, ClimateAgent, SceneAgent, ListsAgent, OrchestratorAgent
@@ -493,9 +505,9 @@ lucia-dotnet/
 │   ├── Services/                 # EntityLocationService, PresenceDetection, PluginManagement, ModelProviders
 │   ├── Skills/                   # LightControlSkill, ClimateControlSkill, FanControlSkill, SceneControlSkill, ListSkill
 │   └── Training/                 # Trace capture and export
-├── lucia.MusicAgent/             # Music Assistant playback agent (A2AHost)
-├── lucia.TimerAgent/             # Timer and reminder agent (A2AHost)
-├── lucia.Data/                  # Lightweight data providers (InMemory cache + SQLite repositories)
+├── lucia.MusicAgent/             # Music Assistant playback agent
+├── lucia.TimerAgent/             # Timer and reminder agent
+├── lucia.Data/                  # Data providers (InMemory cache, SQLite and PostgreSQL repositories)
 ├── lucia.HomeAssistant/          # Strongly-typed HA REST API client
 │   ├── Models/                   # Entity, state, and service models
 │   ├── Services/                 # IHomeAssistantClient implementation
@@ -527,7 +539,7 @@ lucia-dotnet/
 
 ## 🔧 Configuration
 
-Lucia uses a schema-driven configuration system stored in MongoDB. On first run, the setup wizard guides you through the essential settings. After setup, all configuration can be managed through the dashboard's Configuration page.
+Lucia uses a schema-driven configuration system stored in the database. On first run, the setup wizard guides you through the essential settings. After setup, all configuration can be managed through the dashboard's Configuration page.
 
 ### Headless setup (Docker / env)
 
@@ -562,7 +574,7 @@ See `infra/docker/.env.lucia.example` for a full template. ComfyUI, Whisper, Pip
 | **Redis** | Connection string and task persistence TTL |
 | **MusicAssistant** | Music Assistant integration settings |
 | **TraceCapture** | Conversation trace storage settings |
-| **ConnectionStrings** | AI Foundry, MongoDB, and Redis connection details |
+| **ConnectionStrings** | AI Foundry, PostgreSQL, and Redis connection details |
 | **Agents** | Agent definitions and registration |
 | **ModelProviders** | LLM backend configurations (per-agent model assignment) |
 | **PromptCache** | Routing and chat cache thresholds (hot-reloadable) |
@@ -581,7 +593,7 @@ After installing the custom component:
 
 ### A2A Protocol (Agent-to-Agent)
 
-Agents communicate via the A2A Protocol with JSON-RPC 2.0. The AgentHost runs in-process agents (LightAgent, ClimateAgent, SceneAgent, ListsAgent, GeneralAgent, Orchestrator) while the A2AHost runs satellite agents (MusicAgent, TimerAgent) as separate processes.
+Agents communicate via the A2A Protocol with JSON-RPC 2.0. The AgentHost runs in-process agents (LightAgent, ClimateAgent, SceneAgent, ListsAgent, GeneralAgent, Orchestrator) including MusicAgent and TimerAgent in the default standalone mode.
 
 #### Agent Discovery
 
@@ -613,7 +625,7 @@ curl -X POST http://localhost:5151/a2a/light-agent \
 
 ### Creating Custom Agents (Runtime)
 
-Lucia supports creating agents at runtime through the dashboard UI. Custom agents are stored in MongoDB and loaded dynamically—no code changes or restarts required.
+Lucia supports creating agents at runtime through the dashboard UI. Custom agents are stored in the database and loaded dynamically—no code changes or restarts required.
 
 **1. Register MCP Tool Servers**
 
@@ -638,7 +650,7 @@ Navigate to **Agent Definitions** and click **New Agent**:
 
 **3. Use the Agent**
 
-Once saved, the agent is immediately available to the orchestrator's router. The router considers the agent's description and tool capabilities when making routing decisions. No reload required—agents are loaded from MongoDB on each invocation.
+Once saved, the agent is immediately available to the orchestrator's router. The router considers the agent's description and tool capabilities when making routing decisions. No reload required—agents are loaded from the database on each invocation.
 
 **Extending the container for non-.NET runtimes:**
 
@@ -852,7 +864,7 @@ The **Plugins** page has three tabs:
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download) or later
 - [Node.js 22+](https://nodejs.org/) (for the dashboard)
-- [Docker](https://www.docker.com/) (required for Redis and MongoDB via Aspire)
+- [Docker](https://www.docker.com/) (required for Redis and PostgreSQL via Aspire)
 
 ### Building from Source
 
@@ -940,15 +952,15 @@ Lucia supports two deployment topologies controlled by the `Deployment__Mode` en
 
 | Mode | Value | Description |
 |------|-------|-------------|
-| **Standalone** (default) | `standalone` | All agents (Music, Timer, etc.) run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB, or zero-dependency with the HA image (InMemory + SQLite). Recommended for most users. |
-| **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes deployments, horizontal scaling, or multi-node distribution. |
+| **Standalone** (default) | `standalone` | All agents (Music, Timer, etc.) run embedded in the main AgentHost process. Simplest setup — single container plus Redis and PostgreSQL, or zero-dependency with the HA image (InMemory + SQLite). Recommended for most users. |
+| **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. The Timer Agent is only available in standalone mode. |
 
 > **⚠️ Single-Instance Constraint:** The AgentHost must run as a **single instance** (no horizontal scaling via replicas). The in-memory `ScheduledTaskStore` and `ActiveTimerStore` hold active alarms and timers — running multiple replicas would split scheduled task state across instances. For high availability, use a single replica with fast restart policies rather than multiple replicas behind a load balancer. This constraint applies to both standalone and mesh modes (the AgentHost itself must be single-instance; mesh agents can scale independently).
 
 **When to use each mode:**
 
 - **Standalone** — Home lab, single-server, Docker Compose, or any deployment where simplicity matters. External A2A agents can still connect to a standalone AgentHost.
-- **Mesh** — Kubernetes clusters, multi-node setups, or when you want to scale individual agents independently. The Helm chart and K8s manifests default to mesh mode.
+- **Mesh** — Multi-node setups that run your own A2A agents. The Helm chart and K8s manifests default to standalone mode.
 
 To switch modes, add the environment variable to your `docker-compose.yml`:
 ```yaml
@@ -967,9 +979,9 @@ helm install lucia infra/kubernetes/helm/lucia-helm \
   --namespace lucia --create-namespace
 ```
 
-The Kubernetes deployment runs in **mesh mode** by default, with Music Agent and Timer Agent as separate pods. See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
-The chart also supports an external PostgreSQL database with credentials supplied
-through Kubernetes Secrets. MongoDB remains the default.
+The Kubernetes deployment runs in **standalone mode** by default, with every agent embedded in the AgentHost pod. See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
+The chart bundles a single-node PostgreSQL StatefulSet by default. It also supports an
+external PostgreSQL database with credentials supplied through Kubernetes Secrets.
 
 ### systemd
 
@@ -1025,7 +1037,7 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Dataset export for fine-tuning workflows
 - Schema-driven configuration system
 - Playwright E2E tests for all agent routing modes
-- Scheduled Task System with CRON scheduling and MongoDB persistence
+- Scheduled Task System with CRON scheduling and database persistence
 - Alarm Clock System with volume ramping and voice dismissal
 - Presence Detection Service with auto-discovered sensors and confidence levels
 - Alarm Clocks dashboard page with CRON builder and sound management

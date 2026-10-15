@@ -56,7 +56,7 @@ public sealed class TaskArchivalService : BackgroundService
             {
                 break;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogError(ex, "Task archival sweep failed. Will retry next interval.");
             }
@@ -99,7 +99,7 @@ public sealed class TaskArchivalService : BackgroundService
                     archivedCount++;
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogWarning(ex, "Failed to archive task {TaskId} during sweep.", taskId);
             }

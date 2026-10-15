@@ -1,3 +1,4 @@
+using lucia.Agents;
 using System.Collections.Concurrent;
 using lucia.AgentHost.Conversation.Models;
 using lucia.Agents.Abstractions;
@@ -279,7 +280,7 @@ public sealed partial class VoiceOnboardingWorkflow(
             {
                 await ExpireConversationsAsync(stoppingToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 LogFailed(logger, ex, "cleanup");
             }

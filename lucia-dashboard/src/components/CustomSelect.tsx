@@ -34,6 +34,7 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
   const [pos, setPos] = useState<{ top: number; left: number; width: number; direction: 'down' | 'up' }>({
     top: 0, left: 0, width: 0, direction: 'down',
   });
+  const [portalTarget, setPortalTarget] = useState<HTMLElement>(() => document.body);
   const listboxId = useId();
 
   const selected = options.find((o) => o.value === value);
@@ -102,6 +103,9 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
   }, [highlight]);
 
   const openDropdown = useCallback(() => {
+    // Inside a modal <dialog> everything outside the dialog is inert, so the list must
+    // portal into the dialog (it is position: fixed, so it still escapes overflow clipping).
+    setPortalTarget(buttonRef.current?.closest('dialog') ?? document.body);
     setFilter('');
     setHighlight(-1);
     setOpen(true);
@@ -122,6 +126,8 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
         setOpen(false);
       }
     } else if (e.key === 'Escape') {
+      // Keep Esc from also closing a surrounding modal dialog.
+      e.preventDefault();
       setOpen(false);
       buttonRef.current?.focus();
     }
@@ -205,7 +211,7 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
             ))
           )}
         </ul>,
-        document.body,
+        portalTarget,
       )}
     </div>
   );

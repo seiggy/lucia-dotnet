@@ -5,10 +5,7 @@ namespace lucia.Data;
 /// </summary>
 public enum StoreProviderType
 {
-    /// <summary>MongoDB document store (default, requires MongoDB server).</summary>
-    MongoDB,
-
-    /// <summary>SQLite embedded database (no external dependencies).</summary>
+    /// <summary>SQLite embedded database (default, no external dependencies).</summary>
     SQLite,
 
     /// <summary>PostgreSQL relational database (external PostgreSQL server).</summary>

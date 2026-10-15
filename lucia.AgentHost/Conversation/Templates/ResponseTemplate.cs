@@ -1,16 +1,12 @@
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
 
 namespace lucia.AgentHost.Conversation.Templates;
 
 /// <summary>
-/// MongoDB document representing a response template for a skill action.
+/// Persisted response template for a skill action.
 /// Multiple template strings allow varied, natural-sounding responses.
 /// </summary>
 public sealed class ResponseTemplate
 {
-    [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
     public string? Id { get; set; }
 
     /// <summary>Skill that owns this template (e.g. "LightControlSkill").</summary>

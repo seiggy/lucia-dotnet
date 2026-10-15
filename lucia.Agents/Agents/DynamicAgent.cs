@@ -12,7 +12,7 @@ using Microsoft.Extensions.Logging;
 namespace lucia.Agents.Agents;
 
 /// <summary>
-/// A user-defined agent that is constructed from its MongoDB definition
+/// A user-defined agent that is constructed from its stored definition
 /// and resolved MCP tools. The agent is pre-built during initialization
 /// and can be rebuilt on demand for hot-reload.
 /// </summary>
@@ -72,7 +72,7 @@ public sealed class DynamicAgent : ILuciaAgent
     public AIAgent GetAIAgent() => _cachedAgent;
 
     /// <summary>
-    /// Loads the latest definition from MongoDB, resolves MCP tools, and caches
+    /// Loads the latest definition from the store, resolves MCP tools, and caches
     /// the constructed agent for subsequent <see cref="GetAIAgent"/> calls.
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -83,7 +83,7 @@ public sealed class DynamicAgent : ILuciaAgent
     }
 
     /// <summary>
-    /// Reloads the agent definition from MongoDB and rebuilds the cached AIAgent
+    /// Reloads the agent definition from the store and rebuilds the cached AIAgent
     /// with the latest MCP tools. Safe to call at runtime for hot-reload.
     /// </summary>
     public async Task RebuildAsync(CancellationToken cancellationToken = default)
@@ -148,7 +148,7 @@ public sealed class DynamicAgent : ILuciaAgent
                 .UseOpenTelemetry()
                 .Build();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex, "Failed to create client for provider '{ProviderId}', falling back to default", provider.Id);
             return await _clientResolver.ResolveAsync(null, ct).ConfigureAwait(false);

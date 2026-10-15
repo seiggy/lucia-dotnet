@@ -1,3 +1,4 @@
+using lucia.Agents;
 using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -41,7 +42,7 @@ public sealed class ScheduledTaskService : BackgroundService
             {
                 await ProcessExpiredTasksAsync(stoppingToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (!ex.IsCancellation())
             {
                 _logger.LogError(ex, "Unexpected error in scheduled task execution loop");
             }
@@ -95,7 +96,7 @@ public sealed class ScheduledTaskService : BackgroundService
             // Persist completion status
             await UpdateTaskStatusAsync(task, ScheduledTaskStatus.Completed, stoppingToken).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (!ex.IsCancellation())
         {
             _logger.LogError(ex,
                 "Scheduled task {TaskId} ({TaskType}) failed: {Error}",

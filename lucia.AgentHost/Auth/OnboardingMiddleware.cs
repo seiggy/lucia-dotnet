@@ -15,7 +15,7 @@ public sealed class OnboardingMiddleware
 
     /// <summary>
     /// One-way latch: once setup is detected as complete, stays true forever.
-    /// Avoids repeated MongoDB round-trips after setup finishes.
+    /// Avoids repeated database round-trips after setup finishes.
     /// </summary>
     private volatile bool _setupCompleteLatch;
 
@@ -62,7 +62,7 @@ public sealed class OnboardingMiddleware
             return;
         }
 
-        // Determine setup state: IConfiguration (MongoDB-backed, 5s poll) and direct ConfigStore
+        // Determine setup state: IConfiguration (database-backed, 5s poll) and direct ConfigStore
         // so headless seed is respected immediately without waiting for config poll
         var setupComplete = _setupCompleteLatch;
         if (!setupComplete)
@@ -82,7 +82,7 @@ public sealed class OnboardingMiddleware
             }
             catch (Exception ex)
             {
-                // MongoDB may be unreachable on first boot — show error, don't crash
+                // The database may be unreachable on first boot — show error, don't crash
                 _logger.LogWarning(ex, "Failed to check setup status — config store may be unavailable");
             }
         }
@@ -92,7 +92,7 @@ public sealed class OnboardingMiddleware
         if (path.StartsWith("/api/setup", StringComparison.OrdinalIgnoreCase))
         {
             // Close the IConfiguration poll race window: for setup paths,
-            // double-check MongoDB directly if the cached config says "not complete"
+            // double-check the database directly if the cached config says "not complete"
             if (!setupComplete)
             {
                 try
