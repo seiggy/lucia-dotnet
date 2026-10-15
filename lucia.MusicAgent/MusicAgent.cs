@@ -66,13 +66,15 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
         {
             Id = "id_music_agent",
             Name = "MusicPlayback",
-            Description = "Skillset for controlling Music Assistant playback across artists, albums, genres, and tracks",
+            Description = "Skillset for controlling Music Assistant playback (artists, albums, genres, tracks) and transport controls — stop, skip, now-playing, volume — on any media player",
             Tags = [
                 "music",
                 "media",
                 "home assistant",
                 "music assistant",
-                "satellite"
+                "satellite",
+                "now playing",
+                "skip"
             ],
             Examples =
             [
@@ -83,14 +85,17 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
                 "Turn up the volume on the kitchen speaker",
                 "Set volume to 50% on Loft",
                 "Stop the music",
-                "Turn off the music on the loft"
+                "Turn off the music on the loft",
+                "Skip that song on the kitchen speaker",
+                "Next track on the loft",
+                "What song is playing on the TV?"
             ]
         };
 
         _agent = new AgentCard
         {
             Name = AgentId,
-            Description = "Agent that orchestrates #Music Assistant #playback on #speaker endpoints",
+            Description = "Agent that orchestrates #media #playback on #speaker and #TV endpoints — music via #Music Assistant, transport controls (stop/skip/volume/now-playing) on any media player",
             DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
             IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
             Capabilities = new AgentCapabilities
@@ -106,17 +111,19 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
         _agent.SetUrl("pending"); // Updated in InitializeAsync
 
         var instructions = """
-            You are Lucia's dedicated Music Playback Agent for Satellite1 speakers powered by Home Assistant's Music Assistant integration.
+            You are Lucia's dedicated Music Playback Agent for Satellite1 speakers powered by Home Assistant's Music Assistant integration. Transport controls (stop, skip, previous, volume) and now-playing queries work on any media player in the home, including TVs.
 
             Your job is to execute music playback and volume requests with the correct action tool.
 
             Responsibilities:
             - Play music by artist, album, genre, or specific song.
             - Shuffle library music when the user asks to shuffle or gives no music preference.
+            - Skip to the next track or go back to the previous track when asked (works on any media player, including TVs).
+            - Report what is currently playing on a player (song title and artist) when the user asks what's playing, what song is on, or who they're listening to. If the user does not name a player, call GetNowPlaying with no playerName.
             - Set volume to a specific percentage, turn volume up, or turn volume down.
             - Stop or turn off playback when the user says stop, turn off, pause, or stop the music. Use the StopMusic tool immediately; do not refuse or explain that you cannot — just call the tool (use the player name if given, otherwise a generic term like "speaker" to resolve a default).
             - Confirm the selected device, the requested media, and whether shuffle/radio mode is enabled.
-            - Stay focused on music playback. For other smart home tasks, politely route to the appropriate specialist agent.
+            - Stay focused on media playback. For other smart home tasks, politely route to the appropriate specialist agent.
 
             When users refer to a Satellite speaker (e.g. "Satellite1 kitchen", "satellite loft"), locate the best matching endpoint before invoking any action.
             If the user refers to a location (e.g. "Office"), use the FindPlayer tool to search for a player that may be in that location.
@@ -127,10 +134,14 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
             Tool Guidance:
             - Artist request -> PlayArtist(playerName=<device phrase>, artist=<artist>)
             - No specific music, "just shuffle", or similar -> ShuffleLibrary(playerName=<device phrase>)
+            - "Skip that" / "next song" / "next track" -> NextTrack(playerName=<device phrase>)
+            - "Previous song" / "go back" -> PreviousTrack(playerName=<device phrase>)
+            - "What's playing?" / "what song is on?" -> GetNowPlaying(playerName=<device phrase or empty>)
             
             ## IMPORTANT
-            * Keep your responses short and informative only. Examples: "Shuffling some music!", "Playing 'The Hanging Garden' by 'The Cure'.", "Stopped."
+            * Keep your responses short and informative only. Examples: "Shuffling some music!", "Playing 'The Hanging Garden' by 'The Cure'.", "Stopped.", "Now on 'Close to You' by The Cure."
             * When the user asks to stop, turn off, or pause music: call StopMusic (with the player name if given, or e.g. "speaker" to pick a default), then reply briefly e.g. "Stopped." or "Music is off." Do not say you cannot do it or ask unnecessary questions.
+            * When the user asks what is playing, always call GetNowPlaying — do not guess from memory and do not refuse.
             * Do not offer to provide other assistance.
             * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the Bedroom Speaker?", "I'm sorry, I couldn't find a speaker named 'Living Room Speakers'; Is it known by another name?"
             """;
@@ -243,7 +254,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
             ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
-            Description = "Handles music playback for MusicAssistant",
+            Description = "Handles media playback — music via Music Assistant, transport controls (stop/skip/now-playing/volume) on any media player",
             ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,
