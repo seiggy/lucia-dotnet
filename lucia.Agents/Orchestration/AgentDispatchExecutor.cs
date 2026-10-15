@@ -223,7 +223,9 @@ public sealed class AgentDispatchExecutor : Executor
 
     /// <summary>
     /// Returns a per-agent tailored message if the router provided agent-specific instructions,
-    /// otherwise falls back to the original user message.
+    /// otherwise falls back to the original user message. The tailored message keeps the full
+    /// user context (request context, recent chat history, conversation history) so sub-agents
+    /// can handle multi-turn follow-ups; the instruction is appended last for recency.
     /// </summary>
     private ChatMessage GetAgentMessage(AgentChoiceResult agentChoice, string agentId, ChatMessage fallback)
     {
@@ -239,9 +241,14 @@ public sealed class AgentDispatchExecutor : Executor
                     ? match.Instruction
                     : $"[Original request: \"{originalUserText}\"]\n{match.Instruction}";
 
+                var contextText = ExtractMessageText(fallback);
+                var agentMessage = string.IsNullOrWhiteSpace(contextText)
+                    ? instruction
+                    : $"{contextText}\n\n{instruction}";
+
                 _logger.LogInformation("Dispatching tailored instruction to '{AgentId}': {Instruction}",
                     agentId, instruction);
-                return new ChatMessage(ChatRole.User, instruction);
+                return new ChatMessage(ChatRole.User, agentMessage);
             }
         }
 
