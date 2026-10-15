@@ -9,10 +9,10 @@
        ══════════════════════════════════════════════════════════════ -->
   <PropertyGroup Label="Version Variables">
     <MicrosoftAgentsVersion>1.0.0-rc2</MicrosoftAgentsVersion>
-    <MicrosoftExtensionsAIVersion>10.6.0</MicrosoftExtensionsAIVersion>
-    <MicrosoftExtensionsVersion>10.0.8</MicrosoftExtensionsVersion>
-    <MicrosoftExtensionsConfigVersion>10.0.8</MicrosoftExtensionsConfigVersion>
-    <OpenTelemetryVersion>1.15.3</OpenTelemetryVersion>
+    <MicrosoftExtensionsAIVersion>10.11.0</MicrosoftExtensionsAIVersion>
+    <MicrosoftExtensionsVersion>10.0.12</MicrosoftExtensionsVersion>
+    <MicrosoftExtensionsConfigVersion>10.0.12</MicrosoftExtensionsConfigVersion>
+    <OpenTelemetryVersion>1.17.0</OpenTelemetryVersion>
     <XunitVersion>2.9.3</XunitVersion>
     <!-- ORT managed+GPU: unified 1.23.2 everywhere (Decision 28 Track B).
          Docker linux-arm64 overlays matching 1.23.2 native CUDA into runtimes/linux-arm64/native/.
@@ -22,9 +22,9 @@
   </PropertyGroup>
   <!-- ── A2A Protocol ─────────────────────────────────────────── -->
   <ItemGroup Label="A2A Protocol">
-    <PackageVersion Include="A2A" Version="1.0.0-preview" />
-    <PackageVersion Include="A2A.AspNetCore" Version="1.0.0-preview" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.2" />
+    <PackageVersion Include="A2A" Version="1.0.0-preview3" />
+    <PackageVersion Include="A2A.AspNetCore" Version="1.0.0-preview3" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.6.1" />
     <PackageVersion Include="Npgsql" Version="10.0.2" />
     <PackageVersion Include="SSH.NET" Version="2026.0.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.11.0" />
@@ -32,37 +32,36 @@
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
     <PackageVersion Include="Aspire.Hosting.Azure.AIFoundry" Version="13.1.3-preview.1.26166.8" />
-    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.4.2" />
-    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.4.2" />
-    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="13.4.2" />
-    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.4.2" />
+    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="13.6.1" />
+    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.6.1" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.2.0" />
   </ItemGroup>
   <!-- ── .NET Aspire Client Integrations (service projects) ───── -->
   <ItemGroup Label="Aspire Client Integrations">
-    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="13.4.2-preview.1.26303.6" />
-    <PackageVersion Include="Aspire.StackExchange.Redis" Version="13.4.2" />
+    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="13.6.1-preview.1.26506.6" />
+    <PackageVersion Include="Aspire.StackExchange.Redis" Version="13.6.1" />
   </ItemGroup>
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
   <ItemGroup Label="Microsoft Agent Framework">
-    <PackageVersion Include="Microsoft.Agents.AI" Version="1.0.0-rc4" />
-    <PackageVersion Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.260311.1" />
-    <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="1.20.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-rc4" />
-    <PackageVersion Include="Microsoft.Agents.AI.GitHub.Copilot" Version="1.20.0" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.260311.1" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.0.0-preview.260311.1" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting.OpenAI" Version="1.0.0-alpha.260311.1" />
-    <PackageVersion Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-rc4" />
+    <PackageVersion Include="Microsoft.Agents.AI" Version="1.25.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.A2A" Version="1.25.0-preview.261014.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="1.25.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.GitHub.Copilot" Version="1.25.0" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting" Version="1.25.0-preview.261014.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.25.0-preview.261014.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.OpenAI" Version="1.25.0-alpha.261014.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.Workflows" Version="1.25.0" />
   </ItemGroup>
   <!-- ── Microsoft.Extensions.AI ──────────────────────────────── -->
   <ItemGroup Label="Microsoft Extensions AI">
     <PackageVersion Include="Microsoft.Extensions.AI" Version="$(MicrosoftExtensionsAIVersion)" />
-    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.AzureAIInference" Version="10.0.0-preview.1.25559.3" />
-    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.4.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation" Version="10.11.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.11.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.11.0" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="$(MicrosoftExtensionsAIVersion)" />
   </ItemGroup>
   <!-- ── Microsoft.Extensions.Caching ────────────────────────── -->
@@ -73,20 +72,20 @@
   <!-- ── Microsoft.Extensions (core framework) ────────────────── -->
   <ItemGroup Label="Microsoft Extensions">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="$(MicrosoftExtensionsVersion)" />
-    <PackageVersion Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageVersion Include="Microsoft.OpenApi" Version="2.12.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="$(MicrosoftExtensionsConfigVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="$(MicrosoftExtensionsConfigVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="$(MicrosoftExtensionsConfigVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.UserSecrets" Version="$(MicrosoftExtensionsConfigVersion)" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.4.0" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.4.0" />
-    <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.1.0" />
+    <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.10.0" />
     <PackageVersion Include="Microsoft.FeatureManagement.AspNetCore" Version="4.4.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="$(MicrosoftExtensionsVersion)" />
@@ -98,8 +97,8 @@
   </ItemGroup>
   <!-- ── OpenTelemetry ────────────────────────────────────────── -->
   <ItemGroup Label="OpenTelemetry">
-    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.15.3" />
-    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
+    <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageVersion Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.15.2" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.15.1" />
@@ -116,7 +115,7 @@
     <PackageVersion Include="System.Linq.Async" Version="7.0.0" />
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="8.0.2" />
     <PackageVersion Include="System.Text.Json" Version="$(MicrosoftExtensionsVersion)" />
-    <PackageVersion Include="StackExchange.Redis" Version="2.13.1" />
+    <PackageVersion Include="StackExchange.Redis" Version="2.13.17" />
   </ItemGroup>
   <!-- ── API Documentation ────────────────────────────────────── -->
   <ItemGroup Label="API Documentation">
@@ -144,7 +143,7 @@
   </ItemGroup>
   <!-- ── Evaluation Harness ────────────────────────────────────── -->
   <ItemGroup Label="Evaluation Harness">
-    <PackageVersion Include="AgentEval" Version="0.6.0-beta" />
+    <PackageVersion Include="AgentEval" Version="0.43.0-beta" />
   </ItemGroup>
   <ItemGroup Label="ML and AI">
     <PackageVersion Include="Anthropic" Version="12.9.0" />
@@ -152,8 +151,8 @@
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" Version="$(OrtVersion)" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.Managed" Version="$(OrtVersion)" />
     <PackageVersion Include="org.k2fsa.sherpa.onnx" Version="1.12.34" />
-    <PackageVersion Include="GitHub.Copilot.SDK" Version="1.0.13" />
-    <PackageVersion Include="ModelContextProtocol" Version="1.3.0" />
+    <PackageVersion Include="GitHub.Copilot.SDK" Version="1.0.14" />
+    <PackageVersion Include="ModelContextProtocol" Version="1.4.1" />
     <PackageVersion Include="OllamaSharp" Version="5.4.25" />
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
   </ItemGroup>
@@ -168,6 +167,6 @@
     <PackageVersion Include="SharpCompress" Version="1.0.0" />
     <PackageVersion Include="Snappier" Version="1.3.1" />
     <PackageVersion Include="Spectre.Console" Version="0.54.0" />
-    <PackageVersion Include="YamlDotNet" Version="16.3.0" />
+    <PackageVersion Include="YamlDotNet" Version="18.1.0" />
   </ItemGroup>
 </Project>

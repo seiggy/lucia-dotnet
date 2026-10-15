@@ -4,7 +4,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <UserSecretsId>0d80bd29-fe56-470c-9726-2b48990f7b5d</UserSecretsId>
-    <NoWarn>$(NoWarn);NU1510</NoWarn>
+    <NoWarn>$(NoWarn);NU1510;MAAI001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="lucia.EvalHarness" />

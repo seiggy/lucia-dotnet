@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using A2A;
+using AgentSkill = A2A.AgentSkill;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;

@@ -132,8 +132,8 @@ namespace lucia.Agents.Extensions
                     Role = Role.Agent,
                     Parts = parts
                 };
-                await taskUpdater.RequireInputAsync(message, cancellationToken).ConfigureAwait(false);
-                await taskUpdater.SubmitAsync(cancellationToken).ConfigureAwait(false);
+                await taskUpdater.RequireInputAsync(message, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await taskUpdater.SubmitAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -155,14 +155,14 @@ namespace lucia.Agents.Extensions
                     Role = Role.Agent,
                     Parts = parts
                 };
-                await taskUpdater.StartWorkAsync(message, cancellationToken).ConfigureAwait(false);
-                await taskUpdater.SubmitAsync(cancellationToken).ConfigureAwait(false);
+                await taskUpdater.StartWorkAsync(message, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await taskUpdater.SubmitAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
                 return;
             }
 
             // Simple reply - no task tracking needed
             var responder = new MessageResponder(eventQueue, contextId);
-            await responder.ReplyAsync(parts, cancellationToken).ConfigureAwait(false);
+            await responder.ReplyAsync(parts, cancellationToken: cancellationToken).ConfigureAwait(false);
         }
 
         public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path)
@@ -179,7 +179,7 @@ namespace lucia.Agents.Extensions
 
             if (agentCard is not null)
             {
-                return endpoints.MapHttpA2A(requestHandler, agentCard, path);
+                return endpoints.MapHttpA2A(requestHandler, path);
             }
 
             return A2ARouteBuilderExtensions.MapA2A(endpoints, requestHandler, path);
@@ -193,7 +193,7 @@ namespace lucia.Agents.Extensions
             var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
             var requestHandler = MapA2ACoreLazy(agentFactory, loggerFactory, agentCard);
 
-            return endpoints.MapHttpA2A(requestHandler, agentCard, path);
+            return endpoints.MapHttpA2A(requestHandler, path);
         }
 
         public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, IA2ARequestHandler requestHandler, string path)

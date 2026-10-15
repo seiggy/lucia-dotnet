@@ -11,6 +11,9 @@ namespace lucia.Tests.Services;
 
 public class RedisTaskStoreTests
 {
+    // A2A types carry no JSON naming attributes; match the camelCase format RedisTaskStore persists.
+    private static readonly JsonSerializerOptions StoreJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
     private readonly IConnectionMultiplexer _redis;
     private readonly IDatabase _database;
     private readonly RedisTaskStore _store;
@@ -36,7 +39,7 @@ public class RedisTaskStoreTests
             ContextId = "context-456",
             Status = new A2A.TaskStatus { State = TaskState.Working }
         };
-        var json = JsonSerializer.Serialize(agentTask);
+        var json = JsonSerializer.Serialize(agentTask, StoreJsonOptions);
         
         A.CallTo(() => _database.StringGetAsync("lucia:task:task-123", A<CommandFlags>._))
             .Returns(new RedisValue(json));
@@ -117,7 +120,7 @@ public class RedisTaskStoreTests
             ContextId = "context-999",
             Status = new A2A.TaskStatus { State = TaskState.Working }
         };
-        var existingJson = JsonSerializer.Serialize(existingTask);
+        var existingJson = JsonSerializer.Serialize(existingTask, StoreJsonOptions);
         
         A.CallTo(() => _database.StringGetAsync($"lucia:task:{taskId}", A<CommandFlags>._))
             .Returns(new RedisValue(existingJson));
@@ -173,7 +176,7 @@ public class RedisTaskStoreTests
         {
             TaskId = taskId
         };
-        var json = JsonSerializer.Serialize(config);
+        var json = JsonSerializer.Serialize(config, StoreJsonOptions);
         
         A.CallTo(() => _database.StringGetAsync(
             $"lucia:task:{taskId}:notification:{notificationId}",
@@ -301,7 +304,7 @@ public class RedisTaskStoreTests
                 Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5)
             }
         };
-        var existingJson = JsonSerializer.Serialize(existingTask);
+        var existingJson = JsonSerializer.Serialize(existingTask, StoreJsonOptions);
         
         A.CallTo(() => _database.StringGetAsync($"lucia:task:{taskId}", A<CommandFlags>._))
             .Returns(new RedisValue(existingJson));
@@ -343,8 +346,8 @@ public class RedisTaskStoreTests
         A.CallTo(() => _database.StringGetAsync(A<RedisKey[]>._, A<CommandFlags>._))
             .Returns(new RedisValue[]
             {
-                new RedisValue(JsonSerializer.Serialize(config1)),
-                new RedisValue(JsonSerializer.Serialize(config2))
+                new RedisValue(JsonSerializer.Serialize(config1, StoreJsonOptions)),
+                new RedisValue(JsonSerializer.Serialize(config2, StoreJsonOptions))
             });
 
         // Act

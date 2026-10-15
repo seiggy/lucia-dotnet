@@ -172,6 +172,7 @@ public sealed class RedisTaskStore : ITaskStore, ITaskIdIndex
         TaskPushNotificationConfig pushNotificationConfig, 
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrEmpty(pushNotificationConfig.TaskId);
         using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", pushNotificationConfig.TaskId);
 

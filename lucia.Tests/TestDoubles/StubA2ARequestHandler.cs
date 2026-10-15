@@ -51,14 +51,14 @@ internal sealed class StubA2ARequestHandler : IA2ARequestHandler
     public IAsyncEnumerable<StreamResponse> SubscribeToTaskAsync(SubscribeToTaskRequest request, CancellationToken cancellationToken = default)
         => AsyncEnumerable.Empty<StreamResponse>();
 
-    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(CreateTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default)
+    public Task<TaskPushNotificationConfig> CreateTaskPushNotificationConfigAsync(TaskPushNotificationConfig request, CancellationToken cancellationToken = default)
         => Task.FromResult(new TaskPushNotificationConfig());
 
     public Task<TaskPushNotificationConfig> GetTaskPushNotificationConfigAsync(GetTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default)
         => Task.FromResult(new TaskPushNotificationConfig());
 
-    public Task<ListTaskPushNotificationConfigResponse> ListTaskPushNotificationConfigAsync(ListTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default)
-        => Task.FromResult(new ListTaskPushNotificationConfigResponse());
+    public Task<ListTaskPushNotificationConfigsResponse> ListTaskPushNotificationConfigsAsync(ListTaskPushNotificationConfigsRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(new ListTaskPushNotificationConfigsResponse());
 
     public Task DeleteTaskPushNotificationConfigAsync(DeleteTaskPushNotificationConfigRequest request, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
