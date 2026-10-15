@@ -76,6 +76,47 @@ for (const channel of ['lucia', 'os']) {
     await page.getByRole('button', { name: 'Verify and install' }).click();
     await expect.poll(() => selectedTag).toBe(channel === 'os' ? 'v1.4.9' : 'v1.5.0');
   });
+
+  test(`${channel} download failure can be retried without checking again`, async ({ page }) => {
+    const title = channel === 'os' ? 'Jetson OS' : 'Lucia';
+    await page.route('**/api/tasks/background', route => route.fulfill({ json: [] }));
+    await page.route('**/api/tasks/background/stream', route => route.fulfill({
+      contentType: 'text/event-stream', body: ': fixture\n\n',
+    }));
+    await page.route('**/api/auth/status', route => route.fulfill({
+      json: { authenticated: true, setupComplete: true, hasKeys: true },
+    }));
+    await page.route('**/api/appliance/capabilities', route => route.fulfill({ json: { enabled: true } }));
+    await page.route('**/api/appliance/status', route => route.fulfill({ json: {
+      hostname: 'lucia', architecture: 'arm64', board: 'jetson-orin-nano-super-p3767-0005',
+      luciaVersion: '1.4.4', storageBytes: 100_000_000_000, rebootRequired: false,
+      network: { ssid: 'Ethernet', signal: null }, services: [],
+      os: { name: 'Ubuntu', versionId: '22.04', imageVersion: '1.4.2', jetsonLinuxVersion: '36.5.2',
+        rootfsAbEnabled: true, updateBlockReason: null },
+    } }));
+    await page.route('**/api/appliance/telemetry', route => route.fulfill({ json: {
+      configured: false, enabled: false, endpoint: '', insecureSkipVerify: false, hasAuthorization: false,
+    } }));
+    await page.route('**/api/appliance/updates/operation**', route => route.fulfill({ json: {
+      operationId: '22222222-2222-2222-2222-222222222222',
+      action: 'stage', channel, status: 'failed', tag: 'v1.5.0',
+      message: 'The response ended prematurely.', phase: 'downloading',
+      completedBytes: 77, totalBytes: 100,
+      luciaRollbackAvailable: true, osRollbackAvailable: true,
+    } satisfies ApplianceUpdateOperationStatus }));
+    let retriedTag: string | null = null;
+    await page.route(`**/api/appliance/updates/${channel}/install`, route => {
+      retriedTag = route.request().postDataJSON().tag;
+      return route.fulfill({ status: 409, json: { detail: 'Fixture does not apply updates.' } });
+    });
+
+    await page.goto('/appliance');
+
+    await expect(page.getByText('Downloading failed')).toBeVisible();
+    await expect(page.getByText(/Retry resumes from what is already downloaded/)).toBeVisible();
+    await page.getByRole('button', { name: `Retry ${title} v1.5.0 download` }).click();
+    await expect.poll(() => retriedTag).toBe('v1.5.0');
+  });
 }
 
 test('manages an installed appliance from mobile', async ({ page }) => {

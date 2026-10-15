@@ -226,6 +226,10 @@ public sealed partial class ApplianceUpdateStagingStore
             _status = status;
             _isHandoffRequestActive = false;
             DeleteFinalizedStage(previousTag);
+            if (previousTag is not null && Directory.Exists(PartialPath(previousTag)))
+            {
+                Directory.Delete(PartialPath(previousTag), recursive: true);
+            }
         }
     }
 
@@ -386,11 +390,39 @@ public sealed partial class ApplianceUpdateStagingStore
 
     private void DeleteOrphanedAttempts()
     {
+        // A failed download keeps its partial so a retry resumes instead of starting over.
+        var resumable = _status is { Action: "stage", Status: "failed", Tag: { } tag }
+            ? PartialPath(tag)
+            : null;
+        DeletePartialsExcept(resumable);
+    }
+
+    private void DeletePartialsExcept(string? keep)
+    {
         foreach (var directory in Directory.EnumerateDirectories(
                      Root,
                      ".*.partial"))
         {
-            Directory.Delete(directory, recursive: true);
+            if (directory != keep)
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    private string PartialPath(string tag) => Path.Combine(Root, $".{tag}.partial");
+
+    /// <summary>
+    /// Returns the staging directory for <paramref name="tag"/>, keeping any bytes a previous
+    /// attempt downloaded and deleting partials left by other releases.
+    /// </summary>
+    public string GetResumableStagePath(string tag)
+    {
+        lock (_gate)
+        {
+            var path = PartialPath(tag);
+            DeletePartialsExcept(path);
+            return path;
         }
     }
 

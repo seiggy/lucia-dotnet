@@ -86,6 +86,12 @@ export default function AppliancePage() {
     && updateOperation.channel === 'os'
     && updateOperation.status === 'running'
     && updateOperation.osRollbackAvailable
+  const failedStageTag = (channel: 'lucia' | 'os') =>
+    updateOperation?.action === 'stage'
+      && updateOperation.status === 'failed'
+      && updateOperation.channel === channel
+      ? updateOperation.tag ?? null
+      : null
 
   const load = useCallback(async () => {
     setError('')
@@ -204,12 +210,12 @@ export default function AppliancePage() {
     }
   }
 
-  async function handleInstall(channel: 'lucia' | 'os') {
+  async function handleInstall(channel: 'lucia' | 'os', retryTag?: string) {
     setPendingUpdate(null)
     setError('')
     setStagingUpdate(channel)
     try {
-      const tag = channel === 'lucia' ? updates?.luciaReleaseTag : updates?.osReleaseTag
+      const tag = retryTag ?? (channel === 'lucia' ? updates?.luciaReleaseTag : updates?.osReleaseTag)
       if (!tag) {
         throw new Error('Check for updates again before installing.')
       }
@@ -327,6 +333,8 @@ export default function AppliancePage() {
               : null}
             onInstall={() => setPendingUpdate('lucia')}
             onRollback={() => setPendingRollback('lucia')}
+            retryTag={failedStageTag('lucia')}
+            onRetry={(tag) => void handleInstall('lucia', tag)}
           />
           <UpdateRail
             icon={HardDrive}
@@ -348,6 +356,8 @@ export default function AppliancePage() {
               : null}
             onInstall={() => setPendingUpdate('os')}
             onRollback={() => setPendingRollback('os')}
+            retryTag={osBlockReason ? null : failedStageTag('os')}
+            onRetry={(tag) => void handleInstall('os', tag)}
           />
         </div>
         {osBlockReason && (
@@ -532,6 +542,8 @@ function UpdateRail({
   operation,
   onInstall,
   onRollback,
+  retryTag,
+  onRetry,
 }: {
   icon: typeof Cpu
   title: string
@@ -548,6 +560,8 @@ function UpdateRail({
   operation: ApplianceUpdateOperationStatus | null
   onInstall: () => void
   onRollback: () => void
+  retryTag: string | null
+  onRetry: (tag: string) => void
 }) {
   const verificationRequired = checked && newerDiscovered
   const unavailable = checked && !manifestAvailable
@@ -589,10 +603,15 @@ function UpdateRail({
             {completedBytes !== null && progressTotal !== null && (
               <p className="text-xs text-fog">{formatBytes(completedBytes)} of {formatBytes(progressTotal)}</p>
             )}
+            {retryTag && (
+              <p className="text-sm text-fog">
+                Retry resumes from what is already downloaded, then verifies the whole release before installing.
+              </p>
+            )}
           </div>
         )}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <span className={`text-sm font-medium ${
           available || verificationRequired
             ? 'text-amber'
@@ -614,8 +633,8 @@ function UpdateRail({
                     ? 'Current'
                     : 'Not checked'}
         </span>
-        {(available || rollbackAvailable) && (
-          <div className="flex gap-2">
+        {(available || rollbackAvailable || retryTag) && (
+          <div className="flex gap-2 whitespace-nowrap">
           {rollbackAvailable && (
             <button
               type="button"
@@ -627,7 +646,19 @@ function UpdateRail({
               Roll back
             </button>
           )}
-          {available && (
+          {retryTag && (
+            <button
+              type="button"
+              onClick={() => onRetry(retryTag)}
+              aria-label={`Retry ${title} ${retryTag} download`}
+              disabled={busy}
+              className={primaryButton}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Retry download
+            </button>
+          )}
+          {available && !retryTag && (
           <button
             type="button"
             onClick={onInstall}
