@@ -25,11 +25,29 @@ export function useActivityStream() {
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const [connectionCount, setConnectionCount] = useState(0)
   const lastCountedAtRef = useRef(0)
+  const countTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sourceRef = useRef<EventSource | null>(null)
   const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const maxRetries = 10
+
+  // A stream that keeps dropping and reopening would make every consumer refetch each time, so count at most once per interval.
+  // A reconnection inside the interval still counts, once the interval has passed, so missed events are never skipped.
+  const countConnection = useCallback(() => {
+    const wait = lastCountedAtRef.current + MIN_COUNT_INTERVAL_MS - Date.now()
+    if (wait <= 0) {
+      lastCountedAtRef.current = Date.now()
+      setConnectionCount(count => count + 1)
+      return
+    }
+    if (countTimerRef.current) return
+    countTimerRef.current = setTimeout(() => {
+      countTimerRef.current = null
+      lastCountedAtRef.current = Date.now()
+      setConnectionCount(count => count + 1)
+    }, wait)
+  }, [])
 
   const connect = useCallback(() => {
     if (retryTimerRef.current) {
@@ -45,12 +63,7 @@ export function useActivityStream() {
 
     source.onopen = () => {
       setConnectionState('connected')
-      // A stream that keeps dropping and reopening would make every consumer refetch each time, so count at most once per interval.
-      const now = Date.now()
-      if (now - lastCountedAtRef.current >= MIN_COUNT_INTERVAL_MS) {
-        lastCountedAtRef.current = now
-        setConnectionCount(count => count + 1)
-      }
+      countConnection()
       retriesRef.current = 0
     }
 
@@ -80,7 +93,7 @@ export function useActivityStream() {
         setConnectionState('disconnected')
       }
     }
-  }, [])
+  }, [countConnection])
 
   useEffect(() => {
     connectRef.current = connect
@@ -96,6 +109,10 @@ export function useActivityStream() {
     retriesRef.current = 0
     connect()
     return () => {
+      if (countTimerRef.current) {
+        clearTimeout(countTimerRef.current)
+        countTimerRef.current = null
+      }
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current)
         retryTimerRef.current = null

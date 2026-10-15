@@ -191,7 +191,7 @@ function AgentCardView({
   onDelete: () => void
   selected: boolean
 }) {
-  // The registry refreshes a card by fetching it from an absolute http(s) address; built-in agents have relative ones.
+  // The registry refreshes a card by fetching it from an absolute http(s) address; agents that run in this host have relative ones.
   const canRefresh = /^https?:\/\//i.test(agent.url)
 
   return (
@@ -216,10 +216,11 @@ function AgentCardView({
         </div>
         <div className="flex shrink-0 gap-1 ml-3">
           <button
-            onClick={(e) => { e.stopPropagation(); onRefresh() }}
-            disabled={!canRefresh}
-            title={canRefresh ? 'Refresh agent card' : 'Built-in agents run in this host and have no address to refresh from'}
-            className="rounded-xl p-1.5 text-dust hover:bg-basalt hover:text-amber transition-colors disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-dust"
+            onClick={(e) => { e.stopPropagation(); if (canRefresh) onRefresh() }}
+            aria-disabled={!canRefresh}
+            aria-label={canRefresh ? 'Refresh agent card' : 'Refresh unavailable: this agent has no web address to fetch its card from'}
+            title={canRefresh ? 'Refresh agent card' : 'Refresh unavailable: this agent has no web address to fetch its card from'}
+            className={`rounded-xl p-1.5 text-dust transition-colors ${canRefresh ? 'hover:bg-basalt hover:text-amber' : 'cursor-not-allowed opacity-40'}`}
           >
             ↻
           </button>

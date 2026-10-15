@@ -23,6 +23,12 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
     setStatus(type === 'success' ? message : null)
   }
 
+  // Clearing first lets two identical messages in a row each change the live region.
+  const clearFeedback = () => {
+    setError(null)
+    setStatus(null)
+  }
+
   const load = async () => {
     try {
       setRepos(await fetchPluginRepos())
@@ -43,6 +49,7 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
 
   const handleAdd = async () => {
     if (!url.trim()) return
+    clearFeedback()
     setLoading(true)
     try {
       await addPluginRepo({ url: url.trim() })
@@ -60,6 +67,7 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
   }
 
   const handleDelete = async (id: string) => {
+    clearFeedback()
     try {
       await deletePluginRepo(id)
       notify('Repository removed', 'success')
@@ -73,6 +81,7 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
   }
 
   const handleSync = async (id: string) => {
+    clearFeedback()
     setSyncing(id)
     try {
       await syncPluginRepo(id)
@@ -96,11 +105,12 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
         </div>
       )}
 
-      {status && (
-        <div role="status" className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-sage">
-          {status}
-        </div>
-      )}
+      {/* Always mounted and only its text changes, so assistive tech announces each message. */}
+      <div role="status">
+        {status && (
+          <div className="rounded-lg border border-sage/30 bg-sage/10 px-3 py-2 text-sm text-sage">{status}</div>
+        )}
+      </div>
 
       <div className="mt-4 flex gap-2">
         <input

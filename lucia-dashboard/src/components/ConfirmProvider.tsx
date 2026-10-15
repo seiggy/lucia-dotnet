@@ -18,6 +18,9 @@ export default function ConfirmProvider({ children }: { children: ReactNode }) {
     // Cancel it; the dialog hides on its own because its location key no longer matches.
     resolveRef.current?.(false)
     resolveRef.current = null
+    // Navigation is the external event here. Without clearing, Forward would bring the same dialog back with nothing to settle.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPending(null)
   }, [locationKey])
 
   const confirm = useCallback<ConfirmFn>(next => {

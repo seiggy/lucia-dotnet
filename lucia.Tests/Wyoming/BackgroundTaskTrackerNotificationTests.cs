@@ -19,12 +19,13 @@ public sealed class BackgroundTaskTrackerNotificationTests
             var reader = Task.Run(() =>
             {
                 var changed = SpinWait.SpinUntil(() => tracker.Version != version, TimeSpan.FromSeconds(5));
-                return changed ? tracker.GetTask(handle.TaskId)!.Status : BackgroundTaskStatus.Queued;
+                return changed ? tracker.GetTask(handle.TaskId)!.Status : (BackgroundTaskStatus?)null;
             });
 
             handle.MarkRunning();
 
-            Assert.Equal(BackgroundTaskStatus.Running, await reader);
+            // A null result means the version never changed, which is a different failure from a stale read.
+            Assert.Equal((BackgroundTaskStatus?)BackgroundTaskStatus.Running, await reader);
         }
     }
     [Fact]

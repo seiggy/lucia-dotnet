@@ -767,6 +767,9 @@ export default function EntityLocationPage() {
                         }).catch(err => {
                           setError(err instanceof Error ? err.message : 'Failed to bulk-assign agents')
                         })
+                      } else {
+                        // Every selected entity already has this agent, so there is nothing to write.
+                        setSelectedEntityIds(new Set())
                       }
                       setBulkAgentDropdownOpen(false)
                     }}

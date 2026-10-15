@@ -56,13 +56,15 @@ function ConnectionStringsEditor({
   const handleAddNew = () => {
     const name = newName.trim()
     if (!name) return
-    // A removed entry is null, so only a live one blocks the name.
-    if (entries[name] != null) {
-      setNameError(`A connection named "${name}" already exists.`)
+    // Configuration keys are case-insensitive. A removed entry is null, so only a live one blocks the name,
+    // and a removed one is reused under its existing spelling.
+    const existingKey = Object.keys(entries).find(key => key.toLowerCase() === name.toLowerCase())
+    if (existingKey !== undefined && entries[existingKey] != null) {
+      setNameError(`A connection named "${existingKey}" already exists.`)
       return
     }
     closeNaming()
-    onChange({ ...entries, [name]: '' })
+    onChange({ ...entries, [existingKey ?? name]: '' })
   }
 
   const handleRemove = (key: string) => {
