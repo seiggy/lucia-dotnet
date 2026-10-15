@@ -1930,6 +1930,7 @@ export async function deleteEngineModel(engineType: EngineType, modelId: string)
 
 export interface VoiceConfig {
   ignoreUnknownVoices: boolean
+  stickySpeakerFollowUps: boolean
   autoCreateProvisionalProfiles: boolean
   maxAutoProfiles: number
   speakerVerificationThreshold: number

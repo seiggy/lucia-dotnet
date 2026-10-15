@@ -22,6 +22,7 @@ public static class VoiceConfigApi
             return Results.Ok(new
             {
                 profile.IgnoreUnknownVoices,
+                profile.StickySpeakerFollowUps,
                 profile.AutoCreateProvisionalProfiles,
                 profile.MaxAutoProfiles,
                 profile.SpeakerVerificationThreshold,
@@ -63,6 +64,8 @@ public static class VoiceConfigApi
             await configStore.SetAsync($"{prefix}:ProvisionalMatchThreshold", request.ProvisionalMatchThreshold.Value.ToString("F2"), "voice-config-ui").ConfigureAwait(false);
         if (request.IgnoreUnknownVoices.HasValue)
             await configStore.SetAsync($"{prefix}:IgnoreUnknownVoices", request.IgnoreUnknownVoices.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
+        if (request.StickySpeakerFollowUps.HasValue)
+            await configStore.SetAsync($"{prefix}:StickySpeakerFollowUps", request.StickySpeakerFollowUps.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
         if (request.AutoCreateProvisionalProfiles.HasValue)
             await configStore.SetAsync($"{prefix}:AutoCreateProvisionalProfiles", request.AutoCreateProvisionalProfiles.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
         if (request.MaxAutoProfiles.HasValue)
