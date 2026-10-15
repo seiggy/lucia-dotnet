@@ -20,7 +20,7 @@ approved_actions=(
     docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9
     docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
     docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3
-    github/codeql-action/upload-sarif@dc73d59c2d7bd4f8194098a91219eeee6d8a1719
+    github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d
     hacs/action@dcb30e72781db3f207d5236b861172774ab0b485
     home-assistant/actions/hassfest@868e6cb4607727d764341a158d98872cd63fa658
 )

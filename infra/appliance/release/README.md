@@ -300,7 +300,8 @@ used only on the build runner; the installed appliance runs native services.
 `.github/workflows/jetson-voice-assets.yml` rebuilds that image only when its
 pinned Dockerfile inputs change. Appliance releases invoke that workflow first
 and consume the exact returned image digest. The isolated voice build runs
-natively on GitHub's `ubuntu-24.04-arm` runner and uses the Actions cache for
+natively on the self-hosted ARM64 runner labeled `self-hosted`, `Linux`,
+`ARM64` and `spark` (Docker with Buildx, no QEMU) and uses the Actions cache for
 completed BuildKit layers. The first uncached native build completed in 46
 minutes; the equivalent x86-64 QEMU build was still compiling after three
 hours.
@@ -327,6 +328,6 @@ act -l -W .github/workflows/jetson-voice-assets.yml
 act -l -W .github/workflows/appliance-release.yml
 ```
 
-The complete image build still requires the dedicated Linux runner and roughly
-200 GiB of scratch space. The GitHub-hosted voice job allows up to six hours;
-the self-hosted packaging job allows up to 12 hours.
+The complete image build still requires the dedicated x86-64 Linux runner and
+roughly 200 GiB of scratch space. The voice job allows up to six hours; the
+self-hosted packaging job allows up to 12 hours.

@@ -33,7 +33,7 @@ env:
 jobs:
   build:
     name: Build Jetson voice assets
-    runs-on: ubuntu-24.04-arm
+    runs-on: [self-hosted, Linux, ARM64, spark]
     timeout-minutes: 360
     outputs:
       image_ref: ${{ steps.resolve.outputs.ref }}

@@ -6,10 +6,10 @@ This directory contains all infrastructure deployment utilities and documentatio
 
 Lucia supports two deployment topologies, controlled by the `Deployment__Mode` environment variable:
 
-| Mode           | Default? | Description                                                                                                                                                   |
-| -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Standalone** | ✅ Yes   | All agents (Music, Timer, Orchestrator) run embedded in a single AgentHost process. Simplest setup — single container plus Redis and PostgreSQL.               |
-| **Mesh**       | No       | Agents run as separate A2A containers that register with the AgentHost over the network. The Timer Agent is only available in standalone mode.                   |
+| Mode | Default? | Description |
+| --- | --- | --- |
+| **Standalone** | ✅ Yes | All agents (Music, Timer, Orchestrator) run embedded in a single AgentHost process. Simplest setup — single container plus Redis and PostgreSQL. |
+| **Mesh** | No | Agents run as separate A2A containers that register with the AgentHost over the network. The Timer Agent is only available in standalone mode. |
 
 **Standalone** is the default for Docker Compose, systemd and Kubernetes (Helm/manifests). External A2A agents can connect to a standalone AgentHost — the modes are not mutually exclusive.
 
