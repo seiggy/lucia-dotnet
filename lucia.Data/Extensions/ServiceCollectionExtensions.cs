@@ -9,6 +9,7 @@ using lucia.Data.InMemory;
 using lucia.Data.PostgreSQL;
 using lucia.Data.Redis;
 using lucia.Data.Sqlite;
+using lucia.Data.Telemetry;
 using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
@@ -150,6 +151,9 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IAlarmClockRepository, SqliteAlarmClockRepository>();
 
         AddMemorySupportServices(builder.Services);
+        AddDataStoreHealth(builder.Services, sp => new SqliteDataStoreHealthProbe(
+            Keyed<SqliteConnectionFactory>(sp, SqliteDbNames.Config, SqliteDbNames.Traces, SqliteDbNames.Tasks),
+            sp.GetRequiredService<ILogger<SqliteDataStoreHealthProbe>>()));
 
         return builder;
     }
@@ -214,9 +218,27 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IAlarmClockRepository, PostgresAlarmClockRepository>();
 
         AddMemorySupportServices(builder.Services);
+        AddDataStoreHealth(builder.Services, sp => new PostgresDataStoreHealthProbe(
+            Keyed<PostgresConnectionFactory>(sp, PostgresDbNames.Config, PostgresDbNames.Traces, PostgresDbNames.Tasks),
+            sp.GetRequiredService<ILogger<PostgresDataStoreHealthProbe>>()));
 
         return builder;
     }
+
+    /// <summary>
+    /// Registers the provider's health probe and the monitor that publishes <c>lucia.datastore.*</c> gauges.
+    /// </summary>
+    private static void AddDataStoreHealth(
+        IServiceCollection services,
+        Func<IServiceProvider, IDataStoreHealthProbe> createProbe)
+    {
+        services.AddSingleton(createProbe);
+        services.AddHostedService<DataStoreHealthMonitor>();
+    }
+
+    private static Dictionary<string, TFactory> Keyed<TFactory>(IServiceProvider services, params string[] names)
+        where TFactory : notnull
+        => names.ToDictionary(name => name, name => services.GetRequiredKeyedService<TFactory>(name));
 
     private static void AddMemorySupportServices(IServiceCollection services)
     {

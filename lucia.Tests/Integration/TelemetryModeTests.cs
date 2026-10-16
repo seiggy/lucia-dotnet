@@ -183,6 +183,45 @@ public sealed class TelemetryModeTests
     }
 
     [Fact]
+    public void Metrics_ExportsDataStoreAndNpgsqlMeters()
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration["Observability:Mode"] = "Metrics";
+        var exporter = new ResourceCapturingMetricExporter();
+
+        builder.ConfigureOpenTelemetry();
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metrics => metrics.AddReader(new PeriodicExportingMetricReader(exporter)));
+
+        using var host = builder.Build();
+        var provider = host.Services.GetRequiredService<MeterProvider>();
+        using var dataStore = new Meter("lucia.DataStore");
+        using var npgsql = new Meter("Npgsql");
+        dataStore.CreateCounter<long>("lucia.datastore.test").Add(1);
+        npgsql.CreateCounter<long>("db.client.test").Add(1);
+        provider.ForceFlush();
+
+        Assert.Contains("lucia.datastore.test", exporter.MetricNames);
+        Assert.Contains("db.client.test", exporter.MetricNames);
+    }
+
+    [Theory]
+    [InlineData("Trace")]
+    [InlineData("Profile")]
+    public void TraceModes_ListenToNpgsqlSpans(string mode)
+    {
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration["Observability:Mode"] = mode;
+
+        builder.ConfigureOpenTelemetry();
+
+        using var host = builder.Build();
+        _ = host.Services.GetRequiredService<TracerProvider>();
+        using var source = new ActivitySource("Npgsql");
+        Assert.True(source.HasListeners());
+    }
+
+    [Fact]
     public void Metrics_ExportsSpeechPipelineMeterUnderApplicationResource()
     {
         var builder = Host.CreateApplicationBuilder();
