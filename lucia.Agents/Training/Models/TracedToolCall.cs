@@ -7,6 +7,8 @@ public sealed class TracedToolCall
 {
     public required string ToolName { get; set; }
 
+    public string? CallId { get; set; }
+
     public string? Arguments { get; set; }
 
     public string? Result { get; set; }
