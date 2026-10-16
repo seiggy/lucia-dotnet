@@ -62,7 +62,7 @@ public sealed partial class SecurityControlSkill : ILuciaSkill, IOptimizableSkil
     public string AgentId { get; set; } = string.Empty;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> SearchToolNames { get; } = [nameof(ArmAlarm), nameof(DisarmAlarm), nameof(LockDoor), nameof(UnlockDoor), nameof(GetSecurityStatus)];
+    public IReadOnlyList<string> SearchToolNames { get; } = [nameof(ArmAlarm), nameof(DisarmAlarm), nameof(LockDoor), nameof(UnlockDoor), nameof(GetSecurityStatus), nameof(GetSecurityStateAsync), nameof(ControlCoverAsync)];
 
     /// <inheritdoc/>
     public string ConfigSectionName => SecurityControlSkillOptions.SectionName;
@@ -77,6 +77,8 @@ public sealed partial class SecurityControlSkill : ILuciaSkill, IOptimizableSkil
             AIFunctionFactory.Create(LockDoor),
             AIFunctionFactory.Create(UnlockDoor),
             AIFunctionFactory.Create(GetSecurityStatus),
+            AIFunctionFactory.Create(GetSecurityStateAsync),
+            AIFunctionFactory.Create(ControlCoverAsync),
         ];
     }
 
@@ -400,6 +402,166 @@ public sealed partial class SecurityControlSkill : ILuciaSkill, IOptimizableSkil
             durationTag: new("operation", "get_status")).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Gets the current state of security devices for an area, or for a single named device.
+    /// </summary>
+    [Description("Get the current state of alarm panels, doors, locks, and garage doors. Provide an entity name to target one device (e.g., 'front door'), or an area to cover all devices in it. Leave both empty for a whole-home summary.")]
+    public async Task<string> GetSecurityStateAsync(
+        [Description("Optional area name to filter security devices, such as 'garage' or 'downstairs'.")] string? area,
+        [Description("Optional device name to target one security entity, such as 'front door' or 'garage doors'.")] string? entityName)
+    {
+        using var activity = ActivitySource.StartActivity(nameof(GetSecurityStateAsync));
+        activity?.SetTag("security.operation", "get_state");
+        activity?.SetTag("security.area", area);
+        activity?.SetTag("security.entity", entityName);
+        StatusRequests.Add(1);
+
+        return await ToolRunner.RunAsync(_logger, activity, "Unable to retrieve security state right now.", async () =>
+        {
+            var entities = await ResolveEntitiesAsync(GetStatusDomains(), area, entityName).ConfigureAwait(false);
+            if (entities.Count == 0)
+            {
+                StatusFailures.Add(1, [new KeyValuePair<string, object?>("reason", "no-match")]);
+                return BuildNoMatchResponse("security device", area, entityName);
+            }
+
+            var orderedEntities = entities
+                .OrderBy(entity => entity.Domain, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entity => entity.FriendlyName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var builder = new StringBuilder();
+            builder.AppendLine(string.IsNullOrWhiteSpace(area) && string.IsNullOrWhiteSpace(entityName)
+                ? "Security status:"
+                : "Security state:");
+
+            foreach (var entity in orderedEntities)
+            {
+                var state = await _homeAssistantClient.GetEntityStateAsync(entity.EntityId).ConfigureAwait(false);
+                if (state is null)
+                {
+                    continue;
+                }
+
+                builder.AppendLine($"- {entity.FriendlyName}: {FormatStatus(entity, state, string.IsNullOrWhiteSpace(area))}");
+            }
+
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            return builder.ToString().TrimEnd();
+        },
+            onFailure: () => StatusFailures.Add(1, [new KeyValuePair<string, object?>("reason", "exception")]),
+            duration: OperationDurationMs,
+            detail: area ?? entityName ?? "all visible areas",
+            durationTag: new("operation", "get_state")).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Opens, closes, or stops cover entities such as garage doors. A position value applies a
+    /// partial movement: 'open' targets that openness percentage, 'close' targets its complement.
+    /// </summary>
+    [Description("Open, close, or stop cover entities such as garage doors. Use position for partial movement (0-100 openness).")]
+    public async Task<string> ControlCoverAsync(
+        [Description("Search terms to find covers (e.g., ['garage doors', 'cover.garage_left'])")] string[] searchTerms,
+        [Description("Desired action: 'open', 'close', or 'stop'")] string command,
+        [Description("Optional target openness 0-100 for partial open/close; omit for full movement")] int? position = null,
+        bool preResolved = false)
+    {
+        using var activity = ActivitySource.StartActivity();
+        activity?.SetTag("search.terms", string.Join(", ", searchTerms));
+        activity?.SetTag("cover.command", command);
+        activity?.SetTag("pre_resolved", preResolved);
+
+        var normalizedCommand = command.ToLowerInvariant();
+        if (normalizedCommand is not ("open" or "close" or "stop"))
+        {
+            return $"Invalid cover command '{command}'. Use 'open', 'close', or 'stop'.";
+        }
+
+        try
+        {
+            var allEntities = new Dictionary<string, HomeAssistantEntity>(StringComparer.OrdinalIgnoreCase);
+            var domains = (IReadOnlyList<string>)["cover"];
+
+            if (preResolved)
+            {
+                foreach (var entityId in searchTerms)
+                {
+                    var matches = _locationService.ExactMatchEntities(entityId, domains);
+                    if (matches.Count > 0)
+                    {
+                        foreach (var entity in matches)
+                            if (entity.IncludeForAgent is null || entity.IncludeForAgent.Contains(AgentId))
+                                allEntities.TryAdd(entity.EntityId, entity);
+                    }
+                }
+
+                activity?.SetTag("resolution.strategy", "pre_resolved");
+            }
+            else
+            {
+                var matchOptions = GetCurrentMatchOptions();
+                foreach (var term in searchTerms)
+                {
+                    var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                        term, matchOptions, domains).ConfigureAwait(false);
+
+                    activity?.SetTag($"resolution.{term}", hierarchyResult.ResolutionStrategy.ToString());
+
+                    foreach (var entity in hierarchyResult.ResolvedEntities)
+                        if (entity.IncludeForAgent is null || entity.IncludeForAgent.Contains(AgentId))
+                            allEntities.TryAdd(entity.EntityId, entity);
+                }
+            }
+
+            if (allEntities.Count == 0)
+            {
+                return searchTerms.Length == 1 && !preResolved
+                    ? BuildNoMatchResponse("garage doors", null, searchTerms[0])
+                    : "No garage doors were found.";
+            }
+
+            activity?.SetTag("match.count", allEntities.Count);
+
+            var sb = new StringBuilder();
+            foreach (var entity in allEntities.Values)
+            {
+                var request = new ServiceCallRequest
+                {
+                    ["entity_id"] = entity.EntityId
+                };
+
+                string service;
+                if (normalizedCommand == "stop")
+                {
+                    service = "stop_cover";
+                }
+                else if (position is not null)
+                {
+                    service = "set_cover_position";
+                    var openness = Math.Clamp(position.Value, 0, 100);
+                    request["position"] = normalizedCommand == "open" ? openness : 100 - openness;
+                }
+                else
+                {
+                    service = normalizedCommand == "open" ? "open_cover" : "close_cover";
+                }
+
+                await _homeAssistantClient.CallServiceAsync("cover", service, parameters: null, request)
+                    .ConfigureAwait(false);
+                sb.AppendLine($"'{entity.FriendlyName}' {normalizedCommand} requested.");
+            }
+
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            return sb.ToString().TrimEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error controlling covers for: {SearchTerms}", string.Join(", ", searchTerms));
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            return $"Failed to control garage doors: {ex.Message}";
+        }
+    }
+
     private static ServiceCallRequest CreateSecurityRequest(string entityId, string? code)
     {
         var request = new ServiceCallRequest
@@ -462,10 +624,36 @@ public sealed partial class SecurityControlSkill : ILuciaSkill, IOptimizableSkil
         {
             "alarm_control_panel" => $"alarm is {status}{locationSuffix}",
             "lock" => $"door is {status}{locationSuffix}",
+            "cover" => $"{CoverNoun(state)} is {status}{locationSuffix}",
             "camera" => _options.CurrentValue.EnableCameraSnapshot
                 ? $"camera is {status}{locationSuffix}; snapshots enabled"
                 : $"camera is {status}{locationSuffix}",
             _ => $"state is {status}{locationSuffix}"
+        };
+    }
+
+    /// <summary>
+    /// Labels a cover by its HA device class (garage, gate, window, …) so status
+    /// output reads "garage door is open" instead of a blanket "door"; covers without
+    /// a device class are reported as generic covers.
+    /// </summary>
+    private static string CoverNoun(HomeAssistantState state)
+    {
+        var deviceClass = state.Attributes.TryGetValue("device_class", out var value) ? value?.ToString() : null;
+
+        return deviceClass switch
+        {
+            "garage" => "garage door",
+            "gate" => "gate",
+            "door" => "door",
+            "window" => "window",
+            "blind" => "blind",
+            "shutter" => "shutter",
+            "curtain" => "curtain",
+            "shade" => "shade",
+            "awning" => "awning",
+            "damper" => "damper",
+            _ => "cover",
         };
     }
 
@@ -475,7 +663,8 @@ public sealed partial class SecurityControlSkill : ILuciaSkill, IOptimizableSkil
         foreach (var domain in _options.CurrentValue.AllowedDomains)
         {
             if (string.Equals(domain, "alarm_control_panel", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(domain, "lock", StringComparison.OrdinalIgnoreCase))
+                string.Equals(domain, "lock", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(domain, "cover", StringComparison.OrdinalIgnoreCase))
             {
                 domains.Add(domain);
             }
