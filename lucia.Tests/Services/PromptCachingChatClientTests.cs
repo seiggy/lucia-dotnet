@@ -1,5 +1,9 @@
+using lucia.Agents;
 using lucia.Agents.Integration;
 using lucia.Agents.Services;
+using lucia.Tests.TestDoubles;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Tests.Services;
 
@@ -73,5 +77,52 @@ public sealed class PromptCachingChatClientTests
         var result = PromptCachingChatClient.StripVolatileFields(input);
 
         Assert.Equal(input, result);
+    }
+
+    private static (PromptCachingChatClient Client, RecordingPromptCacheService Cache) BuildClient(IChatClient inner)
+    {
+        var cache = new RecordingPromptCacheService();
+        var client = new PromptCachingChatClient(
+            inner, cache, new AgentsTelemetrySource(), NullLogger<PromptCachingChatClient>.Instance);
+        return (client, cache);
+    }
+
+    private static ChatOptions WithGetLiveContextTool() => new()
+    {
+        Tools = [AIFunctionFactory.Create(() => "ok", "homeassistant__GetLiveContext", "Get live context")]
+    };
+
+    [Fact]
+    public async Task PlanningDecisionWithRegisteredToolName_IsCached()
+    {
+        var inner = new StubChatClient(
+        [
+            _ => new ChatResponse(
+            [
+                new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call_1", "homeassistant__GetLiveContext")])
+            ])
+        ]);
+        var (client, cache) = BuildClient(inner);
+
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "is the vacuum cleaning?")], WithGetLiveContextTool());
+
+        Assert.Single(cache.CachedChatResponses);
+    }
+
+    [Fact]
+    public async Task PlanningDecisionWithUnregisteredToolName_IsNotCached()
+    {
+        var inner = new StubChatClient(
+        [
+            _ => new ChatResponse(
+            [
+                new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("call_1", "GetLiveContext")])
+            ])
+        ]);
+        var (client, cache) = BuildClient(inner);
+
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "is the vacuum cleaning?")], WithGetLiveContextTool());
+
+        Assert.Empty(cache.CachedChatResponses);
     }
 }
