@@ -107,7 +107,11 @@ public static class Extensions
                     .AddMeter("lucia.Skills.*")
                     .AddMeter("lucia.Wyoming.SpeechPipeline")
                     .AddMeter("lucia.Wyoming.BackgroundTasks")
-                    .AddMeter("Microsoft.Agents.AI");
+                    .AddMeter("Microsoft.Agents.AI")
+                    // Data store health gauges (SQLite and PostgreSQL) and Npgsql's built-in pool and
+                    // command metrics. Microsoft.Data.Sqlite has no built-in instrumentation.
+                    .AddMeter("lucia.DataStore")
+                    .AddMeter("Npgsql");
 
                 if (useOtlpExporter)
                 {
@@ -195,6 +199,7 @@ public static class Extensions
                     .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
                     .AddSource("lucia.Wyoming.Session")
                     .AddSource("lucia.Wyoming.BackgroundTasks")
+                    .AddSource("Npgsql")
                     .AddRedisInstrumentation()
                     .AddAspNetCoreInstrumentation(tracing =>
                         tracing.Filter = context =>

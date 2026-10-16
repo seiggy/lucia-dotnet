@@ -73,6 +73,24 @@ Grafana provisions five dashboards in the **Lucia** folder:
 
 The infrastructure dashboards share a `device_id` filter and preserve the selected time range when moving between host, PostgreSQL, and Redis views. Application dashboards link to the same infrastructure views. Use Grafana Explore for individual logs and traces.
 
+## Data store metrics
+
+AgentHost reports the health of its data store whenever metrics are enabled, for both the SQLite and PostgreSQL providers. A background monitor probes each logical database (`luciaconfig`, `luciatraces`, `luciatasks`) every 30 seconds and publishes these gauges on the `lucia.DataStore` meter. Each gauge carries `db.system.name` (`sqlite` or `postgresql`) and `db.namespace`:
+
+| Metric | Unit | Providers | Meaning |
+| --- | --- | --- | --- |
+| `lucia.datastore.up` | | Both | `1` when the database answered `SELECT 1`, otherwise `0` |
+| `lucia.datastore.probe.duration` | s | Both | Time taken by the last probe, including opening the connection |
+| `lucia.datastore.size` | By | Both | Database file size (SQLite) or `pg_database_size` (PostgreSQL) |
+| `lucia.datastore.wal.size` | By | SQLite | Write-ahead log file size |
+| `lucia.datastore.connections` | {connection} | PostgreSQL | Connected backends from `pg_stat_database` |
+
+The monitor skips its probes when no exporter is listening, so the databases are not queried while metrics are off.
+
+PostgreSQL deployments also export Npgsql's built-in instrumentation. The `Npgsql` meter covers connection pools (`db.client.connection.count`, `db.client.connection.max`, `db.client.connection.npgsql.timeouts`, …) and commands (`db.client.operation.duration`, `db.client.operation.failed`, …). In `Trace` and `Profile` modes, the `Npgsql` activity source adds a span for each query. Microsoft.Data.Sqlite has no built-in instrumentation, so SQLite deployments, including the appliance, report only the `lucia.datastore.*` gauges.
+
+The **Lucia PostgreSQL** dashboard reads `pg_*` metrics from `postgres-exporter`, which only the Docker deployments run. Appliances use SQLite and never report those series. Query `lucia.datastore.*` in Grafana Explore for their data store health.
+
 The dashboards are available before AgentHost sends data. Their filters populate after the first matching metric export. Service-health and Jetson infrastructure metrics arrive within 30 seconds when their Collectors are running; speech metrics require a completed utterance before the next export.
 
 `docker compose ps` reports service health. The gateway `/health` endpoint reflects Collector pipeline health. The `health-monitor` service probes every live readiness endpoint and becomes unhealthy when the Docker data filesystem reaches 90%. Inspect the reason with `docker compose logs otel-collector tempo prometheus loki`; queue overflow and exporter failures remain in Collector logs and metrics instead of disappearing behind a static health response.

@@ -1,3 +1,19 @@
+# Release notes - Unreleased
+
+## Added
+
+- Data store health metrics for SQLite and PostgreSQL. When metrics are enabled,
+  AgentHost probes each database (`luciaconfig`, `luciatraces`, `luciatasks`)
+  every 30 seconds. It reports availability, probe duration and size, plus
+  write-ahead log size for SQLite and connected backends for PostgreSQL, as
+  `lucia.datastore.*` gauges. The probes don't run while metrics are off.
+- OpenTelemetry now exports Npgsql's built-in instrumentation: the `Npgsql`
+  meter (connection pool and command metrics) and, in `Trace` and `Profile`
+  modes, a span for each PostgreSQL query. Microsoft.Data.Sqlite has no
+  built-in instrumentation.
+
+---
+
 # Release notes - 1.6.0 (unreleased)
 
 This section tracks changes for the next release. Move the date and final
