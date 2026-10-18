@@ -23,5 +23,5 @@ public sealed class SecurityControlSkillOptions
     /// <summary>
     /// Home Assistant domains this skill may inspect or control.
     /// </summary>
-    public List<string> AllowedDomains { get; set; } = ["alarm_control_panel", "lock", "camera"];
+    public List<string> AllowedDomains { get; set; } = ["alarm_control_panel", "lock", "cover", "camera"];
 }
