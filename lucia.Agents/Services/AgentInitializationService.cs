@@ -76,6 +76,22 @@ public class AgentInitializationService : BackgroundService
         // Persist built-in definitions before external configuration can block runtime initialization.
         await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
 
+        // Migrate legacy definitions (drifted Name, non-kebab ids) so the Id is the single routing identity.
+        // Intentionally non-fatal: the migration is idempotent and re-runs every boot, so a failure here
+        // should log and continue rather than block agent start (legacy definitions keep working via slug routing).
+        try
+        {
+            await _definitionRepository.MigrateRoutingIdentityAsync(_logger, stoppingToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Agent routing-identity migration failed; starting with legacy definitions intact");
+        }
+
         await WaitForHomeAssistantConfigurationAsync(stoppingToken).ConfigureAwait(false);
 
         // Seed default model providers from connection strings if upgrading

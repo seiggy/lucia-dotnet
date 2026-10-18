@@ -194,6 +194,91 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal).UtcDateTime;
     }
 
+    public async Task<bool> InsertAgentDefinitionIfAbsentAsync(AgentDefinition definition, CancellationToken ct = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT OR IGNORE INTO agent_definitions (id, name, enabled, data)
+            VALUES (
+                @id,
+                @name,
+                @enabled,
+                json_set(
+                    @data,
+                    '$.updatedAt',
+                    strftime(
+                        '%Y-%m-%dT%H:%M:%fZ',
+                        CAST(ROUND(unixepoch('now', 'subsec') * 1000) AS INTEGER) / 1000.0,
+                        'unixepoch')))
+            RETURNING json_extract(data, '$.updatedAt');
+            """;
+        cmd.Parameters.AddWithValue("@id", definition.Id);
+        cmd.Parameters.AddWithValue("@name", definition.Name);
+        cmd.Parameters.AddWithValue("@enabled", definition.Enabled ? 1 : 0);
+        cmd.Parameters.AddWithValue("@data", JsonSerializer.Serialize(definition, JsonOptions));
+
+        var persistedMarker = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) as string;
+        if (persistedMarker is null)
+            return false;
+
+        definition.UpdatedAt = DateTimeOffset.Parse(
+            persistedMarker,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal).UtcDateTime;
+        return true;
+    }
+
+    public async Task<bool> RenameAgentDefinitionIfTargetFreeAsync(string oldId, string newId, CancellationToken ct = default)
+    {
+        // Single-transaction rename: the INSERT...SELECT only fires while the old row exists and
+        // the target id is free. OR IGNORE keeps "rename if target free" total — a concurrent
+        // rename that commits the same target first (id OR name unique key) yields 0 rows, so
+        // this caller rolls back without writing anything and exactly one caller wins.
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction();
+
+        using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = """
+            INSERT OR IGNORE INTO agent_definitions (id, name, enabled, data)
+            SELECT
+                @newId,
+                @newId,
+                enabled,
+                json_set(
+                    json_set(
+                        json_set(data, '$.id', @newId),
+                        '$.name', @newId),
+                    '$.updatedAt',
+                    strftime(
+                        '%Y-%m-%dT%H:%M:%fZ',
+                        CAST(ROUND(unixepoch('now', 'subsec') * 1000) AS INTEGER) / 1000.0,
+                        'unixepoch'))
+            FROM agent_definitions
+            WHERE id = @oldId
+              AND NOT EXISTS (SELECT 1 FROM agent_definitions WHERE id = @newId);
+            """;
+        insert.Parameters.AddWithValue("@oldId", oldId);
+        insert.Parameters.AddWithValue("@newId", newId);
+
+        var renamedRows = await insert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        if (renamedRows == 0)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        using var deleteOld = connection.CreateCommand();
+        deleteOld.Transaction = transaction;
+        deleteOld.CommandText = "DELETE FROM agent_definitions WHERE id = @oldId;";
+        deleteOld.Parameters.AddWithValue("@oldId", oldId);
+        await deleteOld.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+
+        transaction.Commit();
+        return true;
+    }
+
     public async Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default)
     {
         using var connection = _connectionFactory.CreateConnection();
