@@ -13,10 +13,83 @@ namespace lucia.Tests.Orchestration;
 /// </summary>
 public sealed class AgentDispatchExecutorTests
 {
+    /// <summary>
+    /// Regression: tailored dispatch used to send the sub-agent only "[Original request] + instruction",
+    /// discarding the HA request context and conversation history. Multi-turn follow-ups such as
+    /// "set the timer for thirty seconds" then arrived without knowing a 15s timer had just started
+    /// or which device the user was speaking from. The agent must receive the same full context
+    /// the router saw, with the tailored instruction appended.
+    /// </summary>
     [Fact]
-    public async Task HandleAsync_WithTailoredInstruction_PrefixesOriginalRequestMetadata()
+    public async Task HandleAsync_WithTailoredInstruction_PreservesFullUserContext()
     {
         // Arrange
+        ChatMessage? capturedMessage = null;
+        var invoker = A.Fake<IAgentInvoker>();
+        A.CallTo(() => invoker.AgentId).Returns("timer-agent");
+        A.CallTo(() => invoker.InvokeAsync(A<ChatMessage>._, A<CancellationToken>._))
+            .Invokes(call => capturedMessage = call.GetArgument<ChatMessage>(0))
+            .Returns(new OrchestratorAgentResponse
+            {
+                AgentId = "timer-agent",
+                Content = "done",
+                Success = true,
+                ExecutionTimeMs = 1
+            });
+
+        var executor = new AgentDispatchExecutor(
+            new Dictionary<string, IAgentInvoker>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["timer-agent"] = invoker
+            },
+            A.Fake<Microsoft.Extensions.Logging.ILogger<AgentDispatchExecutor>>(),
+            Options.Create(new RouterExecutorOptions()));
+
+        const string fullPrompt = """
+            [Conversation History]
+            User: HOME ASSISTANT CONTEXT
+            Assistant: Okay, 15 seconds. Starting now.
+
+            [Current Request]
+            HOME ASSISTANT CONTEXT
+            REQUEST_CONTEXT: {"device": {"area": "Kitchen"}}
+            User: Set the timer for thirty seconds.
+            """;
+
+        executor.SetUserMessage(new ChatMessage(ChatRole.User, fullPrompt), "Set the timer for thirty seconds.");
+
+        var choice = new AgentChoiceResult
+        {
+            AgentId = "timer-agent",
+            Reasoning = "Timer follow-up request",
+            Confidence = 0.99,
+            AgentInstructions =
+            [
+                new AgentInstruction
+                {
+                    AgentId = "timer-agent",
+                    Instruction = "Set the timer for thirty seconds."
+                }
+            ]
+        };
+
+        // Act
+        await executor.HandleAsync(choice, A.Fake<IWorkflowContext>(), CancellationToken.None);
+
+        // Assert — history + request context preserved, instruction appended last
+        Assert.NotNull(capturedMessage);
+        Assert.Equal(ChatRole.User, capturedMessage!.Role);
+        var text = capturedMessage.Text;
+        Assert.StartsWith(fullPrompt, text);
+        Assert.Contains("Okay, 15 seconds. Starting now.", text);
+        Assert.Contains("\"area\": \"Kitchen\"", text);
+        Assert.EndsWith("[Original request: \"Set the timer for thirty seconds.\"]\nSet the timer for thirty seconds.", text);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithoutTailoredInstruction_PassesFullUserMessageUnchanged()
+    {
+        // Arrange — no agentInstructions means the agent receives the untouched user message
         ChatMessage? capturedMessage = null;
         var invoker = A.Fake<IAgentInvoker>();
         A.CallTo(() => invoker.AgentId).Returns("light-agent");
@@ -38,7 +111,51 @@ public sealed class AgentDispatchExecutorTests
             A.Fake<Microsoft.Extensions.Logging.ILogger<AgentDispatchExecutor>>(),
             Options.Create(new RouterExecutorOptions()));
 
-        executor.SetUserMessage(new ChatMessage(ChatRole.User, "HOME ASSISTANT CONTEXT\n\nUser: schalte den keller ein"), "schalte den keller ein");
+        const string fullPrompt = "HOME ASSISTANT CONTEXT\n\nUser: turn on the kitchen light";
+        executor.SetUserMessage(new ChatMessage(ChatRole.User, fullPrompt), "turn on the kitchen light");
+
+        var choice = new AgentChoiceResult
+        {
+            AgentId = "light-agent",
+            Reasoning = "Light request",
+            Confidence = 0.9,
+            AgentInstructions = null
+        };
+
+        // Act
+        await executor.HandleAsync(choice, A.Fake<IWorkflowContext>(), CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(capturedMessage);
+        Assert.Equal(fullPrompt, capturedMessage!.Text);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithTailoredInstructionAndEmptyUserMessage_UsesInstructionOnly()
+    {
+        // Arrange — graceful degradation when the user message carries no text
+        ChatMessage? capturedMessage = null;
+        var invoker = A.Fake<IAgentInvoker>();
+        A.CallTo(() => invoker.AgentId).Returns("light-agent");
+        A.CallTo(() => invoker.InvokeAsync(A<ChatMessage>._, A<CancellationToken>._))
+            .Invokes(call => capturedMessage = call.GetArgument<ChatMessage>(0))
+            .Returns(new OrchestratorAgentResponse
+            {
+                AgentId = "light-agent",
+                Content = "done",
+                Success = true,
+                ExecutionTimeMs = 1
+            });
+
+        var executor = new AgentDispatchExecutor(
+            new Dictionary<string, IAgentInvoker>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["light-agent"] = invoker
+            },
+            A.Fake<Microsoft.Extensions.Logging.ILogger<AgentDispatchExecutor>>(),
+            Options.Create(new RouterExecutorOptions()));
+
+        executor.SetUserMessage(new ChatMessage(ChatRole.User, string.Empty), "dim the lights");
 
         var choice = new AgentChoiceResult
         {
@@ -50,7 +167,7 @@ public sealed class AgentDispatchExecutorTests
                 new AgentInstruction
                 {
                     AgentId = "light-agent",
-                    Instruction = "Turn on the Keller lights."
+                    Instruction = "Dim the lights."
                 }
             ]
         };
@@ -60,8 +177,7 @@ public sealed class AgentDispatchExecutorTests
 
         // Assert
         Assert.NotNull(capturedMessage);
-        Assert.Equal(ChatRole.User, capturedMessage!.Role);
-        Assert.Equal("[Original request: \"schalte den keller ein\"]\nTurn on the Keller lights.", capturedMessage.Text);
+        Assert.Equal("[Original request: \"dim the lights\"]\nDim the lights.", capturedMessage!.Text);
     }
 
     /// <summary>
