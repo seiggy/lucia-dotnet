@@ -14,6 +14,7 @@ using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
 using lucia.Wyoming.Telemetry;
+using AIContextProvider = Microsoft.Agents.AI.AIContextProvider;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -244,6 +245,7 @@ public static class ServiceCollectionExtensions
     {
         services.TryAddSingleton<ChatHistoryProvider>();
         services.TryAddSingleton<UserContextProvider>();
+        services.TryAddSingleton<AIContextProvider>(sp => sp.GetRequiredService<UserContextProvider>());
     }
 
     /// <summary>

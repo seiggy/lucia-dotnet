@@ -151,6 +151,8 @@ Internal chat-history entries are excluded. The store records a save time and
 optional expiration, but does not record whether the author was onboarding or an
 AI tool. Results are limited to 200 matches; use search to find older entries.
 Administrator sessions can manage other profiles through the existing memory API.
+With Neo4j Agent Memory enabled, this page still shows the built-in store only.
+Onboarding answers and facts learned in conversation are in the Neo4j graph.
 
 ## Building for Production
 

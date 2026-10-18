@@ -216,6 +216,7 @@ public sealed class UserMemoryContextTests
         {
             services.AddSingleton<IMemoryStore>(new InMemoryMemoryStore());
             services.AddSingleton<UserContextProvider>();
+            services.AddSingleton<AIContextProvider>(sp => sp.GetRequiredService<UserContextProvider>());
         }
         services.AddSingleton<TracingChatClientFactory>();
         using var serviceProvider = services.BuildServiceProvider();

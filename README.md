@@ -82,6 +82,11 @@ The dashboard's **User memories** page shows the personal facts stored for each
 enrolled voice profile. Administrators can search, edit values, and delete
 individual memories without deleting the voice profile or its recordings.
 
+Optionally, set `AgentMemory:Enabled` and a Neo4j connection to replace the
+built-in memory provider with a Neo4j knowledge graph that extracts facts and
+preferences automatically. See
+[Neo4j Agent Memory](docs/conversation-api.md#neo4j-agent-memory-optional).
+
 Status questions, negations and conditional requests, such as "Are the office
 lights on?", "Don't turn on the porch light" or "Turn on the lights if nobody is
 home", go to the agent instead of a fast-path template. Explicit commands such

@@ -13,6 +13,8 @@ using lucia.Agents.CommandTracing;
 using lucia.AgentHost.Conversation.Tracing;
 using lucia.Agents.DataStores;
 using lucia.AgentHost.Extensions;
+using lucia.AgentHost.Memory;
+using AIContextProvider = Microsoft.Agents.AI.AIContextProvider;
 using lucia.AgentHost.PluginFramework;
 using lucia.AgentHost.Services;
 using lucia.Agents.Abstractions;
@@ -120,6 +122,8 @@ else if (useSqlite)
 builder.Services.TryAddSingleton<IMemoryStore, InMemoryMemoryStore>();
 builder.Services.TryAddSingleton<ChatHistoryProvider>();
 builder.Services.TryAddSingleton<UserContextProvider>();
+builder.Services.TryAddSingleton<AIContextProvider>(sp => sp.GetRequiredService<UserContextProvider>());
+builder.AddAgentMemory();
 
 // Deployment mode: "standalone" (default) embeds plugin agents in-process,
 // "mesh" expects external A2A agent containers to register over the network.
