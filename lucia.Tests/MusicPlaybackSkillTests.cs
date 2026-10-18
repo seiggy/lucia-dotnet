@@ -364,6 +364,155 @@ public class MusicPlaybackSkillTests
             ImmutableDictionary<string, HomeAssistantEntity>.Empty.Add(entityId, entity));
     }
 
+    [Fact]
+    public async Task NextTrackAsync_CallsMediaPlayerNext()
+    {
+        ServiceCallRequest? capturedRequest = null;
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("media_player", "next", null, A<ServiceCallRequest>._, A<CancellationToken>._))
+            .Invokes((string _, string _, string? _, ServiceCallRequest request, CancellationToken _) => capturedRequest = request)
+            .Returns(Task.FromResult(Array.Empty<object>()));
+
+        var response = await _skill.NextTrackAsync("Satellite1 Kitchen");
+
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("media_player.satellite1_kitchen", capturedRequest!.EntityId);
+        Assert.Contains("next track", response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PreviousTrackAsync_CallsMediaPlayerPrevious()
+    {
+        ServiceCallRequest? capturedRequest = null;
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("media_player", "previous", null, A<ServiceCallRequest>._, A<CancellationToken>._))
+            .Invokes((string _, string _, string? _, ServiceCallRequest request, CancellationToken _) => capturedRequest = request)
+            .Returns(Task.FromResult(Array.Empty<object>()));
+
+        var response = await _skill.PreviousTrackAsync("Satellite1 Kitchen");
+
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("media_player.satellite1_kitchen", capturedRequest!.EntityId);
+        Assert.Contains("previous track", response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task NextTrackAsync_ReturnsNotFoundMessage_WhenPlayerMissing()
+    {
+        var skill = CreateSkillWithEmptyLocationService();
+
+        var response = await skill.NextTrackAsync("Nonexistent Speaker");
+
+        Assert.Contains("couldn't find", response, StringComparison.OrdinalIgnoreCase);
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("media_player", "next", null, A<ServiceCallRequest>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task GetNowPlayingAsync_ReportsTitleAndArtistWhenPlaying()
+    {
+        var state = new HomeAssistantState
+        {
+            EntityId = "media_player.satellite1_kitchen",
+            State = "playing",
+            Attributes = new Dictionary<string, object>
+            {
+                ["media_title"] = "The Hanging Garden",
+                ["media_artist"] = "The Cure"
+            }
+        };
+        A.CallTo(() => _homeAssistantClient.GetStateAsync("media_player.satellite1_kitchen", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(state));
+
+        var response = await _skill.GetNowPlayingAsync("Satellite1 Kitchen");
+
+        Assert.Contains("The Hanging Garden", response);
+        Assert.Contains("The Cure", response);
+        Assert.Contains("playing", response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetNowPlayingAsync_NonMusicContentType_IncludesFriendlyQualifier()
+    {
+        var state = new HomeAssistantState
+        {
+            EntityId = "media_player.satellite1_kitchen",
+            State = "playing",
+            Attributes = new Dictionary<string, object>
+            {
+                ["media_title"] = "The Wire",
+                ["media_content_type"] = "tv"
+            }
+        };
+        A.CallTo(() => _homeAssistantClient.GetStateAsync("media_player.satellite1_kitchen", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(state));
+
+        var response = await _skill.GetNowPlayingAsync("Satellite1 Kitchen");
+
+        Assert.Contains("Playing TV", response);
+        Assert.Contains("The Wire", response);
+    }
+
+    [Fact]
+    public async Task GetNowPlayingAsync_ReportsNothingPlayingWhenIdle()
+    {
+        var state = new HomeAssistantState
+        {
+            EntityId = "media_player.satellite1_kitchen",
+            State = "idle",
+            Attributes = new Dictionary<string, object>()
+        };
+        A.CallTo(() => _homeAssistantClient.GetStateAsync("media_player.satellite1_kitchen", A<CancellationToken>._))
+            .Returns(Task.FromResult<HomeAssistantState?>(state));
+
+        var response = await _skill.GetNowPlayingAsync("Satellite1 Kitchen");
+
+        Assert.Contains("Nothing is playing", response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task GetNowPlayingAsync_ReturnsNotFoundMessage_WhenPlayerMissing()
+    {
+        var skill = CreateSkillWithEmptyLocationService();
+
+        var response = await skill.GetNowPlayingAsync("Nonexistent Speaker");
+
+        Assert.Contains("couldn't find", response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private MusicPlaybackSkill CreateSkillWithEmptyLocationService()
+    {
+        var emptyLocationService = A.Fake<IEntityLocationService>();
+        A.CallTo(() => emptyLocationService.SearchHierarchyAsync(
+                A<string>._,
+                A<HybridMatchOptions?>._,
+                A<IReadOnlyList<string>?>._,
+                A<CancellationToken>._))
+            .Returns(Task.FromResult(new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches = [],
+                EntityMatches = [],
+                ResolvedEntities = [],
+                ResolutionStrategy = ResolutionStrategy.None,
+                ResolutionReason = "No matches"
+            }));
+
+        var musicConfig = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
+        A.CallTo(() => musicConfig.CurrentValue).Returns(new MusicAssistantConfig
+        {
+            IntegrationId = "DEMO"
+        });
+
+        var skillOptions = A.Fake<IOptionsMonitor<MusicPlaybackSkillOptions>>();
+        A.CallTo(() => skillOptions.CurrentValue).Returns(new MusicPlaybackSkillOptions());
+
+        return new MusicPlaybackSkill(
+            _homeAssistantClient,
+            NullLogger<MusicPlaybackSkill>.Instance,
+            emptyLocationService,
+            skillOptions,
+            musicConfig);
+    }
+
     private static JsonElement CreateLibraryResponseJson()
     {
                 const string json = """

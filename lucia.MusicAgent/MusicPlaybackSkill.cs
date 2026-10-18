@@ -96,6 +96,9 @@ public class MusicPlaybackSkill : IOptimizableSkill
             AIFunctionFactory.Create(PlayGenreAsync),
             AIFunctionFactory.Create(PlayShuffleAsync),
             AIFunctionFactory.Create(StopMusicAsync),
+            AIFunctionFactory.Create(NextTrackAsync),
+            AIFunctionFactory.Create(PreviousTrackAsync),
+            AIFunctionFactory.Create(GetNowPlayingAsync),
             AIFunctionFactory.Create(SetVolumeAsync),
             AIFunctionFactory.Create(VolumeUpAsync),
             AIFunctionFactory.Create(VolumeDownAsync)
@@ -131,6 +134,108 @@ public class MusicPlaybackSkill : IOptimizableSkill
             return $"Stopped playback on '{player.FriendlyName}'.";
         }, detail: playerName, cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    [Description("Skip the current song and play the next track on the identified player. Use when the user says skip, next song, next track, skip this one, etc. Always call this — do not refuse or say you cannot. Works on any media player (speakers, TVs).")]
+    public async Task<string> NextTrackAsync(
+        [Description("Media player name (e.g. 'Loft Speaker'). If the user did not name a player, use a generic term like 'speaker' or the last/likely player.")]
+        string playerName,
+        CancellationToken cancellationToken = default)
+    {
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
+
+        if (player is null)
+        {
+            return $"I couldn't find a media player that matches '{playerName}'.";
+        }
+
+        await _homeAssistantClient.CallServiceAsync("media_player", "next", null, new ServiceCallRequest { EntityId = player.EntityId }, cancellationToken).ConfigureAwait(false);
+        return $"Skipped to the next track on '{player.FriendlyName}'.";
+    }
+
+    [Description("Go back to the previous track on the identified player. Use when the user says previous song, go back one song, replay that, etc. Works on any media player (speakers, TVs).")]
+    public async Task<string> PreviousTrackAsync(
+        [Description("Media player name (e.g. 'Loft Speaker'). If the user did not name a player, use a generic term like 'speaker' or the last/likely player.")]
+        string playerName,
+        CancellationToken cancellationToken = default)
+    {
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
+
+        if (player is null)
+        {
+            return $"I couldn't find a media player that matches '{playerName}'.";
+        }
+
+        await _homeAssistantClient.CallServiceAsync("media_player", "previous", null, new ServiceCallRequest { EntityId = player.EntityId }, cancellationToken).ConfigureAwait(false);
+        return $"Went back to the previous track on '{player.FriendlyName}'.";
+    }
+
+    [Description("Report what is currently playing or paused on a media player, including song title and artist when available. Use when the user asks what song, track, movie, or music is playing, or who they are listening to. Works on any media player (speakers, TVs). If the user did not name a player, leave playerName empty to use the default player.")]
+    public async Task<string> GetNowPlayingAsync(
+        [Description("Media player name (e.g. 'Loft'). Leave empty if the user did not name a player.")]
+        string? playerName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
+
+        if (player is null)
+        {
+            return $"I couldn't find a media player to check{(playerName is null ? string.Empty : $"'{playerName}'")}.";
+        }
+
+        var state = await _homeAssistantClient.GetStateAsync(player.EntityId, cancellationToken).ConfigureAwait(false);
+        if (state is null)
+        {
+            return $"I couldn't read the current playback state of '{player.FriendlyName}'.";
+        }
+
+        var title = state.Attributes.GetValueOrDefault("media_title")?.ToString();
+        var artist = state.Attributes.GetValueOrDefault("media_artist")?.ToString();
+        var contentType = state.Attributes.GetValueOrDefault("media_content_type")?.ToString();
+
+        var byArtist = string.IsNullOrWhiteSpace(artist) ? string.Empty : $" by '{artist}'";
+        var kind = IsNonMusicContent(contentType) ? $" {ToDisplayContentType(contentType)}" : string.Empty;
+
+        if (string.Equals(state.State, "playing", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(title)
+                ? $"Playing{kind} on '{player.FriendlyName}'."
+                : $"Playing{kind} '{title}'{byArtist} on '{player.FriendlyName}'.";
+        }
+
+        if (string.Equals(state.State, "paused", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.IsNullOrWhiteSpace(title)
+                ? $"Paused on '{player.FriendlyName}'."
+                : $"Paused at '{title}'{byArtist} on '{player.FriendlyName}'.";
+        }
+
+        return $"Nothing is playing on '{player.FriendlyName}' right now.";
+    }
+
+    /// <summary>
+    /// True when the reported content type is something other than music (e.g. tv, movie, video),
+    /// indicating the now-playing response should mention the content type as a qualifier.
+    /// </summary>
+    private static bool IsNonMusicContent(string? contentType) =>
+        !string.IsNullOrWhiteSpace(contentType) &&
+        !string.Equals(contentType, "music", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Well-known Home Assistant media content types mapped to display-friendly labels.</summary>
+    private static readonly Dictionary<string, string> ContentTypeDisplayNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["tv"] = "TV",
+        ["tv_show"] = "TV show",
+        ["movie"] = "Movie",
+        ["video"] = "Video",
+        ["home_video"] = "Home video",
+        ["channel"] = "Channel",
+        ["radio"] = "Radio",
+        ["podcast"] = "Podcast",
+        ["audiobook"] = "Audiobook"
+    };
+
+    private static string ToDisplayContentType(string? contentType) =>
+        contentType is null ? string.Empty : ContentTypeDisplayNames.GetValueOrDefault(contentType, contentType);
 
     [Description("Set the volume on a MusicAssistant player. Use this when the user asks to set volume to a specific level (e.g. 50%, half volume, 80).")]
     public async Task<string> SetVolumeAsync(
