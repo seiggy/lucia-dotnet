@@ -1,18 +1,23 @@
 using lucia.Agents;
 using System.Collections.Concurrent;
 using lucia.AgentHost.Conversation.Models;
+using lucia.AgentHost.Memory;
 using lucia.Agents.Abstractions;
 using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Diarization;
 
 namespace lucia.AgentHost.Conversation;
 
+/// <summary>
+/// Voice onboarding. Confirmed answers go to Agent Memory when it is enabled, otherwise to <see cref="IMemoryStore"/>.
+/// </summary>
 public sealed partial class VoiceOnboardingWorkflow(
     VoiceOnboardingService enrollment,
     IDiarizationEngine diarization,
     IMemoryStore memories,
     TimeProvider timeProvider,
-    ILogger<VoiceOnboardingWorkflow> logger) : BackgroundService
+    ILogger<VoiceOnboardingWorkflow> logger,
+    AgentMemoryContextProvider? agentMemory = null) : BackgroundService
 {
     private const string ConversationPrefix = "voice-onboarding:";
     private static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(10);
@@ -231,10 +236,10 @@ public sealed partial class VoiceOnboardingWorkflow(
                     }
                     if (result.CompletedProfile is { } profile)
                     {
-                        await memories.StoreAsync(profile.Id, "preferred_name", state.Name!, ct: ct).ConfigureAwait(false);
+                        await SaveAnswerAsync(profile.Id, "preferred_name", state.Name!, ct).ConfigureAwait(false);
                         if (state.Birthday is not null)
                         {
-                            await memories.StoreAsync(profile.Id, "birthday", state.Birthday, ct: ct).ConfigureAwait(false);
+                            await SaveAnswerAsync(profile.Id, "birthday", state.Birthday, ct).ConfigureAwait(false);
                         }
                         _conversations.TryRemove(conversationId, out _);
                         LogCompleted(logger, conversationId, profile.Id);
@@ -316,6 +321,25 @@ public sealed partial class VoiceOnboardingWorkflow(
         }
     }
 
+    private async Task SaveAnswerAsync(string profileId, string key, string value, CancellationToken ct)
+    {
+        if (agentMemory is not null)
+        {
+            try
+            {
+                await agentMemory.RememberFactAsync(profileId, key, value, ct).ConfigureAwait(false);
+                return;
+            }
+            catch (Exception ex) when (!ex.IsCancellation())
+            {
+                // The voice profile already exists, so keep the answer rather than fail a finished enrollment.
+                LogAgentMemoryFallback(logger, ex, profileId);
+            }
+        }
+
+        await memories.StoreAsync(profileId, key, value, ct: ct).ConfigureAwait(false);
+    }
+
     private static string Prompt(VoiceOnboardingConversation state) => state.Stage switch
     {
         VoiceOnboardingStage.Consent => "I need your permission to save a voice profile and the facts you choose to share. Do you agree? You can say cancel at any time.",
@@ -352,4 +376,7 @@ public sealed partial class VoiceOnboardingWorkflow(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Voice onboarding failed for conversation {ConversationId}")]
     private static partial void LogFailed(ILogger logger, Exception exception, string conversationId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Agent Memory unavailable; saved onboarding answer for profile {ProfileId} to the built-in memory store")]
+    private static partial void LogAgentMemoryFallback(ILogger logger, Exception exception, string profileId);
 }

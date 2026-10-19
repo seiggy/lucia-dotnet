@@ -61,7 +61,7 @@ public class LuciaEngine
         string? originalUserText = null,
         CancellationToken cancellationToken = default)
     {
-        using var memoryScope = UserMemoryScope.Begin(speakerContext?.EnrolledProfileId);
+        using var memoryScope = UserMemoryScope.Begin(speakerContext?.EnrolledProfileId, originalUserText);
         using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.AddBaggage(nameof(userRequest), userRequest);
         _logger.LogInformation("Processing user request: {Request} (TaskId: {TaskId}, SessionId: {SessionId})",

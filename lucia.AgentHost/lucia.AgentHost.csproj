@@ -17,6 +17,9 @@
   <ItemGroup>
     <PackageReference Include="A2A" />
     <PackageReference Include="A2A.AspNetCore" />
+    <PackageReference Include="AgentMemory.AgentFramework" />
+    <PackageReference Include="AgentMemory.Extraction.Llm" />
+    <PackageReference Include="AgentMemory.Neo4j" />
     <PackageReference Include="Aspire.StackExchange.Redis" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />

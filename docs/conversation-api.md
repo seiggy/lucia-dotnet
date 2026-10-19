@@ -252,7 +252,9 @@ for sensitive data or privileged actions.
 Confirmed onboarding facts are stored under the enrolled profile ID as
 `preferred_name` and, when shared, `birthday`. Birthdays retain the wording the
 speaker confirmed. Onboarding does not infer missing date components, calculate
-ages, or create reminders. A skipped birthday is not stored.
+ages, or create reminders. A skipped birthday is not stored. With
+[Neo4j Agent Memory](#neo4j-agent-memory-optional) enabled, these answers go to
+Neo4j instead.
 Existing room and preference memories are preserved and remain editable in the
 dashboard. Already-enrolled users can ask Lucia to remember their birthday
 without enrolling again. Memories use the existing `IMemoryStore` and configured database,
@@ -290,6 +292,59 @@ Personal-memory searches exclude the reserved `chat_history` namespace in the
 datastore before applying the result limit. Recent conversation turns therefore
 cannot crowd saved preferences out of memory tools or injected user context;
 history retrieval continues to use the unfiltered memory search.
+
+### Neo4j Agent Memory (optional)
+
+Lucia can store long-term personal memory in a Neo4j knowledge graph using
+[AgentMemory](https://github.com/joslat/agent-memory-dotnet/blob/main/docs/agent-framework.md)
+instead of the built-in memory provider. It is off by default. Set these keys in
+the dashboard's **Configuration** page under `AgentMemory`, or in configuration,
+then restart Lucia:
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `Enabled` | `false` | Use Neo4j Agent Memory instead of the built-in provider |
+| `Uri` | `bolt://localhost:7687` | Neo4j Bolt URI |
+| `Username` | `neo4j` | Neo4j user |
+| `Password` | empty | Neo4j password (masked in the dashboard) |
+| `Database` | `neo4j` | Neo4j database |
+| `EmbeddingDimensions` | `1536` | Vector size of the embedding provider |
+| `ModelConnectionName` | default model | Model provider that extracts facts and preferences |
+| `EmbeddingProviderName` | default provider | Embedding provider used for recall |
+
+Neo4j 5.x or later is required, for example
+`docker run -d -p 7687:7687 -e NEO4J_AUTH=neo4j/<password> neo4j:5.26`.
+An embedding provider must be configured under Model Providers.
+`EmbeddingDimensions` must match it before the first start. Neo4j fixes the
+vector index size when it creates the indexes.
+
+When enabled, the agent context provider recalls entities, facts, and preferences
+for the verified enrolled speaker before each agent run. After the run, the
+model extracts new facts and preferences from what the speaker actually said.
+Lucia passes only the speaker's utterance to Agent Memory, once per turn, not
+the generated prompt with Home Assistant context, earlier replies, or router
+instructions that sub-agents receive. The
+`memory_*` tools are replaced by AgentMemory's `search_memory`,
+`remember_fact`, `remember_preference`, `recall_preferences`,
+`search_knowledge`, and `find_similar_tasks`. There is no forget tool. To
+correct or forget something, the speaker states the new fact, and the agent
+saves it to supersede the old one.
+
+The verified profile ID is the AgentMemory owner, and the model cannot supply
+it. AgentMemory runs in strict multi-tenant mode, so an operation without an
+owner fails instead of reading or writing shared memory. Unknown voices get no
+memory context and no memory tools. Lucia creates the Neo4j schema in the
+background at startup, which can take tens of seconds. Memory stays off until
+the schema is ready, and a Neo4j outage disables memory for that turn without
+failing the request.
+
+Onboarding answers are saved to Neo4j as `user preferred_name <name>` and
+`user birthday <date>` facts owned by the enrolled profile. If Neo4j is
+unavailable, onboarding still completes and saves them to the built-in store.
+The built-in store remains in use for the dashboard's **User memories** page,
+`/api/memory`, chat history, and the reconstructed Home Assistant prompt. Agent
+recall does not include those entries. Fact extraction sends the speaker's
+messages to the configured extraction model.
 
 ## Response Template API
 

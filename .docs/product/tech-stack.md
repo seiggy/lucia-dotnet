@@ -20,6 +20,7 @@
 - **Lightweight Option:** SQLite (default store) via `Microsoft.Data.Sqlite`; PostgreSQL via `Npgsql`
 - **Runtime Usage:** Redis for session/task persistence; PostgreSQL or SQLite for traces, config overrides, and task records
 - **Storage:** databases `luciatraces`, `luciaconfig`, `luciatasks` (separate PostgreSQL databases or SQLite files)
+- **Optional long-term memory:** Neo4j 5.x through AgentMemory 1.9.0 (`AgentMemory.AgentFramework`, `AgentMemory.Neo4j`, `AgentMemory.Extraction.Llm`, which bring in `Neo4j.Driver` 6.3.0). Off unless `AgentMemory:Enabled` is true. It adds graph recall and LLM fact extraction as a Microsoft Agent Framework `AIContextProvider`, so Lucia does not maintain its own graph memory code.
 
 ## Agent Stack
 

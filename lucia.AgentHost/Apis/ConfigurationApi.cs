@@ -420,6 +420,25 @@ public static class ConfigurationApi
         },
         new()
         {
+            Section = "AgentMemory",
+            Description = "Optional Neo4j long-term user memory (Agent Memory). Replaces the built-in user memory when enabled. Restart Lucia after changing these settings.",
+            Properties =
+            [
+                new("Enabled", "boolean", "Use Neo4j Agent Memory instead of the built-in user memory", "false"),
+                new("Uri", "string", "Neo4j Bolt URI", "bolt://localhost:7687"),
+                new("Username", "string", "Neo4j username", "neo4j"),
+                new("Password", "string", "Neo4j password", "", true),
+                new("Database", "string", "Neo4j database name", "neo4j"),
+                new("EmbeddingDimensions", "number",
+                    "Vector size of the embedding provider. Neo4j fixes it when it first creates the memory indexes.", "1536"),
+                new("ModelConnectionName", "model-select",
+                    "Model provider for extracting facts and preferences. Leave empty to use the default model.", ""),
+                new("EmbeddingProviderName", "string",
+                    "Embedding provider for memory recall. Leave empty to use the default embedding provider.", "")
+            ]
+        },
+        new()
+        {
             Section = "Wyoming:CommandRouting",
             Description = "Voice command routing settings",
             Properties =

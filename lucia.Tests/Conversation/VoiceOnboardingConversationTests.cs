@@ -6,6 +6,10 @@ using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Templates;
 using lucia.AgentHost.Conversation.Tracing;
+using lucia.AgentHost.Memory;
+using AgentMemory.Abstractions.Services;
+using AgentMemory.AgentFramework;
+using AgentMemory.Core;
 using lucia.Agents.CommandTracing;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Services;
@@ -36,8 +40,8 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     private readonly AgentHostTelemetrySource _telemetry = new();
     private readonly VoiceOnboardingService _enrollment;
     private readonly TestDiarizationEngine _diarization;
-    private readonly VoiceOnboardingWorkflow _workflow;
-    private readonly ConversationCommandProcessor _processor;
+    private VoiceOnboardingWorkflow _workflow = null!;
+    private ConversationCommandProcessor _processor = null!;
     private string _conversationId = "conversation-1";
 
     public VoiceOnboardingConversationTests()
@@ -50,14 +54,20 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         _enrollment = new VoiceOnboardingService(
             _diarization, _profiles, new AudioQualityAnalyzer(Options.Create(options)),
             Options.Create(options), NullLogger<VoiceOnboardingService>.Instance);
-        _workflow = new VoiceOnboardingWorkflow(
-            _enrollment, new TestDiarizationEngine(), _memories,
-            _clock, NullLogger<VoiceOnboardingWorkflow>.Instance);
         var services = new ServiceCollection();
         services.AddOptions<VoiceProfileOptions>().Bind(_configuration.GetSection(VoiceProfileOptions.SectionName));
         services.AddSingleton<Microsoft.Extensions.Logging.ILogger<SpeakerVerificationFilter>>(NullLogger<SpeakerVerificationFilter>.Instance);
         services.AddSingleton<SpeakerVerificationFilter>();
         _services = services.BuildServiceProvider();
+        UseWorkflow(new VoiceOnboardingWorkflow(
+            _enrollment, new TestDiarizationEngine(), _memories,
+            _clock, NullLogger<VoiceOnboardingWorkflow>.Instance));
+    }
+
+    private void UseWorkflow(VoiceOnboardingWorkflow workflow)
+    {
+        _workflow?.Dispose();
+        _workflow = workflow;
         _processor = ActivatorUtilities.CreateInstance<ConversationCommandProcessor>(
             _services,
             _router,
@@ -460,6 +470,53 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
             await new UserContextProvider(_memories).GetUserContextAsync(profile.Id, CancellationToken.None));
         Assert.Empty(await _memories.GetAllAsync("ha-service-account"));
         A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AgentMemoryEnabled_SavesConfirmedFacts_FallsBackToBuiltInStoreWhenNeo4jIsDown(bool neo4jDown)
+    {
+        var facade = A.Fake<IMemoryQueryFacade>();
+        A.CallTo(() => facade.RememberFactAsync(A<string>._, A<string>._, A<string>._, A<CancellationToken>._))
+            .Returns(neo4jDown ? MemoryQueryResult.Failed("neo4j down") : MemoryQueryResult.Ok("stored"));
+        using var memoryServices = new ServiceCollection()
+            .AddSingleton(facade)
+            .AddAgentMemoryCore(_ => { })
+            .BuildServiceProvider();
+        var agentMemory = new AgentMemoryContextProvider(
+            memoryServices.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(new AgentFrameworkOptions()),
+            NullLogger<AgentMemoryContextProvider>.Instance);
+        UseWorkflow(new VoiceOnboardingWorkflow(
+            _enrollment, new TestDiarizationEngine(), _memories,
+            _clock, NullLogger<VoiceOnboardingWorkflow>.Instance, agentMemory));
+
+        var response = await SayAsync("Onboard me");
+        foreach (var answer in new[] { "yes", "My name is Alice", "March 14, 1990", "yes" })
+        {
+            response = await SayAsync(answer);
+        }
+        for (var index = 0; index < 3; index++)
+        {
+            response = await SayAsync(GetPhrase(response));
+        }
+
+        Assert.False(response.NeedsInput);
+        var profile = Assert.Single(await _profiles.GetEnrolledProfilesAsync(CancellationToken.None));
+        A.CallTo(() => facade.RememberFactAsync("user", "preferred_name", "Alice", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+        A.CallTo(() => facade.RememberFactAsync("user", "birthday", "March 14, 1990", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+        if (neo4jDown)
+        {
+            Assert.Equal("Alice", await _memories.RetrieveAsync(profile.Id, "preferred_name"));
+            Assert.Equal("March 14, 1990", await _memories.RetrieveAsync(profile.Id, "birthday"));
+        }
+        else
+        {
+            Assert.Empty(await _memories.GetAllAsync(profile.Id));
+        }
     }
 
     [Fact]

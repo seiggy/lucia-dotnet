@@ -36,7 +36,7 @@ public sealed class TracingChatClientFactory
         ITraceRepository repository,
         ILoggerFactory loggerFactory,
         LiveActivityChannel? liveChannel = null,
-        UserContextProvider? userContextProvider = null)
+        AIContextProvider? userContextProvider = null)
     {
         _repository = repository;
         _loggerFactory = loggerFactory;
@@ -49,7 +49,7 @@ public sealed class TracingChatClientFactory
             {
                 StorageInputRequestMessageFilter = messages => messages.Where(message =>
                     message.GetAgentRequestMessageSourceType() != AgentRequestMessageSourceType.ChatHistory
-                    && message.GetAgentRequestMessageSourceId() != typeof(UserContextProvider).FullName)
+                    && message.GetAgentRequestMessageSourceType() != AgentRequestMessageSourceType.AIContextProvider)
             });
         }
     }
