@@ -32,6 +32,21 @@ public sealed class RealAgentInstance : IAsyncDisposable
     public ConversationTracer? Tracer { get; init; }
 
     /// <summary>
+    /// Optional full-pipeline executor used by orchestrated eval targets.
+    /// Direct-agent targets leave this null and run through <see cref="AIAgent"/>.
+    /// </summary>
+    internal Func<string, CancellationToken, Task<string>>? ScenarioExecutor { get; init; }
+
+    /// <summary>Returns the last agent selected by an orchestrated eval target.</summary>
+    internal Func<string?>? RoutedAgentId { get; init; }
+
+    /// <summary>Returns the routing decision, instructions, and agent replies for the last scenario.</summary>
+    internal Func<RoutingTrace?>? RoutingDetails { get; init; }
+
+    /// <summary>Clears orchestrator observations before the next scenario.</summary>
+    internal Action? ResetScenarioState { get; init; }
+
+    /// <summary>
     /// The outermost <see cref="IChatClient"/> in the pipeline for this instance, set by
     /// <see cref="RealAgentFactory"/>. Disposing the instance releases the underlying socket
     /// handles owned by the backend client (Ollama, OpenAI, etc.).

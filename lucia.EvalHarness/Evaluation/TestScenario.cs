@@ -46,6 +46,12 @@ public sealed class TestScenario
     public required string UserPrompt { get; init; }
 
     /// <summary>
+    /// Expected orchestrator route. Direct-agent runs ignore this value.
+    /// Scenarios without a value are excluded from orchestrated-agent runs.
+    /// </summary>
+    public string? ExpectedAgent { get; init; }
+
+    /// <summary>
     /// Expected tool call chain in order. Each entry defines a tool name
     /// and optional argument matchers. Use <c>null</c> for "any value".
     /// </summary>

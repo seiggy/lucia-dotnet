@@ -11,6 +11,7 @@ public sealed class TestCaseResult
     public string? AgentOutput { get; init; }
     public string? Input { get; init; }
     public IReadOnlyList<ToolCallTrace>? ToolCalls { get; init; }
+    public RoutingTrace? Routing { get; init; }
     public IReadOnlyList<ConversationTurn>? ConversationHistory { get; init; }
     public string? JudgeStatus { get; init; }
     public string? JudgeReason { get; init; }

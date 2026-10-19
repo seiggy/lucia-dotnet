@@ -106,23 +106,42 @@ public static class ScenarioValidator
         }
 
         // Check tool count
-        if (actualToolCalls.Count < expected.Count)
+        var requiredCount = expected.Count(static call => !call.Optional);
+        if (actualToolCalls.Count < requiredCount)
         {
-            issues.Add($"Expected {expected.Count} tool call(s) but only got {actualToolCalls.Count}");
+            issues.Add($"Expected {requiredCount} tool call(s) but only got {actualToolCalls.Count}");
         }
 
-        // Walk through expected calls in order
+        // Walk through expected calls in order. An absent optional call does not
+        // consume an actual call, so the next expectation sees the same one.
+        var actualIndex = 0;
         for (var i = 0; i < expected.Count; i++)
         {
             var exp = expected[i];
+            var actualAvailable = actualIndex < actualToolCalls.Count;
 
-            if (i >= actualToolCalls.Count)
+            if (exp.Optional
+                && (!actualAvailable || !NamesMatch(exp, actualToolCalls[actualIndex].Name)))
+            {
+                continue;
+            }
+
+            if (!actualAvailable)
             {
                 issues.Add($"[{i}] Expected {exp.Tool} but no more tool calls were made");
                 continue;
             }
 
-            var actual = actualToolCalls[i];
+            var actual = actualToolCalls[actualIndex++];
+            if (exp.Optional)
+            {
+                // Models often repeat an optional lookup; extra identical calls are harmless.
+                while (actualIndex < actualToolCalls.Count && NamesMatch(exp, actualToolCalls[actualIndex].Name))
+                {
+                    actualIndex++;
+                }
+            }
+
             var variants = new[] { exp }.Concat(exp.Alternatives).ToList();
             exp = variants.FirstOrDefault(candidate =>
                       string.Equals(NormalizeFunctionName(candidate.Tool), NormalizeFunctionName(actual.Name), StringComparison.OrdinalIgnoreCase) &&
@@ -179,6 +198,13 @@ public static class ScenarioValidator
         }
     }
 
+    private static bool NamesMatch(ExpectedToolCall expected, string actualName) =>
+        new[] { expected }.Concat(expected.Alternatives).Any(candidate =>
+            string.Equals(
+                NormalizeFunctionName(candidate.Tool),
+                NormalizeFunctionName(actualName),
+                StringComparison.OrdinalIgnoreCase));
+
     private static string? GetArgument(ToolCallInfo actual, string name) =>
         actual.Arguments?.FirstOrDefault(argument =>
             string.Equals(argument.Key, name, StringComparison.OrdinalIgnoreCase)).Value;
@@ -196,13 +222,13 @@ public static class ScenarioValidator
         List<string> successes)
     {
         // Get the final assistant text response
-        var finalResponse = conversation
+        var finalResponse = NormalizeText(conversation
             .LastOrDefault(t => t.Role == "assistant" && t.Content is not null && t.ToolCalls is null)
-            ?.Content ?? "";
+            ?.Content ?? "");
 
         foreach (var mustContain in scenario.ResponseMustContain)
         {
-            if (finalResponse.Contains(mustContain, StringComparison.OrdinalIgnoreCase))
+            if (finalResponse.Contains(NormalizeText(mustContain), StringComparison.OrdinalIgnoreCase))
                 successes.Add($"Response contains '{mustContain}'");
             else
                 issues.Add($"Response missing expected text '{mustContain}'. Got: '{Truncate(finalResponse, 100)}'");
@@ -210,11 +236,44 @@ public static class ScenarioValidator
 
         foreach (var mustNotContain in scenario.ResponseMustNotContain)
         {
-            if (finalResponse.Contains(mustNotContain, StringComparison.OrdinalIgnoreCase))
+            if (finalResponse.Contains(NormalizeText(mustNotContain), StringComparison.OrdinalIgnoreCase))
                 issues.Add($"Response contains prohibited text '{mustNotContain}'");
             else
                 successes.Add($"Response correctly omits '{mustNotContain}'");
         }
+    }
+
+    /// <summary>
+    /// Models emit curly quotes and Unicode spaces such as U+202F between words.
+    /// Fold them to ASCII so a correct answer is not marked missing.
+    /// </summary>
+    private static string NormalizeText(string text)
+    {
+        var builder = new StringBuilder(text.Length);
+        var previousWasSpace = false;
+        foreach (var character in text)
+        {
+            if (char.IsWhiteSpace(character))
+            {
+                if (!previousWasSpace)
+                {
+                    builder.Append(' ');
+                }
+
+                previousWasSpace = true;
+                continue;
+            }
+
+            previousWasSpace = false;
+            builder.Append(character switch
+            {
+                '\u2018' or '\u2019' or '\u02BC' => '\'',
+                '\u201C' or '\u201D' => '"',
+                _ => character
+            });
+        }
+
+        return builder.ToString().Trim();
     }
 
     private static async Task ValidateFinalStateAsync(

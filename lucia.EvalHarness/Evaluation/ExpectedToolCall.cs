@@ -10,4 +10,10 @@ public sealed class ExpectedToolCall
     public Dictionary<string, string> Arguments { get; init; } = [];
 
     public List<ExpectedToolCall> Alternatives { get; init; } = [];
+
+    /// <summary>
+    /// When true, the call may be absent. A matching call is consumed and checked;
+    /// otherwise the next expectation is compared with the same actual call.
+    /// </summary>
+    public bool Optional { get; init; }
 }

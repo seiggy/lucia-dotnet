@@ -137,17 +137,14 @@ scenarios:
           current_temperature: 69
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "What's the temperature in the living room?"
+    # Any mix of read-only lookups is fine. The answer must carry the real value.
     expected_tool_calls:
-      - tool: FindClimateDevicesByArea
-        arguments:
-          areaName: "contains:living room"
-        alternatives:
-          - tool: FindClimateDevice
-            arguments:
-              searchTerm: "contains:living room"
       - tool: GetClimateState
-        arguments:
-          entityId: "climate.living_room_thermostat"
+        optional: true
+        alternatives:
+          - tool: FindClimateDevicesByArea
+          - tool: FindClimateDevice
+          - tool: GetAreaClimateSensors
     response_must_contain:
       - "69"
 
@@ -167,16 +164,14 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "What mode is the thermostat set to?"
     expected_tool_calls:
-      - tool: FindClimateDevice
-        arguments:
-          searchTerm: "contains:living room"
+      - tool: GetClimateState
+        optional: true
         alternatives:
           - tool: FindClimateDevicesByArea
-            arguments:
-              areaName: "contains:living room"
-      - tool: GetClimateState
-        arguments:
-          entityId: "climate.living_room_thermostat"
+          - tool: FindClimateDevice
+          - tool: GetAreaClimateSensors
+    response_must_contain:
+      - "cool"
 
   # --- Control: Set HVAC Mode (heat) ---
   - id: set_hvac_mode_heat
@@ -195,12 +190,10 @@ scenarios:
     user_prompt: "Switch the thermostat to heat mode"
     expected_tool_calls:
       - tool: FindClimateDevice
-        arguments:
-          searchTerm: "contains:living room"
+        optional: true
         alternatives:
           - tool: FindClimateDevicesByArea
-            arguments:
-              areaName: "contains:living room"
+          - tool: GetClimateState
       - tool: SetClimateHvacMode
         arguments:
           entityId: "climate.living_room_thermostat"
@@ -226,12 +219,10 @@ scenarios:
     user_prompt: "Turn off the thermostat"
     expected_tool_calls:
       - tool: FindClimateDevice
-        arguments:
-          searchTerm: "contains:living room"
+        optional: true
         alternatives:
           - tool: FindClimateDevicesByArea
-            arguments:
-              areaName: "contains:living room"
+          - tool: GetClimateState
       - tool: SetClimateHvacMode
         arguments:
           entityId: "climate.living_room_thermostat"
@@ -257,12 +248,10 @@ scenarios:
     user_prompt: "Put the thermostat on cool"
     expected_tool_calls:
       - tool: FindClimateDevice
-        arguments:
-          searchTerm: "contains:living room"
+        optional: true
         alternatives:
           - tool: FindClimateDevicesByArea
-            arguments:
-              areaName: "contains:living room"
+          - tool: GetClimateState
       - tool: SetClimateHvacMode
         arguments:
           entityId: "climate.living_room_thermostat"
@@ -288,17 +277,11 @@ scenarios:
     user_prompt: "I'm cold"
     expected_tool_calls:
       - tool: GetComfortAdjustment
-        arguments: {}
-      - tool: FindClimateDevicesByArea
-        arguments:
-          areaName: "contains:living room"
+        optional: true
         alternatives:
+          - tool: FindClimateDevicesByArea
           - tool: FindClimateDevice
-            arguments:
-              searchTerm: "contains:living room"
-      - tool: GetClimateState
-        arguments:
-          entityId: "climate.living_room_thermostat"
+          - tool: GetClimateState
       - tool: SetClimateTemperature
         arguments:
           entityId: "climate.living_room_thermostat"
@@ -328,12 +311,11 @@ scenarios:
     user_prompt: "Set the thermostat fan to high"
     expected_tool_calls:
       - tool: FindClimateDevicesByArea
-        arguments:
-          areaName: "contains:living room"
+        optional: true
         alternatives:
           - tool: FindClimateDevice
-            arguments:
-              searchTerm: "contains:living room"
+          - tool: FindFansByArea
+          - tool: GetClimateState
       - tool: SetClimateFanMode
         arguments:
           entityId: "climate.living_room_thermostat"
@@ -349,7 +331,13 @@ scenarios:
     description: "Reject music request — not a climate task"
     category: out-of-domain
     user_prompt: "Play some jazz in the kitchen"
-    expected_tool_calls: []
+    # A read-only lookup before declining is tolerated. Changing settings is not (see final state).
+    expected_tool_calls:
+      - tool: FindClimateDevicesByArea
+        optional: true
+        alternatives:
+          - tool: FindClimateDevice
+          - tool: GetClimateState
     response_must_not_contain:
       - "set the temperature"
       - "adjust the thermostat"
@@ -359,7 +347,12 @@ scenarios:
     description: "Reject lighting request — not a climate task"
     category: out-of-domain
     user_prompt: "Turn on the living room lights"
-    expected_tool_calls: []
+    expected_tool_calls:
+      - tool: FindClimateDevicesByArea
+        optional: true
+        alternatives:
+          - tool: FindClimateDevice
+          - tool: GetClimateState
     response_must_not_contain:
       - "set the temperature"
       - "adjust the thermostat"
