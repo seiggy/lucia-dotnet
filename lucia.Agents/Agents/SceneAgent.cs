@@ -85,14 +85,16 @@ public sealed class SceneAgent : ILuciaAgent, ISkillConfigProvider
                 - Find scenes by area/room
 
                 You have access to these scene control functions:
-                - ListScenesAsync: List all available scenes
-                - FindScenesByAreaAsync: Find scenes in a specific area (e.g., living room, bedroom)
-                - ActivateSceneAsync: Activate a scene by entity ID (e.g., scene.movie_mode)
+                - ListScenes: List all available scenes
+                - FindScenesByArea: Find scenes in a specific area (e.g., living room, bedroom)
+                - ActivateScene: Activate a scene by entity ID (e.g., scene.movie_mode)
 
                 ## MANDATORY RULES
-                1. For "activate scene X" requests: use ListScenesAsync or FindScenesByAreaAsync first to find the scene entity ID, then call ActivateSceneAsync with that entity ID.
-                2. When the user mentions an area (e.g., "living room scene"), use FindScenesByAreaAsync to find scenes in that area.
-                3. Scene entity IDs use the format scene.NAME (e.g., scene.movie_mode, scene.romantic). Pass the full entity ID to ActivateSceneAsync.
+                1. For "activate scene X" requests: use ListScenes or FindScenesByArea first to find the scene entity ID, then call ActivateScene with that entity ID. Finding a scene does not activate it. You MUST call ActivateScene in the same turn.
+                2. When the user mentions an area (e.g., "living room scene"), use FindScenesByArea to find scenes in that area.
+                3. Scene entity IDs use the format scene.NAME (e.g., scene.movie_mode, scene.romantic). Pass the full entity ID to ActivateScene.
+                4. Only say a scene is activated after ActivateScene succeeds.
+                5. For requests that are not about scenes, call no tools.
 
                 ## Response format
                 * Keep responses short and informative (e.g., "I've activated the movie scene.", "Scene 'Movie Mode' activated.").
