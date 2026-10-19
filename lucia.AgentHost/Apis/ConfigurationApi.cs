@@ -5,6 +5,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
+using lucia.MusicAgent;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -249,20 +250,44 @@ public static class ConfigurationApi
     }
 
     /// <summary>
-    /// Tests the Music Assistant integration by querying the library with the provided IntegrationId.
+    /// Tests direct Music Assistant when configured, otherwise the Home Assistant integration.
     /// </summary>
     private static async Task<Results<Ok<MusicAssistantTestResult>, BadRequest<string>>> TestMusicAssistantAsync(
         [FromBody] MusicAssistantTestRequest request,
         [FromServices] IHomeAssistantClient haClient,
+        [FromServices] MusicAssistantClient musicAssistantClient,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.IntegrationId))
-        {
-            return TypedResults.BadRequest("IntegrationId is required.");
-        }
-
         try
         {
+            var hasDirectRequest = !string.IsNullOrWhiteSpace(request.Url)
+                && !string.IsNullOrWhiteSpace(request.Token)
+                && request.Token != "********";
+            if (hasDirectRequest || musicAssistantClient.IsConfigured)
+            {
+                var itemCount = hasDirectRequest
+                    ? await musicAssistantClient.TestConnectionAsync(
+                        request.Url,
+                        request.Token,
+                        cancellationToken).ConfigureAwait(false)
+                    : await musicAssistantClient.TestConnectionAsync(
+                        cancellationToken: cancellationToken).ConfigureAwait(false);
+
+                return TypedResults.Ok(new MusicAssistantTestResult
+                {
+                    Success = true,
+                    Message = itemCount > 0
+                        ? "Direct Music Assistant connection succeeded."
+                        : "Direct Music Assistant connection succeeded, but the music library is empty."
+                });
+            }
+
+            if (string.IsNullOrWhiteSpace(request.IntegrationId))
+            {
+                return TypedResults.BadRequest(
+                    "Configure a direct Music Assistant URL and token, or provide the Home Assistant IntegrationId.");
+            }
+
             var serviceRequest = new ServiceCallRequest
             {
                 ["media_type"] = "track",
@@ -279,8 +304,8 @@ public static class ConfigurationApi
             {
                 Success = true,
                 Message = trackCount > 0
-                    ? $"Connection successful — Music Assistant library returned {trackCount} track(s)."
-                    : "Connection successful but the library appears empty."
+                    ? $"Home Assistant connection succeeded and returned {trackCount} track(s)."
+                    : "Home Assistant connection succeeded, but the music library is empty."
             });
         }
         catch (Exception ex)
@@ -318,7 +343,7 @@ public static class ConfigurationApi
                 new("ChatCacheSemanticThreshold", "number", "Minimum cosine similarity for chat cache semantic hits (0.0-1.0)", "0.98"),
                 new("MaxAttempts", "number", "Maximum routing retry attempts", "2"),
                 new("Temperature", "number", "LLM temperature for routing (0.0-2.0)", "1.0"),
-                new("MaxOutputTokens", "number", "Maximum output tokens for router", "512"),
+                new("MaxOutputTokens", "number", "Maximum output tokens for router", "2048"),
                 new("IncludeAgentCapabilities", "boolean", "Include agent capabilities in router prompt", "true"),
                 new("IncludeSkillExamples", "boolean", "Include skill examples in router prompt", "false")
             ]
@@ -402,9 +427,10 @@ public static class ConfigurationApi
             Description = "Music Assistant integration settings",
             Properties =
             [
+                new("Url", "string", "Direct Music Assistant server URL. Preferred when URL and token are both set.", ""),
+                new("Token", "string", "Music Assistant long-lived access token.", "", true),
                 new("IntegrationId", "string", "Home Assistant integration entry ID for Music Assistant. " +
-                                               "To find this: open your HA config directory, look in .storage/core.config_entries, " +
-                                               "search for \"music_assistant\", and copy the entry_id value.", "")
+                                               "Used as the fallback when direct Music Assistant is not configured.", "")
             ]
         },
         new()

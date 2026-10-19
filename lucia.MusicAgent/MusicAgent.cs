@@ -66,7 +66,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
         {
             Id = "id_music_agent",
             Name = "MusicPlayback",
-            Description = "Skillset for controlling Music Assistant playback (artists, albums, genres, tracks) and transport controls — stop, skip, now-playing, volume — on any media player",
+            Description = "Skillset for controlling Music Assistant playback (artists, albums, genres, tracks, audiobooks) and transport controls — stop, skip, now-playing, volume — on any media player",
             Tags = [
                 "music",
                 "media",
@@ -82,13 +82,15 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
                 "Shuffle Satellite1 loft",
                 "Play the album Random Access Memories on the office speaker",
                 "Play the song Shivers by Ed Sheeran in the bedroom",
+                "Resume Altered Carbon on Satellite1 Dev Office",
                 "Turn up the volume on the kitchen speaker",
                 "Set volume to 50% on Loft",
                 "Stop the music",
                 "Turn off the music on the loft",
                 "Skip that song on the kitchen speaker",
                 "Next track on the loft",
-                "What song is playing on the TV?"
+                "What song is playing on the TV?",
+                "Find the Yamaha speakers"
             ]
         };
 
@@ -111,12 +113,13 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
         _agent.SetUrl("pending"); // Updated in InitializeAsync
 
         var instructions = """
-            You are Lucia's dedicated Music Playback Agent for Satellite1 speakers powered by Home Assistant's Music Assistant integration. Transport controls (stop, skip, previous, volume) and now-playing queries work on any media player in the home, including TVs.
+            You are Lucia's dedicated Music Playback Agent for Music Assistant players. Transport controls (stop, skip, previous, volume) and now-playing queries work on any media player in the home, including TVs.
 
             Your job is to execute music playback and volume requests with the correct action tool.
 
             Responsibilities:
             - Play music by artist, album, genre, or specific song.
+            - Play or resume audiobooks by title.
             - Shuffle library music when the user asks to shuffle or gives no music preference.
             - Skip to the next track or go back to the previous track when asked (works on any media player, including TVs).
             - Report what is currently playing on a player (song title and artist) when the user asks what's playing, what song is on, or who they're listening to. If the user does not name a player, call GetNowPlaying with no playerName.
@@ -125,23 +128,32 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
             - Confirm the selected device, the requested media, and whether shuffle/radio mode is enabled.
             - Stay focused on media playback. For other smart home tasks, politely route to the appropriate specialist agent.
 
-            When users refer to a Satellite speaker (e.g. "Satellite1 kitchen", "satellite loft"), locate the best matching endpoint before invoking any action.
-            If the user refers to a location (e.g. "Office"), use the FindPlayer tool to search for a player that may be in that location.
-            Use the FindPlayer tool to find the device the user requested to have the music played on.
-            If you are unsure which endpoint to use, ask a clarifying question before starting playback. If you are at least 50% sure, just choose the endpoint you think is correct.
-            If the user does not specify any details about the type of music, simply shuffle music from their library.
+            Choosing the player:
+            - The action tools resolve the player themselves, so you can call them directly with the spoken device name. Use FindPlayer when you are unsure which player the user means, or when the user asks to find or locate a speaker or player.
+            - Pass the device the user spoke as playerName, exactly as they said it (e.g. "office speaker", "Yamaha", "Satellite1 kitchen").
+            - A "[Device Area: ...]" header only says where the user is standing. It is NOT a player name. Use it only when the user named no device, and then pass the area (or leave playerName empty for GetNowPlaying).
+            - Once a tool has resolved a player, do not ask the user to confirm it. Ask a clarifying question only when no player could be found.
+            - If the user does not specify any details about the type of music, shuffle music from their library.
 
             Tool Guidance:
             - Artist request -> PlayArtist(playerName=<device phrase>, artist=<artist>)
-            - No specific music, "just shuffle", or similar -> ShuffleLibrary(playerName=<device phrase>)
+            - Album request -> PlayAlbum(playerName=<device phrase>, album=<album>)
+            - Specific song -> PlaySong(playerName=<device phrase>, song=<title>, artist=<artist if given>)
+            - Genre or mood request -> PlayGenre(playerName=<device phrase>, genre=<genre>)
+            - Audiobook request (book, audiobook, "resume <title>") -> PlayAudiobook(playerName=<device phrase>, audiobook=<title>)
+            - No specific music, "just shuffle", or similar -> PlayShuffle(playerName=<device phrase>)
+            - "Stop" / "turn off the music" -> StopMusic(playerName=<device phrase>)
             - "Skip that" / "next song" / "next track" -> NextTrack(playerName=<device phrase>)
             - "Previous song" / "go back" -> PreviousTrack(playerName=<device phrase>)
             - "What's playing?" / "what song is on?" -> GetNowPlaying(playerName=<device phrase or empty>)
-            
+            - "Louder" / "turn it up" -> VolumeUp; "quieter" / "turn it down" -> VolumeDown; "volume 40%" -> SetVolume
+            - "Find the <speaker>" / "which player is the <speaker>?" -> FindPlayer(playerName=<device phrase>) and report the result
+
             ## IMPORTANT
             * Keep your responses short and informative only. Examples: "Shuffling some music!", "Playing 'The Hanging Garden' by 'The Cure'.", "Stopped.", "Now on 'Close to You' by The Cure."
             * When the user asks to stop, turn off, or pause music: call StopMusic (with the player name if given, or e.g. "speaker" to pick a default), then reply briefly e.g. "Stopped." or "Music is off." Do not say you cannot do it or ask unnecessary questions.
             * When the user asks what is playing, always call GetNowPlaying — do not guess from memory and do not refuse.
+            * NEVER say music is playing, stopped, skipped, or changed until the matching tool call has succeeded. If you have not called the tool, call it now.
             * Do not offer to provide other assistance.
             * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the Bedroom Speaker?", "I'm sorry, I couldn't find a speaker named 'Living Room Speakers'; Is it known by another name?"
             """;
@@ -254,7 +266,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
             ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
-            Description = "Handles media playback — music via Music Assistant, transport controls (stop/skip/now-playing/volume) on any media player",
+            Description = "Handles Music Assistant playback for music and audiobooks, plus transport controls (stop/skip/now-playing/volume) on any media player",
             ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,

@@ -556,7 +556,9 @@ When deploying with Docker or automation, you can skip the setup wizard by provi
 | `HOMEASSISTANT__BASEURL` | Home Assistant instance URL (e.g. `http://homeassistant.local:8123`). |
 | `HOMEASSISTANT__ACCESSTOKEN` | Long-lived access token from HA (Profile → Long-Lived Access Tokens). |
 | `LUCIA_HA_API_KEY` | Optional: API key for the Home Assistant integration (same as shown in the wizard). |
-| `MUSICASSISTANT__INTEGRATIONID` | Optional: HA Music Assistant config entry ID for the music agent. |
+| `MUSICASSISTANT_URL` | Optional: direct Music Assistant server URL. Preferred when URL and token are both set. |
+| `MUSICASSISTANT_TOKEN` | Optional: Music Assistant long-lived access token. |
+| `MUSICASSISTANT__INTEGRATIONID` | Optional: HA Music Assistant config entry ID used when direct access is not configured. |
 
 The Docker image includes the official plugins (MetaMCP, SearXNG) under `/app/plugins`. To register **tools** from env without using the dashboard:
 
@@ -577,7 +579,7 @@ See `infra/docker/.env.lucia.example` for a full template. ComfyUI, Whisper, Pip
 | **AgentInvoker** | Agent execution timeout settings |
 | **ResultAggregator** | Response aggregation settings |
 | **Redis** | Connection string and task persistence TTL |
-| **MusicAssistant** | Music Assistant integration settings |
+| **MusicAssistant** | Direct Music Assistant URL/token and Home Assistant fallback settings |
 | **TraceCapture** | Conversation trace storage settings |
 | **ConnectionStrings** | AI Foundry, PostgreSQL, and Redis connection details |
 | **Agents** | Agent definitions and registration |

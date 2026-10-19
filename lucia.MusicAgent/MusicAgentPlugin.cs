@@ -4,6 +4,7 @@ using lucia.Agents.Extensions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace lucia.MusicAgent
 {
@@ -13,8 +14,21 @@ namespace lucia.MusicAgent
 
         public void ConfigureAgentHost(IHostApplicationBuilder builder)
         {
-            builder.Services.Configure<MusicAssistantConfig>(
-                builder.Configuration.GetSection("MusicAssistant"));
+            builder.Services.AddOptions<MusicAssistantConfig>()
+                .Bind(builder.Configuration.GetSection(MusicAssistantConfig.SectionName))
+                .PostConfigure(options =>
+                {
+                    options.Url = FirstConfigured(
+                        options.Url,
+                        builder.Configuration["MUSICASSISTANT_URL"]);
+                    options.Token = FirstConfigured(
+                        options.Token,
+                        builder.Configuration["MUSICASSISTANT_TOKEN"]);
+                })
+                .ValidateOnStart();
+            builder.Services.AddSingleton<IValidateOptions<MusicAssistantConfig>, MusicAssistantConfigValidator>();
+            builder.Services.AddHttpClient<MusicAssistantClient>(client =>
+                client.Timeout = TimeSpan.FromSeconds(30));
             builder.Services.Configure<MusicPlaybackSkillOptions>(
                 builder.Configuration.GetSection(MusicPlaybackSkillOptions.SectionName));
 
@@ -23,6 +37,9 @@ namespace lucia.MusicAgent
 
             builder.Services.AddSingleton<ILuciaAgent, MusicAgent>();
         }
+
+        private static string FirstConfigured(string primary, string? fallback) =>
+            string.IsNullOrWhiteSpace(primary) ? fallback ?? string.Empty : primary;
 
         public void MapAgentEndpoints(WebApplication app)
         {

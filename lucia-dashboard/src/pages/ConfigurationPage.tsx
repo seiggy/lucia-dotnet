@@ -543,15 +543,22 @@ function ModelSelectField({ value, onChange }: { value: string; onChange: (val: 
 /*  Music Assistant Test Button                                        */
 /* ------------------------------------------------------------------ */
 
-function MusicAssistantTestButton({ integrationId }: { integrationId: string }) {
+interface MusicAssistantTestButtonProps {
+  integrationId: string
+  url: string
+  token: string
+}
+
+function MusicAssistantTestButton({ integrationId, url, token }: MusicAssistantTestButtonProps) {
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
+  const isConfigured = Boolean((url && token) || integrationId)
 
   const handleTest = async () => {
     setTesting(true)
     setResult(null)
     try {
-      const res = await testMusicAssistantIntegration(integrationId)
+      const res = await testMusicAssistantIntegration({ integrationId, url, token })
       setResult(res)
     } catch (err) {
       setResult({
@@ -569,14 +576,14 @@ function MusicAssistantTestButton({ integrationId }: { integrationId: string }) 
         <div>
           <h3 className="text-sm font-medium text-light">Test Integration</h3>
           <p className="mt-0.5 text-xs text-dust">
-            Validates the IntegrationId by querying the Music Assistant library
+            Tests the direct URL and token when set, otherwise the Home Assistant IntegrationId
           </p>
         </div>
         <button
           onClick={handleTest}
-          disabled={testing || !integrationId}
+          disabled={testing || !isConfigured}
           className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
-            testing || !integrationId
+            testing || !isConfigured
               ? 'bg-stone text-dust cursor-not-allowed'
               : 'bg-amber text-on-accent hover:bg-amber-glow'
           }`}
@@ -1002,6 +1009,8 @@ export default function ConfigurationPage() {
               {activeSchema.section === 'MusicAssistant' && (
                 <MusicAssistantTestButton
                   integrationId={formValues['IntegrationId'] ?? ''}
+                  url={formValues['Url'] ?? ''}
+                  token={formValues['Token'] ?? ''}
                 />
               )}
 

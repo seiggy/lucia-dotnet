@@ -217,11 +217,17 @@ export interface MusicAssistantTestResult {
   message: string;
 }
 
-export async function testMusicAssistantIntegration(integrationId: string): Promise<MusicAssistantTestResult> {
+export interface MusicAssistantTestRequest {
+  integrationId?: string;
+  url?: string;
+  token?: string;
+}
+
+export async function testMusicAssistantIntegration(request: MusicAssistantTestRequest): Promise<MusicAssistantTestResult> {
   const res = await fetch(`${BASE}/config/test/music-assistant`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ integrationId }),
+    body: JSON.stringify(request),
   });
   if (!res.ok) throw new Error(`Test failed: ${res.statusText}`);
   return res.json();

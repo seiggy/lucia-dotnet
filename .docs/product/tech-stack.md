@@ -1,6 +1,6 @@
 # Technical Stack
 
-> Last Updated: 2026-10-15
+> Last Updated: 2026-10-19
 > Version: 1.3.0
 
 ## Core Technologies
@@ -96,6 +96,7 @@
 - **WebSocket:** Real-time event streaming (planned)
 - **LLM API:** Home Assistant LLM integration endpoint
 - **Conversation API:** Natural language processing
+- **Music Assistant:** Direct authenticated HTTP API for library search, audiobooks, and playback, with the Home Assistant Music Assistant services retained as the appliance fallback
 
 ### Authentication
 - **Method:** Long-lived access tokens
