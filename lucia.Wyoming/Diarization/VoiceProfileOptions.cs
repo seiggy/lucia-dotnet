@@ -9,6 +9,8 @@ public sealed class VoiceProfileOptions
     private const float MaxProvisionalMatchThreshold = 0.95f;
 
     public bool IgnoreUnknownVoices { get; set; }
+    public bool StickySpeakerFollowUps { get; set; }
+    public int StickySpeakerTtlSeconds { get; set; } = 300;
     public float SpeakerVerificationThreshold { get; set; } = 0.35f;
     public bool AdaptiveProfiles { get; set; } = true;
     public float AdaptiveAlpha { get; set; } = 0.05f;

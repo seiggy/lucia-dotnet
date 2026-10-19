@@ -3,6 +3,7 @@ namespace lucia.AgentHost.Models;
 public sealed record VoiceConfigUpdateRequest
 {
     public bool? IgnoreUnknownVoices { get; init; }
+    public bool? StickySpeakerFollowUps { get; init; }
     public bool? AutoCreateProvisionalProfiles { get; init; }
     public int? MaxAutoProfiles { get; init; }
     public float? SpeakerVerificationThreshold { get; init; }

@@ -1151,6 +1151,22 @@ export default function VoicePlatformPage() {
                 </label>
 
                 <label className="flex items-center justify-between gap-3 text-sm text-light">
+                  <span>
+                    Sticky follow-up speaker
+                    {voiceConfig.ignoreUnknownVoices && (
+                      <span className="block text-xs text-dust">Unavailable while enrolled voices only is on.</span>
+                    )}
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-stone/50 accent-amber"
+                    checked={voiceConfig.stickySpeakerFollowUps}
+                    disabled={voiceConfig.ignoreUnknownVoices}
+                    onChange={event => setVoiceConfig({ ...voiceConfig, stickySpeakerFollowUps: event.target.checked })}
+                  />
+                </label>
+
+                <label className="flex items-center justify-between gap-3 text-sm text-light">
                   <span>Auto-profile new voices</span>
                   <input
                     type="checkbox"
