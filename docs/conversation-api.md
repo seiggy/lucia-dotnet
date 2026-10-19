@@ -320,7 +320,10 @@ vector index size when it creates the indexes.
 
 When enabled, the agent context provider recalls entities, facts, and preferences
 for the verified enrolled speaker before each agent run. After the run, the
-model extracts new facts and preferences from the speaker's own messages. The
+model extracts new facts and preferences from what the speaker actually said.
+Lucia passes only the speaker's utterance to Agent Memory, once per turn, not
+the generated prompt with Home Assistant context, earlier replies, or router
+instructions that sub-agents receive. The
 `memory_*` tools are replaced by AgentMemory's `search_memory`,
 `remember_fact`, `remember_preference`, `recall_preferences`,
 `search_knowledge`, and `find_similar_tasks`. There is no forget tool. To

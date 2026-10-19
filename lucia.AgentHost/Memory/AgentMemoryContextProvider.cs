@@ -4,6 +4,7 @@ using AgentMemory.AgentFramework.Tools;
 using AgentMemory.Neo4j.Infrastructure;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 
 namespace lucia.AgentHost.Memory;
@@ -50,8 +51,13 @@ public sealed partial class AgentMemoryContextProvider(
         await using var scope = scopeFactory.CreateAsyncScope();
         var services = scope.ServiceProvider;
         using var owner = services.GetRequiredService<IWritableMemoryOwnerContext>().BeginOwnerScope(userId);
-        await services.GetRequiredService<IMemoryQueryFacade>()
+        var result = await services.GetRequiredService<IMemoryQueryFacade>()
             .RememberFactAsync("user", predicate, value, cancellationToken).ConfigureAwait(false);
+        // The facade reports storage failures in the result instead of throwing.
+        if (!result.Success)
+        {
+            throw new InvalidOperationException($"Agent Memory did not save the fact: {result.Error}");
+        }
     }
 
     protected override async ValueTask<AIContext> InvokingCoreAsync(
@@ -90,8 +96,14 @@ public sealed partial class AgentMemoryContextProvider(
     protected override async ValueTask InvokedCoreAsync(
         InvokedContext context, CancellationToken cancellationToken = default)
     {
+        // Agents receive a generated prompt (Home Assistant context, prior replies, router instructions)
+        // as one user message. Persist only the speaker's own utterance so extraction never treats
+        // generated text as something the speaker said. Parallel agents share one turn: the first
+        // successful one records it. ponytail: that agent's reply is stored, not the aggregated answer.
         var userId = UserMemoryScope.CurrentUserId;
-        if (userId is null || context.Session is null || !IsSchemaReady())
+        var utterance = UserMemoryScope.CurrentUtterance;
+        if (userId is null || utterance is null || context.Session is null || context.InvokeException is not null
+            || !IsSchemaReady() || !UserMemoryScope.TryClaimTurn())
         {
             return;
         }
@@ -100,8 +112,12 @@ public sealed partial class AgentMemoryContextProvider(
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             StampIdentity(context.Session, userId);
+#pragma warning disable MAAI001 // Experimental MAF constructor; no other way to narrow the request messages.
+            var turn = new InvokedContext(
+                context.Agent, context.Session, [new ChatMessage(ChatRole.User, utterance)], context.ResponseMessages ?? []);
+#pragma warning restore MAAI001
             await scope.ServiceProvider.GetRequiredService<Neo4jMemoryContextProvider>()
-                .InvokedAsync(context, cancellationToken).ConfigureAwait(false);
+                .InvokedAsync(turn, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

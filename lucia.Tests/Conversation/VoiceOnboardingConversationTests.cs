@@ -478,11 +478,8 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     public async Task AgentMemoryEnabled_SavesConfirmedFacts_FallsBackToBuiltInStoreWhenNeo4jIsDown(bool neo4jDown)
     {
         var facade = A.Fake<IMemoryQueryFacade>();
-        if (neo4jDown)
-        {
-            A.CallTo(() => facade.RememberFactAsync(A<string>._, A<string>._, A<string>._, A<CancellationToken>._))
-                .Throws(new InvalidOperationException("neo4j down"));
-        }
+        A.CallTo(() => facade.RememberFactAsync(A<string>._, A<string>._, A<string>._, A<CancellationToken>._))
+            .Returns(neo4jDown ? MemoryQueryResult.Failed("neo4j down") : MemoryQueryResult.Ok("stored"));
         using var memoryServices = new ServiceCollection()
             .AddSingleton(facade)
             .AddAgentMemoryCore(_ => { })
