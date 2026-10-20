@@ -433,6 +433,14 @@ public sealed class EvalRunner
         MAFEvaluationHarness? harness = null;
         EvaluationOptions? options = null;
         MAFAgentAdapter? evaluableAgent = null;
+        if (agentInstance.ScenarioExecutor is not null)
+        {
+            // Orchestrated runs only score scenarios that name the expected route.
+            scenarios = scenarios
+                .Where(static scenario => !string.IsNullOrWhiteSpace(scenario.ExpectedAgent))
+                .ToList();
+        }
+
         if (agentInstance.ScenarioExecutor is null)
         {
             harness = new MAFEvaluationHarness(verbose: false);

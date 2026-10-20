@@ -78,7 +78,8 @@ public sealed partial class MusicAssistantClient(
                 queue_id = player.Value.PlayerId,
                 media = media.Uri,
                 option = "replace",
-                shuffle
+                shuffle,
+                radio_mode = shuffle && mediaType is not "audiobook"
             },
             cancellationToken).ConfigureAwait(false);
 
@@ -153,6 +154,28 @@ public sealed partial class MusicAssistantClient(
         string searchTerm,
         CancellationToken cancellationToken)
     {
+        var candidates = await FindPlayerCandidatesAsync(searchTerm, cancellationToken).ConfigureAwait(false);
+        if (candidates.Count > 1)
+        {
+            LogAmbiguousPlayer(searchTerm);
+            return null;
+        }
+
+        return candidates.Count is 1 ? candidates[0] : null;
+    }
+
+    public async Task<IReadOnlyList<string>> FindPlayerNamesAsync(
+        string searchTerm,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = await FindPlayerCandidatesAsync(searchTerm, cancellationToken).ConfigureAwait(false);
+        return candidates.Select(static candidate => candidate.PlayerName).ToArray();
+    }
+
+    private async Task<IReadOnlyList<(string PlayerId, string PlayerName)>> FindPlayerCandidatesAsync(
+        string searchTerm,
+        CancellationToken cancellationToken)
+    {
         using var document = await SendAsync(
             "players/all",
             new { },
@@ -178,7 +201,7 @@ public sealed partial class MusicAssistantClient(
             string.Equals(player.PlayerName, searchTerm, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrEmpty(exact.PlayerId))
         {
-            return exact;
+            return [exact];
         }
 
         var contains = players
@@ -186,7 +209,7 @@ public sealed partial class MusicAssistantClient(
             .ToArray();
         if (contains.Length is 1)
         {
-            return contains[0];
+            return contains;
         }
 
         var ranked = players
@@ -198,16 +221,13 @@ public sealed partial class MusicAssistantClient(
 
         if (ranked.Length == 0 || ranked[0].Score < 0.55)
         {
-            return null;
+            return [];
         }
 
-        if (ranked.Length > 1 && ranked[0].Score - ranked[1].Score < 0.10)
-        {
-            LogAmbiguousPlayer(searchTerm);
-            return null;
-        }
-
-        return ranked[0].Player;
+        return ranked
+            .Where(match => ranked[0].Score - match.Score < 0.10)
+            .Select(static match => match.Player)
+            .ToArray();
     }
 
     private async Task<LibraryItems?> SearchAsync(

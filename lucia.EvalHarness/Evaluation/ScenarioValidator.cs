@@ -132,68 +132,91 @@ public static class ScenarioValidator
                 continue;
             }
 
-            var actual = actualToolCalls[actualIndex++];
+            var group = new List<ToolCallInfo> { actualToolCalls[actualIndex++] };
             if (exp.Optional)
             {
-                // Models often repeat an optional lookup; extra identical calls are harmless.
+                // Models often repeat an optional lookup. Every repeat is still checked.
                 while (actualIndex < actualToolCalls.Count && NamesMatch(exp, actualToolCalls[actualIndex].Name))
                 {
-                    actualIndex++;
+                    group.Add(actualToolCalls[actualIndex++]);
                 }
             }
 
-            var variants = new[] { exp }.Concat(exp.Alternatives).ToList();
-            exp = variants.FirstOrDefault(candidate =>
-                      string.Equals(NormalizeFunctionName(candidate.Tool), NormalizeFunctionName(actual.Name), StringComparison.OrdinalIgnoreCase) &&
-                      candidate.Arguments.All(argument => MatchesArgument(GetArgument(actual, argument.Key), argument.Value)))
-                  ?? variants.FirstOrDefault(candidate =>
-                      string.Equals(NormalizeFunctionName(candidate.Tool), NormalizeFunctionName(actual.Name), StringComparison.OrdinalIgnoreCase))
-                  ?? exp;
-
-            // Check tool name — normalize away the "Async" suffix that
-            // AIFunctionFactory.Create strips from method names so YAML
-            // scenarios written with either form match correctly.
-            var normalizedActual = NormalizeFunctionName(actual.Name);
-            var normalizedExpected = NormalizeFunctionName(exp.Tool);
-
-            if (!string.Equals(normalizedActual, normalizedExpected, StringComparison.OrdinalIgnoreCase))
+            foreach (var call in group)
             {
-                issues.Add($"[{i}] Expected tool '{exp.Tool}' but got '{actual.Name}'");
+                ValidateCall(i, exp, call, issues, successes);
+            }
+        }
+
+        // A scenario with only optional expectations is a rejection case. Calls it did not
+        // anticipate, such as an activation after a lookup, are failures.
+        if (requiredCount == 0)
+        {
+            for (; actualIndex < actualToolCalls.Count; actualIndex++)
+            {
+                issues.Add($"Unexpected tool call '{actualToolCalls[actualIndex].Name}'");
+            }
+        }
+    }
+
+    private static void ValidateCall(
+        int i,
+        ExpectedToolCall exp,
+        ToolCallInfo actual,
+        List<string> issues,
+        List<string> successes)
+    {
+        var variants = new[] { exp }.Concat(exp.Alternatives).ToList();
+        exp = variants.FirstOrDefault(candidate =>
+                  string.Equals(NormalizeFunctionName(candidate.Tool), NormalizeFunctionName(actual.Name), StringComparison.OrdinalIgnoreCase) &&
+                  candidate.Arguments.All(argument => MatchesArgument(GetArgument(actual, argument.Key), argument.Value)))
+              ?? variants.FirstOrDefault(candidate =>
+                  string.Equals(NormalizeFunctionName(candidate.Tool), NormalizeFunctionName(actual.Name), StringComparison.OrdinalIgnoreCase))
+              ?? exp;
+
+        // Check tool name — normalize away the "Async" suffix that
+        // AIFunctionFactory.Create strips from method names so YAML
+        // scenarios written with either form match correctly.
+        var normalizedActual = NormalizeFunctionName(actual.Name);
+        var normalizedExpected = NormalizeFunctionName(exp.Tool);
+
+        if (!string.Equals(normalizedActual, normalizedExpected, StringComparison.OrdinalIgnoreCase))
+        {
+            issues.Add($"[{i}] Expected tool '{exp.Tool}' but got '{actual.Name}'");
+            return;
+        }
+
+        successes.Add($"[{i}] Correct tool: {exp.Tool}");
+
+        // Check arguments
+        foreach (var (argName, expectedValue) in exp.Arguments)
+        {
+            var actualValue = GetArgument(actual, argName);
+
+            if (actualValue is null)
+            {
+                issues.Add($"[{i}] {exp.Tool}: missing argument '{argName}'");
                 continue;
             }
 
-            successes.Add($"[{i}] Correct tool: {exp.Tool}");
-
-            // Check arguments
-            foreach (var (argName, expectedValue) in exp.Arguments)
+            if (expectedValue == "*")
             {
-                var actualValue = GetArgument(actual, argName);
-
-                if (actualValue is null)
-                {
-                    issues.Add($"[{i}] {exp.Tool}: missing argument '{argName}'");
-                    continue;
-                }
-
-                if (expectedValue == "*")
-                {
-                    successes.Add($"[{i}] {exp.Tool}.{argName} present (any value)");
-                }
-                else if (expectedValue.StartsWith("contains:", StringComparison.OrdinalIgnoreCase))
-                {
-                    var substring = expectedValue["contains:".Length..];
-                    if (actualValue.Contains(substring, StringComparison.OrdinalIgnoreCase))
-                        successes.Add($"[{i}] {exp.Tool}.{argName} contains '{substring}'");
-                    else
-                        issues.Add($"[{i}] {exp.Tool}.{argName}: expected to contain '{substring}' but got '{actualValue}'");
-                }
+                successes.Add($"[{i}] {exp.Tool}.{argName} present (any value)");
+            }
+            else if (expectedValue.StartsWith("contains:", StringComparison.OrdinalIgnoreCase))
+            {
+                var substring = expectedValue["contains:".Length..];
+                if (actualValue.Contains(substring, StringComparison.OrdinalIgnoreCase))
+                    successes.Add($"[{i}] {exp.Tool}.{argName} contains '{substring}'");
                 else
-                {
-                    if (string.Equals(actualValue, expectedValue, StringComparison.OrdinalIgnoreCase))
-                        successes.Add($"[{i}] {exp.Tool}.{argName} = '{expectedValue}'");
-                    else
-                        issues.Add($"[{i}] {exp.Tool}.{argName}: expected '{expectedValue}' but got '{actualValue}'");
-                }
+                    issues.Add($"[{i}] {exp.Tool}.{argName}: expected to contain '{substring}' but got '{actualValue}'");
+            }
+            else
+            {
+                if (string.Equals(actualValue, expectedValue, StringComparison.OrdinalIgnoreCase))
+                    successes.Add($"[{i}] {exp.Tool}.{argName} = '{expectedValue}'");
+                else
+                    issues.Add($"[{i}] {exp.Tool}.{argName}: expected '{expectedValue}' but got '{actualValue}'");
             }
         }
     }

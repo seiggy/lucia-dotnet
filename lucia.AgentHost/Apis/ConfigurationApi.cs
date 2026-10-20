@@ -260,19 +260,15 @@ public static class ConfigurationApi
     {
         try
         {
-            var hasDirectRequest = !string.IsNullOrWhiteSpace(request.Url)
-                && !string.IsNullOrWhiteSpace(request.Token)
-                && request.Token != "********";
-            if (hasDirectRequest || musicAssistantClient.IsConfigured)
+            var hasSubmittedUrl = !string.IsNullOrWhiteSpace(request.Url);
+            var tokenIsMasked = string.IsNullOrWhiteSpace(request.Token) || request.Token == "********";
+            if ((hasSubmittedUrl && !tokenIsMasked) || musicAssistantClient.IsConfigured)
             {
-                var itemCount = hasDirectRequest
-                    ? await musicAssistantClient.TestConnectionAsync(
-                        request.Url,
-                        request.Token,
-                        cancellationToken).ConfigureAwait(false)
-                    : await musicAssistantClient.TestConnectionAsync(
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
-
+                // A masked token means "use the saved one". The submitted URL still wins.
+                var itemCount = await musicAssistantClient.TestConnectionAsync(
+                    hasSubmittedUrl ? request.Url : null,
+                    tokenIsMasked ? null : request.Token,
+                    cancellationToken).ConfigureAwait(false);
                 return TypedResults.Ok(new MusicAssistantTestResult
                 {
                     Success = true,

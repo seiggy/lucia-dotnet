@@ -77,6 +77,20 @@ public sealed class MusicPlayerResolutionTests
     }
 
     [Fact]
+    public async Task NextTrackAsync_PausedPlayerListedFirst_PrefersThePlayingOne()
+    {
+        SetState(Monitor, "paused");
+
+        await _skill.NextTrackAsync("Zack's Office");
+
+        A.CallTo(() => _homeAssistant.CallServiceAsync(
+                "media_player", "next", A<string?>._,
+                A<ServiceCallRequest>.That.Matches(request => request.EntityId == Speaker),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task FindPlayerAsync_RoomMatchesSeveralPlayers_ListsEveryCandidate()
     {
         var result = await _skill.FindPlayerAsync("Zack's Office");

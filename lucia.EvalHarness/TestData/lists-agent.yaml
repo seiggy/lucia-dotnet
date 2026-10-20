@@ -16,15 +16,44 @@ scenarios:
       - "milk"
 
   - id: add_multiple_items
-    description: "Add several items; one call per item or several calls are both fine"
+    description: "Each requested item is added, in any order"
     category: control
     user_prompt: "Add eggs, bread, and butter to my shopping list"
     expected_tool_calls:
       - tool: AddToShoppingList
+        arguments:
+          itemName: "contains:eggs"
+        alternatives:
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:bread"
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:butter"
       - tool: AddToShoppingList
-        optional: true
+        arguments:
+          itemName: "contains:bread"
+        alternatives:
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:eggs"
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:butter"
+      - tool: AddToShoppingList
+        arguments:
+          itemName: "contains:butter"
+        alternatives:
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:eggs"
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:bread"
     response_must_contain:
       - "eggs"
+      - "bread"
+      - "butter"
 
   - id: add_to_groceries
     description: "Groceries wording maps to the shopping list"

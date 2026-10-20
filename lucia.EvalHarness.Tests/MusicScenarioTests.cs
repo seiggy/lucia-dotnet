@@ -123,6 +123,30 @@ public sealed class MusicScenarioTests
         Assert.DoesNotContain("Expected 1 tool", testCase.FailureReason);
     }
 
+    [Fact]
+    public async Task OrchestratedScenario_WithoutExpectedAgent_IsSkippedByTheSharedEvaluator()
+    {
+        var instance = new RealAgentInstance
+        {
+            AgentName = "MusicAgentOrchestrated",
+            Agent = A.Fake<ILuciaAgent>(),
+            DatasetFile = "TestData/music-agent.yaml",
+            Tracer = new ConversationTracer(new CapturingChatClient()),
+            ScenarioExecutor = (_, _) => Task.FromResult("ok"),
+            RoutedAgentId = () => "music"
+        };
+        var scenario = new TestScenario { Id = "unlabelled", UserPrompt = "Turn on the lights" };
+        var runner = new EvalRunner(new HarnessConfiguration(), judgeChatClient: null);
+
+        var result = await runner.EvaluateScenariosAsync(
+            "test-model",
+            instance,
+            [scenario],
+            A.Fake<lucia.HomeAssistant.Services.IHomeAssistantClient>());
+
+        Assert.Empty(result.TestCaseResults);
+    }
+
     [Theory]
     [InlineData("play_artist_office", "Office Speaker", "media_player.zack_s_office_satellite1_media_player", "Zack's Office")]
     [InlineData("play_specific_song", "Office Speaker", "media_player.zack_s_office_satellite1_media_player", "Zack's Office")]

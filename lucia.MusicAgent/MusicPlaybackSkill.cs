@@ -323,17 +323,19 @@ public partial class MusicPlaybackSkill : IOptimizableSkill
         {
             try
             {
-                var directPlayerName = await _musicAssistantClient.FindPlayerNameAsync(
+                var directPlayerNames = await _musicAssistantClient.FindPlayerNamesAsync(
                     playerName,
                     cancellationToken).ConfigureAwait(false);
-                if (directPlayerName is not null)
+                if (directPlayerNames.Count > 0)
                 {
                     PlayerSearchDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
                     activity?.SetTag("match.found", true);
-                    activity?.SetTag("match.friendly_name", directPlayerName);
+                    activity?.SetTag("match.friendly_name", string.Join("; ", directPlayerNames));
                     activity?.SetTag("music.playback_path", "direct");
                     activity?.SetStatus(ActivityStatusCode.Ok);
-                    return $"Music Assistant player '{directPlayerName}' is available.";
+                    return directPlayerNames.Count is 1
+                        ? $"Music Assistant player '{directPlayerNames[0]}' is available."
+                        : $"Music Assistant players matching '{playerName}': {string.Join("; ", directPlayerNames.Select(static name => $"'{name}'"))}.";
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -687,17 +689,24 @@ public partial class MusicPlaybackSkill : IOptimizableSkill
             return candidates.FirstOrDefault();
         }
 
-        // A room name can match a monitor and a speaker. Control the one making sound.
+        // A room name can match a monitor and a speaker. Control the one making sound,
+        // and use a paused player only when nothing is playing.
+        HomeAssistantEntity? paused = null;
         foreach (var candidate in candidates)
         {
             var state = await _homeAssistantClient.GetStateAsync(candidate.EntityId, cancellationToken).ConfigureAwait(false);
-            if (state?.State is "playing" or "paused" or "buffering")
+            if (state?.State is "playing" or "buffering")
             {
                 return candidate;
             }
+
+            if (state?.State is "paused")
+            {
+                paused ??= candidate;
+            }
         }
 
-        return candidates[0];
+        return paused ?? candidates[0];
     }
 
     private async Task<IReadOnlyList<HomeAssistantEntity>> ResolvePlayerCandidatesAsync(string? playerName, CancellationToken cancellationToken = default)
