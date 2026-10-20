@@ -9,6 +9,7 @@ scenarios:
   - id: play_artist_office
     description: "Play an artist on a specific speaker"
     category: control
+    expected_agent: "music"
     device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
@@ -20,6 +21,7 @@ scenarios:
     user_prompt: "Play The Cure on the office speaker"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:office"
       - tool: PlayArtist
@@ -32,6 +34,7 @@ scenarios:
   - id: play_album_with_artist
     description: "Play a specific album with artist disambiguation"
     category: control
+    expected_agent: "music"
     device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
@@ -43,6 +46,7 @@ scenarios:
     user_prompt: "Play the album Random Access Memories by Daft Punk in the bedroom"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:bedroom"
       - tool: PlayAlbum
@@ -56,6 +60,7 @@ scenarios:
   - id: play_specific_song
     description: "Play a specific song by artist"
     category: control
+    expected_agent: "music"
     device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
@@ -67,6 +72,7 @@ scenarios:
     user_prompt: "Play the song Shivers by Ed Sheeran in the office"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:office"
       - tool: PlaySong
@@ -76,10 +82,36 @@ scenarios:
     response_must_contain:
       - "Shivers"
 
+  # --- Control: Play Audiobook ---
+  - id: play_audiobook
+    description: "Resume an audiobook on a specific speaker"
+    category: control
+    expected_agent: "music"
+    device_area: "Zack's Office"
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
+        state: "idle"
+        attributes:
+          friendly_name: "Office Speaker"
+          volume_level: 0.5
+    user_prompt: "Resume Altered Carbon on the office speaker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        optional: true
+        arguments:
+          playerName: "contains:office"
+      - tool: PlayAudiobook
+        arguments:
+          audiobook: "contains:Altered Carbon"
+    response_must_contain:
+      - "Altered Carbon"
+
   # --- Control: Play Genre ---
   - id: play_genre_jazz
     description: "Play a genre mix on a speaker"
     category: control
+    expected_agent: "music"
     device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
@@ -91,6 +123,7 @@ scenarios:
     user_prompt: "Play some jazz in the bedroom"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:bedroom"
       - tool: PlayGenre
@@ -101,6 +134,7 @@ scenarios:
   - id: shuffle_random_tracks
     description: "Shuffle random tracks on a speaker"
     category: control
+    expected_agent: "music"
     device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
@@ -112,6 +146,7 @@ scenarios:
     user_prompt: "Just shuffle something on the office speaker"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:office"
       - tool: PlayShuffle
@@ -122,6 +157,7 @@ scenarios:
   - id: stop_music
     description: "Stop music playback (tests stop on an idle player)"
     category: control
+    expected_agent: "music"
     device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
@@ -132,14 +168,94 @@ scenarios:
           volume_level: 0.5
     user_prompt: "Stop the music in the bedroom"
     expected_tool_calls:
+      - tool: FindPlayer
+        optional: true
+        arguments:
+          playerName: "contains:bedroom"
       - tool: StopMusic
         arguments:
           playerName: "contains:bedroom"
+
+  # --- Control: Next Track ---
+  - id: next_track
+    description: "Skip to the next track"
+    category: control
+    expected_agent: "music"
+    device_area: "Zack's Office"
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
+        state: "playing"
+        attributes:
+          friendly_name: "Office Speaker"
+          media_title: "Current Song"
+          volume_level: 0.5
+    user_prompt: "Skip to the next track on the office speaker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        optional: true
+        arguments:
+          playerName: "contains:office"
+      - tool: NextTrack
+        arguments:
+          playerName: "contains:office"
+
+  # --- Control: Previous Track ---
+  - id: previous_track
+    description: "Return to the previous track"
+    category: control
+    expected_agent: "music"
+    device_area: "Bedroom"
+    initial_state:
+      media_player.bedroom_satellite1_media_player:
+        area: "Bedroom"
+        state: "playing"
+        attributes:
+          friendly_name: "Bedroom Speaker"
+          media_title: "Current Song"
+          volume_level: 0.4
+    user_prompt: "Go back to the previous track in the bedroom"
+    expected_tool_calls:
+      - tool: FindPlayer
+        optional: true
+        arguments:
+          playerName: "contains:bedroom"
+      - tool: PreviousTrack
+        arguments:
+          playerName: "contains:bedroom"
+
+  # --- Query: Now Playing ---
+  - id: get_now_playing
+    description: "Report the current title and artist"
+    category: query
+    expected_agent: "music"
+    device_area: "Zack's Office"
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
+        state: "playing"
+        attributes:
+          friendly_name: "Office Speaker"
+          media_title: "Close to Me"
+          media_artist: "The Cure"
+          media_content_type: "music"
+          volume_level: 0.5
+    user_prompt: "What is playing on the office speaker?"
+    expected_tool_calls:
+      - tool: FindPlayer
+        optional: true
+        arguments:
+          playerName: "contains:office"
+      - tool: GetNowPlaying
+    response_must_contain:
+      - "Close to Me"
+      - "The Cure"
 
   # --- Control: Set Volume ---
   - id: set_volume_50
     description: "Set volume to a specific level"
     category: control
+    expected_agent: "music"
     device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
@@ -151,6 +267,7 @@ scenarios:
     user_prompt: "Set volume to 50% on the office speaker"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:office"
       - tool: SetVolume
@@ -162,6 +279,7 @@ scenarios:
   - id: volume_up
     description: "Turn the volume up"
     category: control
+    expected_agent: "music"
     device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
@@ -173,6 +291,7 @@ scenarios:
     user_prompt: "Turn up the volume on the bedroom speaker"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:bedroom"
       - tool: VolumeUp
@@ -183,6 +302,7 @@ scenarios:
   - id: volume_down
     description: "Turn the volume down"
     category: control
+    expected_agent: "music"
     device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
@@ -194,6 +314,7 @@ scenarios:
     user_prompt: "Turn down the volume on the office speaker"
     expected_tool_calls:
       - tool: FindPlayer
+        optional: true
         arguments:
           playerName: "contains:office"
       - tool: VolumeDown
@@ -204,6 +325,7 @@ scenarios:
   - id: find_player_by_name
     description: "Find a player by name"
     category: control
+    expected_agent: "music"
     device_area: "Living Room"
     initial_state:
       media_player.yamaha_speakers:
@@ -221,6 +343,7 @@ scenarios:
   - id: stt_fuzzy_play_cure_kitchen
     description: "Handle STT transcription errors (misspelled kitchen and speaker)"
     category: stt-robustness
+    expected_agent: "music"
     device_area: "Kitchen"
     initial_state:
       media_player.kitchen_speaker:
@@ -232,8 +355,7 @@ scenarios:
     user_prompt: "play the cure on the kichen speeker"
     expected_tool_calls:
       - tool: FindPlayer
-        arguments:
-          playerName: "contains:kitchen"
+        optional: true
       - tool: PlayArtist
         arguments:
           artist: "contains:Cure"

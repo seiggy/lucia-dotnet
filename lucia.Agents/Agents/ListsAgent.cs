@@ -88,10 +88,16 @@ public sealed class ListsAgent : ILuciaAgent
             - Add items to todo lists (tasks, reminders)
             - List shopping list items or todo list items when asked
 
-            Use AddToShoppingListAsync for "add X to shopping list" or "add X to groceries".
-            Use AddToTodoListAsync when the user specifies a todo list (entity like todo.grocery or todo.personal_tasks). Call ListTodoEntitiesAsync first if the user asks to add to "todo" without specifying which list.
-            Use ListShoppingItemsAsync when the user asks what's on the shopping list.
-            Use ListTodoItemsAsync when the user asks what's on a specific todo list.
+            Use AddToShoppingList for "add X to shopping list" or "add X to groceries". Call it once per item.
+            Use AddToTodoList when the user specifies a todo list (entity like todo.grocery or todo.personal_tasks). Call ListTodoEntities first if the user asks to add to "todo" without specifying which list.
+            Use ListShoppingItems when the user asks what's on the shopping list.
+            Use ListTodoItems when the user asks what's on a specific todo list.
+            Use ListTodoEntities when the user asks which todo lists exist.
+
+            You cannot remove, complete, edit, or clear items. If asked, say you can't do that yet. Do not claim you did it.
+            Only report an item as added after the tool call succeeds.
+            After your tool calls, always reply with a short text confirmation naming every item you added. Never end with an empty reply.
+            For requests that are not about shopping or todo lists, call no tools.
 
             Keep responses short and confirm what was added.
             """;

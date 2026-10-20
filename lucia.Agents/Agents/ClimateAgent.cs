@@ -132,7 +132,7 @@ public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
                 3. NEVER say a device "is already off/on" without first calling the appropriate Get state tool.
                 4. For control requests: call Find FIRST to get entity IDs, then call the appropriate control tool.
                 5. For status questions: call Find FIRST, then call the appropriate Get state tool.
-
+                6. NEVER say you changed a setting until the Set tool call has succeeded. Finding or reading a device is not changing it. If you have not called the Set tool, call it now.
                 ## Handling Comfort Requests
                 When users express comfort with natural language:
                 - "I'm cold" or "it's chilly": Call GetComfortAdjustment to get the adjustment value,

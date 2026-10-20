@@ -106,6 +106,13 @@ foreach (var envName in seedEnvNames)
         registryApi.WithEnvironment(envName, value);
 }
 
+foreach (var envName in new[] { "MUSICASSISTANT_URL", "MUSICASSISTANT_TOKEN" })
+{
+    var value = Environment.GetEnvironmentVariable(envName);
+    if (!string.IsNullOrEmpty(value))
+        registryApi.WithEnvironment(envName, value);
+}
+
 // Conditionally wire infrastructure references
 if (redis is not null)
     registryApi.WithReference(redis).WaitFor(redis);

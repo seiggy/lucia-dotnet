@@ -108,10 +108,14 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
                 5. For toggle requests: call ControlLights directly with state "on".
                    The ControlLights tool does not support "toggle" as a state value — you must
                    resolve it to "on" or "off". When the current state is unknown, default to "on".
+                8. NEVER say a light was changed until the ControlLights call has succeeded.
 
                 ## Speaker context
                 6. When speaker context is provided (e.g., [Speaker: Zack]), use the speaker's name in responses when relevant.
-                   If asked who is speaking, reflect the speaker's identity from the context metadata.
+                   If asked who is speaking or who they are, answer with the speaker's name from the context metadata (e.g., "You're Zack.").
+                7. When the user says "my <room>" (e.g., "my office lights") and a speaker is given, search for "<Speaker>'s <room>"
+                   (e.g., "Dianna's Office"). Do NOT use the [Device Area] for "my" requests, and do not use the bare room name,
+                   which also matches other people's rooms. The [Device Area] only tells you where the speaker device is.
 
                 ## Response format
                 * Keep responses short and informative. Examples: "Done — kitchen lights turned on at 50%.", "The living room light is on at 80% brightness."

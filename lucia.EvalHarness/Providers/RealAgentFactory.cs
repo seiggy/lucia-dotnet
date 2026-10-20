@@ -1,3 +1,4 @@
+using A2A;
 using FakeItEasy;
 using lucia.Agents;
 using lucia.Agents.Abstractions;
@@ -7,12 +8,16 @@ using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Integration;
 using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
+using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Evaluation;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
+using lucia.Tests.Orchestration;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -306,6 +311,116 @@ public sealed class RealAgentFactory : IAsyncDisposable
     }
 
     /// <summary>
+    /// Creates the full router to Music Agent pipeline while retaining the Music Agent tracer
+    /// so the shared scenario validator can inspect its downstream tool calls.
+    /// </summary>
+    public async Task<RealAgentInstance> CreateMusicAgentOrchestratedAsync(string modelName)
+    {
+        var musicInstance = await CreateMusicAgentAsync(modelName).ConfigureAwait(false);
+        var (orchestratorResolver, _, routerClient) = CreateOllamaResolverWithTracer(modelName);
+        var tracked = false;
+
+        try
+        {
+            var observer = new OrchestratorEvalObserver();
+            var registry = A.Fake<IAgentRegistry>();
+            var cards = CreateRoutingAgentCards(musicInstance.Agent.GetAgentCard());
+            var routingAgents = cards
+                .Where(card => !string.Equals(
+                    card.Name,
+                    musicInstance.Agent.GetAgentCard().Name,
+                    StringComparison.OrdinalIgnoreCase))
+                .Select(CreateRoutingOnlyAgent)
+                .Prepend(musicInstance.Agent.GetAIAgent())
+                .ToArray();
+            A.CallTo(() => registry.GetAllAgentsAsync(A<CancellationToken>._))
+                .Returns(cards);
+            A.CallTo(() => registry.GetEnumerableAgentsAsync(A<CancellationToken>._))
+                .Returns(cards.ToAsyncEnumerable());
+
+            var sessionManager = new SessionManager(
+                A.Fake<ITaskStore>(),
+                _loggerFactory.CreateLogger<SessionManager>());
+            var serviceProvider = A.Fake<IServiceProvider>();
+            A.CallTo(() => serviceProvider.GetService(
+                    A<Type>.That.Matches(static type =>
+                        type.FullName == "Microsoft.Agents.AI.AgentSessionStore")))
+                .Returns(null);
+
+            var workflowFactory = new WorkflowFactory(
+                orchestratorResolver,
+                _definitionRepo,
+                registry,
+                serviceProvider,
+                _loggerFactory,
+                Options.Create(new RouterExecutorOptions()),
+                Options.Create(new AgentInvokerOptions()),
+                Options.Create(new ResultAggregatorOptions()),
+                CreateOptionsMonitor(new PersonalityPromptOptions()),
+                TimeProvider.System,
+                A.Fake<IHttpClientFactory>(),
+                new AgentsTelemetrySource(),
+                observer,
+                new EvalAgentProvider(routingAgents));
+            var engine = new LuciaEngine(
+                registry,
+                sessionManager,
+                workflowFactory,
+                Options.Create(new ResultAggregatorOptions()),
+                new AgentsTelemetrySource(),
+                _loggerFactory.CreateLogger<LuciaEngine>(),
+                observer);
+
+            var instance = new RealAgentInstance
+            {
+                AgentName = "MusicAgentOrchestrated",
+                Agent = musicInstance.Agent,
+                DatasetFile = musicInstance.DatasetFile,
+                Tracer = musicInstance.Tracer,
+                OwnedChatClient = routerClient,
+                ScenarioExecutor = async (prompt, cancellationToken) =>
+                    (await engine.ProcessRequestAsync(
+                        prompt,
+                        cancellationToken: cancellationToken).ConfigureAwait(false)).Text,
+                RoutedAgentId = () => observer.RoutingDecision?.AgentId,
+                RoutingDetails = () => observer.RoutingDecision is { } decision
+                    ? new RoutingTrace
+                    {
+                        AgentId = decision.AgentId,
+                        Confidence = decision.Confidence,
+                        Reasoning = decision.Reasoning,
+                        Instructions = (decision.AgentInstructions ?? [])
+                            .GroupBy(static item => item.AgentId)
+                            .ToDictionary(static group => group.Key, static group => group.Last().Instruction),
+                        AgentResponses = observer.AgentResponses
+                            .GroupBy(static item => item.AgentId)
+                            .ToDictionary(static group => group.Key, static group => group.Last().Content)
+                    }
+                    : null,
+                ResetScenarioState = observer.Reset
+            };
+
+            // ponytail: cost reports include the router client here; aggregate nested agent
+            // client costs if orchestrated cost comparison becomes a requirement.
+            _instances.Add(instance);
+            tracked = true;
+            return instance;
+        }
+        catch
+        {
+            if (!tracked)
+            {
+                if (routerClient is IAsyncDisposable asyncDisposable)
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                else if (routerClient is IDisposable disposable)
+                    disposable.Dispose();
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Creates a real <see cref="GeneralAgent"/> backed by the given Ollama model.
     /// </summary>
     public async Task<RealAgentInstance> CreateGeneralAgentAsync(string modelName)
@@ -392,6 +507,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
             ["SceneAgent"] = CreateSceneAgentAsync,
             ["GeneralAgent"] = CreateGeneralAgentAsync,
             ["MusicAgent"] = CreateMusicAgentAsync,
+            ["MusicAgentOrchestrated"] = CreateMusicAgentOrchestratedAsync,
         };
 
     // ─── Private Helpers ──────────────────────────────────────────────
@@ -443,6 +559,101 @@ public sealed class RealAgentFactory : IAsyncDisposable
         A.CallTo(() => resolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
             .Returns(Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(generator));
         return resolver;
+    }
+
+    private IReadOnlyList<AgentCard> CreateRoutingAgentCards(AgentCard musicCard)
+    {
+        var resolver = A.Fake<IChatClientResolver>();
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+        var embeddingResolver = CreateFakeEmbeddingResolver();
+        var entityMatcher = new HybridEntityMatcher(
+            new EmbeddingSimilarityService(),
+            _loggerFactory.CreateLogger<HybridEntityMatcher>());
+        var lightAgent = new LightAgent(
+            resolver,
+            _definitionRepo,
+            new LightControlSkill(
+                _haClient,
+                _loggerFactory.CreateLogger<LightControlSkill>(),
+                _locationService,
+                CreateOptionsMonitor<LightControlSkillOptions>()),
+            _tracingFactory,
+            _loggerFactory);
+        var climateAgent = new ClimateAgent(
+            resolver,
+            _definitionRepo,
+            new ClimateControlSkill(
+                _haClient,
+                embeddingResolver,
+                _loggerFactory.CreateLogger<ClimateControlSkill>(),
+                _deviceCache,
+                _locationService,
+                entityMatcher,
+                CreateOptionsMonitor(new ClimateControlSkillOptions { CacheRefreshMinutes = 0 }),
+                configuration),
+            new FanControlSkill(
+                _haClient,
+                embeddingResolver,
+                _deviceCache,
+                _locationService,
+                entityMatcher,
+                CreateOptionsMonitor(new FanControlSkillOptions { CacheRefreshMinutes = 0 }),
+                _loggerFactory.CreateLogger<FanControlSkill>()),
+            _tracingFactory,
+            _loggerFactory);
+        var listsAgent = new ListsAgent(
+            resolver,
+            _definitionRepo,
+            new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>()),
+            _tracingFactory,
+            _loggerFactory);
+        var sceneAgent = new SceneAgent(
+            resolver,
+            _definitionRepo,
+            new SceneControlSkill(
+                _haClient,
+                _locationService,
+                CreateOptionsMonitor<SceneControlSkillOptions>(),
+                _loggerFactory.CreateLogger<SceneControlSkill>()),
+            _tracingFactory,
+            _loggerFactory);
+        var generalAgent = new GeneralAgent(
+            resolver,
+            _definitionRepo,
+            A.Fake<IMcpToolRegistry>(),
+            _tracingFactory,
+            _loggerFactory);
+
+        return
+        [
+            lightAgent.GetAgentCard(),
+            musicCard,
+            generalAgent.GetAgentCard(),
+            climateAgent.GetAgentCard(),
+            listsAgent.GetAgentCard(),
+            sceneAgent.GetAgentCard()
+        ];
+    }
+
+    private AIAgent CreateRoutingOnlyAgent(AgentCard card)
+    {
+        var client = A.Fake<IChatClient>();
+        A.CallTo(() => client.GetResponseAsync(
+                A<IEnumerable<ChatMessage>>._,
+                A<ChatOptions?>._,
+                A<CancellationToken>._))
+            .Returns(new ChatResponse(
+                new ChatMessage(ChatRole.Assistant, $"Routing-only placeholder for {card.Name}.")));
+
+        return new ChatClientAgent(
+            client,
+            new ChatClientAgentOptions
+            {
+                Id = card.Name,
+                Name = card.Name,
+                Description = card.Description
+            },
+            _loggerFactory);
     }
 
     public async ValueTask DisposeAsync()

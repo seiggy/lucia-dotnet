@@ -1,54 +1,143 @@
-# Lists Agent Evaluation Dataset
-# Tests shopping list and todo management
+# Lists Agent Evaluation Scenarios
+# Tools: AddToShoppingList, AddToTodoList, ListShoppingItems, ListTodoItems, ListTodoEntities.
+# There is no remove or clear tool, so those requests must be declined honestly.
+# The fake Home Assistant client returns empty lists, so assertions check tool calls, not list contents.
 
-data:
+scenarios:
   - id: add_to_shopping
-    input: "Add milk to the shopping list"
-    expected: "milk"
-    expected_tools:
-      - ListSkill
-    criteria:
-      - "Adds milk to shopping list"
-      - "Confirms the addition"
+    description: "Add one item to the shopping list"
+    category: control
+    user_prompt: "Add milk to the shopping list"
+    expected_tool_calls:
+      - tool: AddToShoppingList
+        arguments:
+          itemName: "contains:milk"
+    response_must_contain:
+      - "milk"
 
   - id: add_multiple_items
-    input: "Add eggs, bread, and butter to my shopping list"
-    expected: "eggs"
-    expected_tools:
-      - ListSkill
-    criteria:
-      - "Adds all three items"
-      - "Handles comma-separated list"
+    description: "Each requested item is added, in any order"
+    category: control
+    user_prompt: "Add eggs, bread, and butter to my shopping list"
+    expected_tool_calls:
+      - tool: AddToShoppingList
+        arguments:
+          itemName: "contains:eggs"
+        alternatives:
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:bread"
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:butter"
+      - tool: AddToShoppingList
+        arguments:
+          itemName: "contains:bread"
+        alternatives:
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:eggs"
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:butter"
+      - tool: AddToShoppingList
+        arguments:
+          itemName: "contains:butter"
+        alternatives:
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:eggs"
+          - tool: AddToShoppingList
+            arguments:
+              itemName: "contains:bread"
+    response_must_contain:
+      - "eggs"
+      - "bread"
+      - "butter"
 
-  - id: show_list
-    input: "What's on my shopping list?"
-    expected: "list"
-    expected_tools:
-      - ListSkill
-    criteria:
-      - "Retrieves and displays current shopping list"
+  - id: add_to_groceries
+    description: "Groceries wording maps to the shopping list"
+    category: control
+    user_prompt: "Put bananas on the grocery list"
+    expected_tool_calls:
+      - tool: AddToShoppingList
+        arguments:
+          itemName: "contains:banana"
+    response_must_contain:
+      - "banana"
 
-  - id: remove_item
-    input: "Remove bread from the shopping list"
-    expected: "bread"
-    expected_tools:
-      - ListSkill
-    criteria:
-      - "Removes bread from the list"
-      - "Confirms removal"
+  - id: show_shopping_list
+    description: "Read back the shopping list"
+    category: query
+    user_prompt: "What's on my shopping list?"
+    expected_tool_calls:
+      - tool: ListShoppingItems
 
-  - id: clear_list
-    input: "Clear the shopping list"
-    expected: "clear"
-    expected_tools:
-      - ListSkill
-    criteria:
-      - "Clears all items from the list"
+  - id: add_to_named_todo
+    description: "Add a task to a todo list the user names"
+    category: control
+    user_prompt: "Add 'call the dentist' to the todo.personal_tasks list"
+    expected_tool_calls:
+      - tool: AddToTodoList
+        arguments:
+          entityId: "contains:personal_tasks"
+          itemName: "contains:dentist"
+    response_must_contain:
+      - "dentist"
+
+  - id: show_named_todo
+    description: "Read back a named todo list"
+    category: query
+    user_prompt: "What's on the todo.personal_tasks list?"
+    expected_tool_calls:
+      - tool: ListTodoItems
+        arguments:
+          entityId: "contains:personal_tasks"
+
+  - id: list_todo_lists
+    description: "Discover which todo lists exist"
+    category: query
+    user_prompt: "What todo lists do I have?"
+    expected_tool_calls:
+      - tool: ListTodoEntities
+
+  - id: todo_without_list_name
+    description: "Todo request with no list named: discover lists first, then act or ask"
+    category: control
+    user_prompt: "Add 'renew passport' to my todo list"
+    expected_tool_calls:
+      - tool: ListTodoEntities
+      - tool: AddToTodoList
+        optional: true
+        arguments:
+          itemName: "contains:passport"
+
+  - id: remove_item_unsupported
+    description: "No remove tool exists. The agent must not claim it removed the item."
+    category: capability-honesty
+    user_prompt: "Remove bread from the shopping list"
+    expected_tool_calls:
+      - tool: ListShoppingItems
+        optional: true
+    response_must_not_contain:
+      - "i've removed"
+      - "has been removed"
+      - "removed bread"
+
+  - id: clear_list_unsupported
+    description: "No clear tool exists. The agent must not claim it cleared the list."
+    category: capability-honesty
+    user_prompt: "Clear the shopping list"
+    expected_tool_calls:
+      - tool: ListShoppingItems
+        optional: true
+    response_must_not_contain:
+      - "i've cleared"
+      - "has been cleared"
+      - "list is now empty"
 
   - id: out_of_domain
-    input: "Turn on the lights"
-    expected_tools: []
-    criteria:
-      - "Recognizes this is not a list management request"
-    metadata:
-      category: out-of-domain
+    description: "Reject a lighting request without calling list tools"
+    category: out-of-domain
+    user_prompt: "Turn on the lights"
+    expected_tool_calls: []

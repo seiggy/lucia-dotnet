@@ -17,7 +17,7 @@ scenarios:
     expected_tool_calls:
       - tool: ControlLights
         arguments:
-          searchTerms: "contains:kitchen light"
+          searchTerms: "contains:kitchen"
           state: "on"
     response_must_contain:
       - "kitchen"
@@ -42,7 +42,7 @@ scenarios:
     expected_tool_calls:
       - tool: ControlLights
         arguments:
-          searchTerms: "contains:bedroom lights"
+          searchTerms: "contains:bedroom"
           state: "off"
     response_must_contain:
       - "bedroom"

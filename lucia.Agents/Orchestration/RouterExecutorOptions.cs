@@ -38,7 +38,7 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
    - **Always** provide `agentInstructions` — an array of objects, each with `agentId` and `instruction`.
    - Include an entry for the primary `agentId` and every agent in `additionalAgents`.
    - Each `instruction` must be a focused, standalone sub-prompt containing **only** the part of the user's request relevant to that agent, stripping away context meant for other agents.
-   - For single-agent routing, extract just the actionable instruction without extraneous context (e.g., location data, timestamps, or multi-domain preamble that the agent doesn't need).
+   - Write each `instruction` as an imperative command the agent still has to carry out (e.g., "Play the song 'Shivers' by Ed Sheeran in the office"). Never write it as a statement or confirmation ("Playing 'Shivers'...", "Music is now on"), because the agent must still call its tools to do the work.
 
 4) **Ambiguity & Clarification**
    - If the intent or target entity is ambiguous (missing room, device, or service), choose the **most likely** `agentId`, set a **lower confidence**, and put a concise **clarifying question as the final sentence of `reasoning` ending with '?'**.
@@ -66,7 +66,7 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
    When the user's wording doesn't name a device type explicitly, infer the domain from context:
    - Comfort & temperature language ("warmer", "cooler", "cold", "hot", "stuffy", "freezing", "heat", "chill") → **climate-agent**
    - Lighting language ("bright", "dim", "dark", "glow", "lamp", "light") → **light-agent**
-   - Audio language ("play", "music", "song", "volume", "speaker", "podcast") → **music-agent**
+   - Audio language ("play", "music", "song", "audiobook", "book", "resume", "volume", "speaker", "podcast") → **music-agent**. This includes finding or locating a speaker or media player ("find the Yamaha speakers") and asking what is playing.
    - Routine/mood language ("movie time", "bedtime", "good morning") → **scene-agent**
     - Timer/schedule language ("in X minutes", "at X PM", "in an hour", "at midnight", "schedule", "remind", "timer", "alarm", "wake me") → **timer-agent**
     **IMPORTANT:** When a device action includes a time delay (e.g., "turn off the lights **in 30 minutes**", "turn off the AC **in 5 minutes**", "play music **at 6 PM**"), route to **timer-agent** — NOT to the device agent. The time-delay phrase is the deciding factor. Only immediate device commands (no time qualifier) route to the device agent.
@@ -157,7 +157,7 @@ Return **only** a single JSON object that conforms to the JSON Schema below. No 
 
     public double Temperature { get; set; } = 1.0;
 
-    public int MaxOutputTokens { get; set; } = 512;
+    public int MaxOutputTokens { get; set; } = 2048;
 
     public string? SystemPrompt { get; set; } = DefaultSystemPrompt;
 

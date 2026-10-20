@@ -171,6 +171,30 @@ public sealed class RouterExecutorFallbackTests
         Assert.Equal(2, chatClient.InvocationCount);
     }
 
+    [Fact]
+    public async Task HandleAsync_DefaultBudgetLeavesRoomForReasoningModelStructuredOutput()
+    {
+        var registry = RegistryWith(MakeAgent("music-agent"));
+        var validResponse = RoutingJson(
+            "music-agent",
+            reasoning: "Audiobook playback belongs to the music agent.");
+        Func<StubChatClient.InvocationContext, ChatResponse> response = context =>
+            context.Options?.MaxOutputTokens >= 2048
+                ? new ChatResponse([new ChatMessage(ChatRole.Assistant, validResponse)])
+                : new ChatResponse([new ChatMessage(ChatRole.Assistant, string.Empty)]);
+        var chatClient = new StubChatClient([response, response]);
+        var router = CreateRouter(chatClient, registry);
+
+        var result = await router.HandleAsync(
+            new ChatMessage(ChatRole.User, "Resume Altered Carbon on the office speaker"),
+            A.Fake<IWorkflowContext>());
+
+        Assert.Equal("music-agent", result.AgentId);
+        var capturedOptions = Assert.Single(chatClient.CapturedOptions);
+        Assert.NotNull(capturedOptions);
+        Assert.Equal(2048, capturedOptions.MaxOutputTokens);
+    }
+
     // ─── NormalizeAdditionalAgents: unknown names filtered ───────────
 
     [Fact]

@@ -206,7 +206,7 @@ public static class ReportExporter
             {
                 var result = tc.Score.HasValue ? (tc.Passed ? "✅" : "❌") : "N/A";
                 var failure = tc.FailureReason is not null
-                    ? Truncate(tc.FailureReason, 80)
+                    ? Truncate(tc.FailureReason, 240)
                     : "–";
                 var latency = tc.Score.HasValue ? (double?)tc.Latency.TotalMilliseconds : null;
                 sb.AppendLine($"| {i++} | {tc.TestCaseId} | {result} | {FormatScore(tc.Score, tc.JudgeStatus)} | {FormatMs(latency)} | {CostReportFormatting.Tokens(tc.Cost)} | {CostReportFormatting.Cost(tc.Cost)} | {failure} |");
@@ -325,7 +325,23 @@ public static class ReportExporter
                     judgeStatus = tc.JudgeStatus,
                     judgeReason = tc.JudgeReason,
                     latencyMs = tc.Latency.TotalMilliseconds,
-                    failureReason = tc.FailureReason
+                    failureReason = tc.FailureReason,
+                    agentOutput = tc.AgentOutput,
+                    routing = tc.Routing is null ? null : new
+                    {
+                        agentId = tc.Routing.AgentId,
+                        confidence = tc.Routing.Confidence,
+                        reasoning = tc.Routing.Reasoning,
+                        instructions = tc.Routing.Instructions,
+                        agentResponses = tc.Routing.AgentResponses
+                    },
+                    toolCalls = tc.ToolCalls?.Select(static call => new
+                    {
+                        order = call.Order,
+                        tool = call.ToolName,
+                        arguments = call.Arguments,
+                        error = call.Error
+                    })
                 })
             })
         })

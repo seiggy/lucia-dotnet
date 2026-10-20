@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Net;
+using System.Text;
 using System.Text.Json;
 using FakeItEasy;
 using lucia.Agents.Abstractions;
@@ -69,6 +71,24 @@ public class MusicPlaybackSkillTests
         Assert.Equal("Queen", capturedRequest["media_id"]);
         Assert.Equal("replace", capturedRequest["enqueue"]);
         Assert.Contains("Started an artist station", response);
+    }
+
+    [Fact]
+    public async Task PlayAudiobookAsync_WithoutDirectApi_UsesHomeAssistant()
+    {
+        ServiceCallRequest? capturedRequest = null;
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", null, A<ServiceCallRequest>._, A<CancellationToken>._))
+            .Invokes((string _, string _, string? _, ServiceCallRequest request, CancellationToken _) => capturedRequest = request)
+            .Returns(Task.FromResult(Array.Empty<object>()));
+
+        var response = await _skill.PlayAudiobookAsync("Satellite1 Kitchen", "Altered Carbon");
+
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("media_player.satellite1_kitchen", capturedRequest!.EntityId);
+        Assert.Equal("audiobook", capturedRequest["media_type"]);
+        Assert.Equal("Altered Carbon", capturedRequest["media_id"]);
+        Assert.Equal("replace", capturedRequest["enqueue"]);
+        Assert.Contains("Playing audiobook 'Altered Carbon'", response);
     }
 
     [Fact]
@@ -299,6 +319,45 @@ public class MusicPlaybackSkillTests
         var result = await skill.FindPlayerAsync("Kitchen Speaker");
 
         Assert.Contains("Satellite1 Kitchen", result);
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task FindPlayerAsync_WithDirectApi_PrefersMusicAssistantPlayers()
+    {
+        using var httpClient = new HttpClient(new FakeHttpMessageHandler(_ =>
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    """[{"player_id":"office","name":"Satellite1 Dev Office","display_name":"Satellite1 Dev Office","available":true}]""",
+                    Encoding.UTF8,
+                    "application/json")
+            }));
+        var musicConfig = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
+        A.CallTo(() => musicConfig.CurrentValue).Returns(new MusicAssistantConfig
+        {
+            Url = "https://music.example.test",
+            Token = "token"
+        });
+        var directClient = new MusicAssistantClient(
+            httpClient,
+            musicConfig,
+            NullLogger<MusicAssistantClient>.Instance);
+        var skillOptions = A.Fake<IOptionsMonitor<MusicPlaybackSkillOptions>>();
+        A.CallTo(() => skillOptions.CurrentValue).Returns(new MusicPlaybackSkillOptions());
+        var skill = new MusicPlaybackSkill(
+            _homeAssistantClient,
+            NullLogger<MusicPlaybackSkill>.Instance,
+            _locationService,
+            skillOptions,
+            musicConfig,
+            musicAssistantClient: directClient);
+
+        var result = await skill.FindPlayerAsync("Satellite1 Dev Office");
+
+        Assert.Contains("Satellite1 Dev Office", result);
         A.CallTo(() => _locationService.SearchHierarchyAsync(
                 A<string>._, A<HybridMatchOptions>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
             .MustNotHaveHappened();

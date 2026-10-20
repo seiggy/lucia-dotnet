@@ -89,6 +89,12 @@ public static class EvalProgressDisplay
                                 var agentInstance = await createAgent(model);
 
                                 var scenarios = ScenarioLoader.LoadFromFile(agentInstance.DatasetFile);
+                                if (agentInstance.ScenarioExecutor is not null)
+                                {
+                                    scenarios = scenarios
+                                        .Where(static scenario => !string.IsNullOrWhiteSpace(scenario.ExpectedAgent))
+                                        .ToList();
+                                }
 
                                 ModelEvalResult result;
                                 if (scenarios.Count > 0)

@@ -264,6 +264,45 @@ List configured backends and their available models without starting evaluations
 dotnet run --project .\lucia.EvalHarness -- --list-backend-models
 ```
 
+### Music Agent isolation runs
+
+The Music Agent scenarios live in `lucia.EvalHarness/TestData/music-agent.yaml`.
+They cover player lookup, artist, album, song, genre, audiobook and shuffle
+playback, transport controls, now-playing, volume, STT errors, and out-of-domain
+requests.
+
+Select both music targets in the agent picker to run the same model at two seams:
+
+| Target | What it measures |
+|--------|------------------|
+| `MusicAgent` | Music Agent tool choice, arguments, tool execution, and final response |
+| `MusicAgentOrchestrated` | Router selection first, then the same Music Agent checks |
+
+Music scenarios that set `expected_agent` run through the orchestrated target.
+If the router chooses another agent, the report records a routing failure and
+does not add misleading missing-tool failures. If routing succeeds, failures
+come from the Music Agent or its tools. The separate agent names keep both
+result sets side by side in console, JSON, and HTML reports.
+
+The orchestrator router allows 2,048 output tokens. Reasoning models such as
+`gpt-oss` may spend hundreds of tokens before emitting the small JSON routing
+decision; lower limits can end with reasoning content but no parseable response.
+
+Each scenario starts a fresh agent session, so earlier prompts and tool calls
+never reach the model or the validator. Tools that resolve their own player,
+such as `NextTrack` and `SetVolume`, list `FindPlayer` with `optional: true`.
+An absent optional call is skipped; a present one is still checked, and any
+number of consecutive repeats is accepted. An optional entry can list
+`alternatives`, so one entry can cover a mix of read-only lookups. Only
+`find_player_by_name` requires `FindPlayer`. Response text checks ignore curly
+quotes and Unicode spaces, which some models emit between words. The JSON
+report adds a `routing` object to orchestrated cases with the router's choice,
+confidence, per-agent instruction, and the agent's reply.
+
+The router asks for a JSON schema response. A server that cannot honor it fails
+every orchestrated case for that model with no route. For llama.cpp behind
+LiteLLM, the server needs xgrammar installed.
+
 ### Semantic response checks
 
 Set `response_criteria` on a scenario to have the selected LLM judge evaluate its

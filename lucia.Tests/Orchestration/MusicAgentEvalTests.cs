@@ -20,7 +20,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
 {
     private static readonly string[] s_musicToolNames =
         ["FindPlayer", "PlayArtist", "PlayAlbum", "PlaySong", "PlayGenre",
-         "PlayShuffle", "StopMusic", "SetVolume", "VolumeUp", "VolumeDown",
+         "PlayAudiobook", "PlayShuffle", "StopMusic", "SetVolume", "VolumeUp", "VolumeDown",
          "NextTrack", "PreviousTrack", "GetNowPlaying"];
 
     public MusicAgentEvalTests(EvalTestFixture fixture) : base(fixture) { }

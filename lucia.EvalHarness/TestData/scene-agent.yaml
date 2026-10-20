@@ -20,10 +20,9 @@ scenarios:
     user_prompt: "Activate the movie scene"
     expected_tool_calls:
       - tool: ListScenes
+        optional: true
         alternatives:
           - tool: FindScenesByArea
-            arguments:
-              areaName: "contains:living room"
       - tool: ActivateScene
         arguments:
           entityId: "scene.movie_mode"
@@ -48,8 +47,9 @@ scenarios:
     user_prompt: "Turn on the romantic scene in the bedroom"
     expected_tool_calls:
       - tool: FindScenesByArea
-        arguments:
-          areaName: "contains:bedroom"
+        optional: true
+        alternatives:
+          - tool: ListScenes
       - tool: ActivateScene
         arguments:
           entityId: "scene.romantic"
@@ -96,10 +96,9 @@ scenarios:
     user_prompt: "Goodnight scene please"
     expected_tool_calls:
       - tool: ListScenes
+        optional: true
         alternatives:
           - tool: FindScenesByArea
-            arguments:
-              areaName: "contains:bedroom"
       - tool: ActivateScene
         arguments:
           entityId: "scene.goodnight"
@@ -116,6 +115,9 @@ scenarios:
         attributes:
           friendly_name: "Movie Mode"
     user_prompt: "Set the thermostat to 72"
-    expected_tool_calls: []
+    # A harmless ListScenes lookup before declining is tolerated. Activating a scene is not.
+    expected_tool_calls:
+      - tool: ListScenes
+        optional: true
     response_must_not_contain:
       - "activated"

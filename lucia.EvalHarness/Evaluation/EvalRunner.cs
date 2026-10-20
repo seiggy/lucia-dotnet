@@ -83,8 +83,9 @@ public sealed class EvalRunner
             var tc = testCases[i];
             onProgress?.Invoke($"[{i + 1}/{testCases.Count}] {tc.Name ?? tc.Input[..Math.Min(40, tc.Input.Length)]}...");
 
-            // Reset conversation tracer for this test case
+            // Reset conversation tracer and agent session for this test case
             agentInstance.Tracer?.Reset();
+            await evaluableAgent.ResetSessionAsync(ct);
             using var costScope = agentInstance.BeginCostScope();
 
             EvaluationContext context;
@@ -336,6 +337,25 @@ public sealed class EvalRunner
         }).ToList();
     }
 
+    private static IReadOnlyList<ToolCallTrace>? CaptureToolCalls(
+        IReadOnlyList<ConversationTurn> conversation)
+    {
+        var calls = conversation
+            .Where(static turn => turn.ToolCalls is { Count: > 0 })
+            .SelectMany(static turn => turn.ToolCalls!)
+            .Select((call, index) => new ToolCallTrace
+            {
+                ToolName = call.Name,
+                Order = index,
+                Arguments = call.Arguments?.ToDictionary(
+                    static argument => argument.Key,
+                    static argument => (object?)argument.Value)
+            })
+            .ToList();
+
+        return calls.Count == 0 ? null : calls;
+    }
+
     private static string BuildScenarioPrompt(TestScenario scenario)
     {
         var sb = new System.Text.StringBuilder();
@@ -408,19 +428,30 @@ public sealed class EvalRunner
                 "to validate tool calls. Enable tracing before creating agent instances.");
         }
 
-        var harness = new MAFEvaluationHarness(verbose: false);
-        var options = new EvaluationOptions
-        {
-            TrackTools = true,
-            TrackPerformance = true,
-            ModelName = modelName
-        };
-
         var testCaseResults = new List<TestCaseResult>();
         var perfSnapshots = new List<PerformanceSnapshot>();
+        MAFEvaluationHarness? harness = null;
+        EvaluationOptions? options = null;
+        MAFAgentAdapter? evaluableAgent = null;
+        if (agentInstance.ScenarioExecutor is not null)
+        {
+            // Orchestrated runs only score scenarios that name the expected route.
+            scenarios = scenarios
+                .Where(static scenario => !string.IsNullOrWhiteSpace(scenario.ExpectedAgent))
+                .ToList();
+        }
 
-        var aiAgent = agentInstance.Agent.GetAIAgent();
-        var evaluableAgent = new MAFAgentAdapter(aiAgent);
+        if (agentInstance.ScenarioExecutor is null)
+        {
+            harness = new MAFEvaluationHarness(verbose: false);
+            options = new EvaluationOptions
+            {
+                TrackTools = true,
+                TrackPerformance = true,
+                ModelName = modelName
+            };
+            evaluableAgent = new MAFAgentAdapter(agentInstance.Agent.GetAIAgent());
+        }
 
         for (var i = 0; i < scenarios.Count; i++)
         {
@@ -429,6 +460,13 @@ public sealed class EvalRunner
 
             // Reset tracer for this scenario
             agentInstance.Tracer?.Reset();
+            agentInstance.ResetScenarioState?.Invoke();
+            if (evaluableAgent is not null)
+            {
+                // The adapter reuses one agent session, so without this reset each scenario
+                // replays every earlier prompt and tool call to the model and the validator.
+                await evaluableAgent.ResetSessionAsync(ct);
+            }
             using var costScope = agentInstance.BeginCostScope();
 
             try
@@ -445,23 +483,48 @@ public sealed class EvalRunner
                     ExpectedOutputContains = scenario.ResponseMustContain.FirstOrDefault()
                 };
 
-                // Run the agent
-                var (evalResult, perf) = await _perfCollector.MeasureAsync(async () =>
-                    await LlmDeadline.RunAsync(
-                        token => harness.RunEvaluationAsync(evaluableAgent, testCase, options, token),
-                        _config.AgentTimeout, _timeProvider, ct,
-                        $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for scenario '{scenario.Id}'."),
-                    ct);
+                string actualOutput;
+                PerformanceSnapshot perf;
+                IReadOnlyList<ToolCallTrace>? capturedToolCalls = null;
+                if (agentInstance.ScenarioExecutor is not null)
+                {
+                    var measured = await _perfCollector.MeasureAsync(async () =>
+                        await LlmDeadline.RunAsync(
+                            token => agentInstance.ScenarioExecutor(promptText, token),
+                            _config.AgentTimeout,
+                            _timeProvider,
+                            ct,
+                            $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for scenario '{scenario.Id}'."), ct);
+                    actualOutput = measured.Result;
+                    perf = measured.Perf;
+                }
+                else
+                {
+                    var measured = await _perfCollector.MeasureAsync(async () =>
+                        await LlmDeadline.RunAsync(
+                            token => harness!.RunEvaluationAsync(evaluableAgent!, testCase, options!, token),
+                            _config.AgentTimeout,
+                            _timeProvider,
+                            ct,
+                            $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for scenario '{scenario.Id}'."), ct);
+                    actualOutput = measured.Result.ActualOutput ?? string.Empty;
+                    perf = measured.Perf;
+                    capturedToolCalls = CaptureToolCalls(measured.Result.ToolUsage);
+                }
 
                 perfSnapshots.Add(perf);
 
                 // Get conversation turns for validation
                 var conversation = agentInstance.Tracer?.Turns.ToList()
                     ?? new List<ConversationTurn>();
+                capturedToolCalls ??= CaptureToolCalls(conversation);
                 var cost = costScope?.Complete() ?? InferenceCostSummary.Untracked;
 
                 // Validate against scenario expectations
-                var validation = await ScenarioValidator.ValidateAsync(scenario, conversation, haClient);
+                var validation = agentInstance.ScenarioExecutor is not null
+                    && !RouteMatches(scenario.ExpectedAgent, agentInstance.RoutedAgentId?.Invoke())
+                        ? RoutingFailure(scenario, agentInstance.RoutedAgentId?.Invoke())
+                        : await ScenarioValidator.ValidateAsync(scenario, conversation, haClient);
                 var passed = validation.Passed;
                 double? score = validation.Score;
                 var failureReason = validation.Passed ? null : validation.Summary;
@@ -481,7 +544,7 @@ public sealed class EvalRunner
                             var judgment = await LlmDeadline.RunAsync(
                                 token => ScenarioResponseJudge.EvaluateAsync(
                                     _judgeChatClient, scenario.ResponseCriteria,
-                                    promptText, evalResult.ActualOutput ?? string.Empty, token),
+                                    promptText, actualOutput, token),
                                 _config.JudgeTimeout, _timeProvider, ct,
                                 $"Response judge exceeded the {_config.JudgeTimeoutSeconds}s deadline for scenario '{scenario.Id}'.");
                             judgeReason = judgment.Reason;
@@ -516,8 +579,9 @@ public sealed class EvalRunner
                     Score = score,
                     Latency = perf.TotalDuration,
                     Input = promptText,
-                    AgentOutput = evalResult.ActualOutput,
-                    ToolCalls = CaptureToolCalls(evalResult.ToolUsage),
+                    AgentOutput = actualOutput,
+                    ToolCalls = capturedToolCalls,
+                    Routing = agentInstance.RoutingDetails?.Invoke(),
                     ConversationHistory = conversation,
                     FailureReason = failureReason,
                     JudgeStatus = judgeStatus,
@@ -587,6 +651,25 @@ public sealed class EvalRunner
             Performance = perfSummary,
             TestCaseResults = testCaseResults,
             ParameterProfile = parameterProfile
+        };
+    }
+
+    private static bool RouteMatches(string? expectedAgent, string? actualAgent) =>
+        string.IsNullOrWhiteSpace(expectedAgent)
+        || actualAgent?.Contains(expectedAgent, StringComparison.OrdinalIgnoreCase) is true;
+
+    private static ScenarioValidationResult RoutingFailure(
+        TestScenario scenario,
+        string? actualAgent)
+    {
+        var issue = $"Routing failed: expected '{scenario.ExpectedAgent}' but got '{actualAgent ?? "no route"}'.";
+        return new ScenarioValidationResult
+        {
+            ScenarioId = scenario.Id,
+            Passed = false,
+            Score = 0,
+            Issues = [issue],
+            Successes = []
         };
     }
 }
