@@ -83,7 +83,8 @@ public static class AgentDefinitionApi
 
     private static async Task<Results<Created<AgentDefinition>, Conflict<string>, BadRequest<string>>> CreateDefinitionAsync(
         [FromBody] AgentDefinition definition,
-        [FromServices] IAgentDefinitionRepository repository)
+        [FromServices] IAgentDefinitionRepository repository,
+        [FromServices] IPromptCacheService promptCache)
     {
         // The Id is the single routing identity (card name, A2A URL, provider key).
         // Enforce a stable kebab-case slug up front and keep Name pinned to it.
@@ -129,13 +130,15 @@ public static class AgentDefinitionApi
             return TypedResults.Conflict($"An agent with id '{definition.Id}' already exists.");
         }
 
+        await EvictPromptCachesAsync(promptCache);
         return TypedResults.Created($"/api/agent-definitions/{definition.Id}", definition);
     }
 
     private static async Task<Results<Ok<AgentDefinition>, NotFound, BadRequest<string>>> ReplaceDefinitionAsync(
         string id,
         [FromBody] AgentDefinition definition,
-        [FromServices] IAgentDefinitionRepository repository)
+        [FromServices] IAgentDefinitionRepository repository,
+        [FromServices] IPromptCacheService promptCache)
     {
         // The route Id doubles as the A2A URL segment (/a2a/{id}), so it must stay a
         // stable kebab-case slug — the same rule Create enforces on new ids.
@@ -178,13 +181,15 @@ public static class AgentDefinitionApi
         };
 
         await repository.UpsertAgentDefinitionAsync(replacement).ConfigureAwait(false);
+        await EvictPromptCachesAsync(promptCache);
         return TypedResults.Ok(replacement);
     }
 
     private static async Task<Results<Ok<AgentDefinition>, NotFound, BadRequest<string>>> PatchDefinitionAsync(
         string id,
         [FromBody] PatchAgentDefinitionRequest request,
-        [FromServices] IAgentDefinitionRepository repository)
+        [FromServices] IAgentDefinitionRepository repository,
+        [FromServices] IPromptCacheService promptCache)
     {
         if (!AgentIdPattern.IsMatch(id))
         {
@@ -269,6 +274,7 @@ public static class AgentDefinitionApi
         // existing.IsBuiltIn, IsRemote, IsOrchestrator, CreatedAt remain unchanged.
 
         await repository.UpsertAgentDefinitionAsync(existing).ConfigureAwait(false);
+        await EvictPromptCachesAsync(promptCache);
         return TypedResults.Ok(existing);
     }
 
@@ -276,7 +282,8 @@ public static class AgentDefinitionApi
         string id,
         [FromServices] IAgentDefinitionRepository repository,
         [FromServices] IDynamicAgentProvider dynamicAgentProvider,
-        [FromServices] IAgentRegistry agentRegistry)
+        [FromServices] IAgentRegistry agentRegistry,
+        [FromServices] IPromptCacheService promptCache)
     {
         var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
         if (existing is null) return TypedResults.NotFound();
@@ -288,14 +295,39 @@ public static class AgentDefinitionApi
         dynamicAgentProvider.Unregister(existing.Id);
         await agentRegistry.UnregisterAgentAsync($"/a2a/{existing.Id}").ConfigureAwait(false);
 
+        await EvictPromptCachesAsync(promptCache);
+
         return TypedResults.NoContent();
     }
 
     private static async Task<Ok<string>> ReloadAgentsAsync(
-        [FromServices] DynamicAgentLoader loader)
+        [FromServices] IDynamicAgentLoader loader,
+        [FromServices] IPromptCacheService promptCache)
     {
         await loader.ReloadAsync().ConfigureAwait(false);
+        await EvictPromptCachesAsync(promptCache);
         return TypedResults.Ok("Dynamic agents reloaded");
+    }
+
+    /// <summary>
+    /// Drops cached routing decisions and cached chat responses after any change that
+    /// alters the agent catalog. Routing cache keys contain no agent fingerprint, and
+    /// semantic chat matching is scoped by instruction hash — stale entries would
+    /// otherwise survive up to the 48h TTL.
+    /// </summary>
+    private static async Task EvictPromptCachesAsync(IPromptCacheService promptCache)
+    {
+        try
+        {
+            await promptCache.EvictAllAsync(CancellationToken.None).ConfigureAwait(false);
+            await promptCache.EvictAllChatEntriesAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Best-effort: the catalog change already succeeded, and stale entries
+            // self-expire via the 48h cache TTL. Swallowed to keep CRUD available
+            // even if the cache backend is down.
+        }
     }
 
     /// <summary>

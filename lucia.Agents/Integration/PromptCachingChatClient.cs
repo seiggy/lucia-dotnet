@@ -65,10 +65,15 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
             var normalizedKey = NormalizeChatKey(messageList, options);
             var semanticQuery = StripVolatileFields(ExtractLastUserText(messageList))
                 .Trim().ToLowerInvariant();
+            // Scope semantic cache matches to this agent's system instructions.
+            var instructionsHash = string.IsNullOrWhiteSpace(options?.Instructions)
+                ? null
+                : ComputeSha256(options.Instructions);
 
             try
             {
-                var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, semanticQuery, cancellationToken).ConfigureAwait(false);
+                var cached = await _cacheService.TryGetCachedChatResponseAsync(
+                    normalizedKey, semanticQuery, instructionsHash, cancellationToken).ConfigureAwait(false);
                 if (cached is not null)
                 {
                     _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
@@ -96,6 +101,7 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
                 {
                     data.NormalizedPrompt = StripVolatileFields(ExtractLastUserText(messageList))
                         .Trim().ToLowerInvariant();
+                    data.InstructionsHash = instructionsHash;
                     await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
                     activity?.SetTag("cache.stored", true);
                 }
