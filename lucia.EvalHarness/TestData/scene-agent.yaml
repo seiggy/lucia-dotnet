@@ -76,6 +76,9 @@ scenarios:
         attributes:
           friendly_name: "Goodnight"
     user_prompt: "What scenes are available?"
+    reject_unlisted_tool_calls: true
+    forbidden_tools:
+      - ActivateScene
     expected_tool_calls:
       - tool: ListScenes
     response_must_contain:
@@ -115,6 +118,8 @@ scenarios:
         attributes:
           friendly_name: "Movie Mode"
     user_prompt: "Set the thermostat to 72"
+    forbidden_tools:
+      - ActivateScene
     # A harmless ListScenes lookup before declining is tolerated. Activating a scene is not.
     expected_tool_calls:
       - tool: ListScenes

@@ -411,7 +411,8 @@ public sealed class EvalRunner
         // Without a tracer, the conversation list is empty and every scenario reports
         // "Expected N tool call(s) but only got 0" — a silent false-failure.
         if (agentInstance.Tracer is null && scenarios.Any(s =>
-                s.ExpectedToolCalls.Count > 0 || !string.IsNullOrWhiteSpace(s.ResponseCriteria)))
+                s.ExpectedToolCalls.Count > 0 || s.RejectUnlistedToolCalls || s.ForbiddenTools.Count > 0 ||
+                !string.IsNullOrWhiteSpace(s.ResponseCriteria)))
         {
             throw new InvalidOperationException(
                 "Scenario evaluation requires conversation tracing (RealAgentFactory.EnableTracing = true) " +

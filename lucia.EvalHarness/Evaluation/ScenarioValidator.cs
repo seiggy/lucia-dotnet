@@ -93,6 +93,19 @@ public static class ScenarioValidator
             .SelectMany(t => t.ToolCalls!)
             .ToList();
 
+        // Deny rules apply to every call, even if the expected chain is empty
+        // or also declares the forbidden tool. Keep argument values out of diagnostics.
+        var forbiddenTools = scenario.ForbiddenTools
+            .Select(NormalizeFunctionName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < actualToolCalls.Count; i++)
+        {
+            if (forbiddenTools.Contains(NormalizeFunctionName(actualToolCalls[i].Name)))
+            {
+                issues.Add($"[{i}] Forbidden tool call '{actualToolCalls[i].Name}'");
+            }
+        }
+
         var expected = scenario.ExpectedToolCalls;
 
         if (expected.Count == 0)
@@ -148,13 +161,13 @@ public static class ScenarioValidator
             }
         }
 
-        // A scenario with only optional expectations is a rejection case. Calls it did not
-        // anticipate, such as an activation after a lookup, are failures.
-        if (requiredCount == 0)
+        // Preserve strict rejection for optional-only scenarios, and allow any
+        // scenario to reject calls left after its declared chain explicitly.
+        if (requiredCount == 0 || scenario.RejectUnlistedToolCalls)
         {
             for (; actualIndex < actualToolCalls.Count; actualIndex++)
             {
-                issues.Add($"Unexpected tool call '{actualToolCalls[actualIndex].Name}'");
+                issues.Add($"[{actualIndex}] Unexpected tool call '{actualToolCalls[actualIndex].Name}'");
             }
         }
     }
