@@ -417,9 +417,53 @@ cached-input rate, and output at the output rate. If a provider does not report
 cache counts, no cache discount is assumed. Missing cloud usage or required rates
 produce unavailable/partial estimates, never zero-cost cloud results.
 
-Ollama and OpenAI-compatible self-hosted backends have zero provider cost and the
-best cost preference. Electricity and hardware costs are excluded. Tests that
-never executed are not counted as free runs.
+Provider charges are independent of the API protocol and endpoint address.
+`OpenAICompat` can point at a paid service or a local proxy to one; native Ollama
+can also be hosted remotely. Neither protocol automatically means free inference.
+
+`NoProviderCharge` defaults to `false` for every backend. With that default,
+configured `ModelPricing` and reported usage produce an estimate. Missing usage
+or required prices remain unknown, not zero. OpenRouter can populate its pricing
+from discovery; generic OpenAI-compatible providers need configured rates.
+
+For a server with no model-under-test provider charge, explicitly set
+`Harness:Backends:<index>:NoProviderCharge` to `true`. The result is recorded as
+`no_provider_charge`, even if usage is unavailable. This declaration overrides
+stored prices; set it back to `false` when changing to a paid host. It does not
+claim that electricity, hardware, a subscription, or judge calls are free.
+
+```json
+{
+  "Harness": {
+    "Backends": [
+      {
+        "Name": "Self-hosted llama.cpp",
+        "Type": "OpenAICompat",
+        "Endpoint": "http://localhost:1234",
+        "NoProviderCharge": true
+      },
+      {
+        "Name": "Bitdeer",
+        "Type": "OpenAICompat",
+        "Endpoint": "https://api-inference.bitdeer.ai/v1",
+        "NoProviderCharge": false
+      }
+    ]
+  }
+}
+```
+
+Keep the Bitdeer key in user secrets at `Harness:Backends:1:ApiKey` for this
+example. Add rates under `Harness:Backends:1:ModelPricing:<exact-model-id>` using
+the pricing fields above and the provider's applicable rates. Until then, its
+cost remains unknown. This example configures an API connection; it is not a
+claim that a particular Bitdeer model has been qualified.
+
+When named `Backends` are absent, `Harness:Ollama:NoProviderCharge` supplies the
+same declaration to the synthesized Ollama backend. It also defaults to `false`.
+Existing local configurations must opt in to retain known-zero provider costs.
+Unexecuted tests remain `no_calls`, not free runs. Earlier exported `local`
+statuses remain recognized when aggregating historical results.
 
 Console, JSON, Markdown, and HTML reports include cost information and token
 usage. Recommendations rank by quality first, then lower known mean cost per

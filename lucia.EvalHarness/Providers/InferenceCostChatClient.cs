@@ -8,18 +8,18 @@ namespace lucia.EvalHarness.Providers;
 public sealed class InferenceCostChatClient : DelegatingChatClient
 {
     private readonly AsyncLocal<InferenceCostScope?> _scope = new();
-    private readonly bool _isLocal;
+    private readonly bool _noProviderCharge;
     private readonly ModelPricing? _pricing;
 
     public InferenceCostChatClient(IChatClient inner, InferenceBackend backend, string modelName) : base(inner)
     {
-        _isLocal = backend.Type is InferenceBackendType.Ollama or InferenceBackendType.OpenAICompat;
+        _noProviderCharge = backend.NoProviderCharge;
         backend.ModelPricing.TryGetValue(modelName, out _pricing);
     }
 
     public InferenceCostScope BeginScope()
     {
-        var scope = new InferenceCostScope(_isLocal, _pricing);
+        var scope = new InferenceCostScope(_noProviderCharge, _pricing);
         _scope.Value = scope;
         return scope;
     }

@@ -9,4 +9,7 @@ public sealed class OllamaSettings
     /// Base URL for the Ollama API. Defaults to <c>http://localhost:11434</c>.
     /// </summary>
     public string Endpoint { get; set; } = "http://localhost:11434";
+
+    /// <summary>Explicit provider-charge declaration used when no named backends are configured.</summary>
+    public bool NoProviderCharge { get; set; }
 }
