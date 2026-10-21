@@ -80,6 +80,37 @@ Integration tests verify components with real infrastructure (Redis, PostgreSQL)
 | `Integration/DurableTaskPersistenceTests.cs` | Redis | Task durability across restarts |
 | `Integration/ExtractDeviceIdTests.cs` | None | Device ID extraction from HA entities |
 
+### Redis location snapshot publication
+
+`RedisLocationSnapshotStore.SaveAsync` waits for acknowledgments for the floors,
+areas, entities, and loaded-at writes. A failed save propagates to its caller,
+so save-then-version-bump operations do not publish a version for a rejected save.
+These operations can fail even when the local in-memory snapshot was updated;
+they do not roll back local changes or partial Redis writes. Acknowledgment is
+not a guarantee of disk durability or atomic multi-key publication.
+
+The regression tests use two complementary checks:
+
+- `Services/EntityLocation/RedisLocationSnapshotStoreTests.cs` and
+  `RedisSnapshotPublicationTests.cs` use controlled acknowledgments, without
+  timing sleeps. They cover every snapshot write, enqueue/execute/reply failures,
+  and version ordering for reload, removal, and embedding eviction.
+- `Services/EntityLocation/RedisSnapshotPublicationIntegrationTests.cs` uses an
+  isolated Redis container and separate writer/reader connections. It verifies
+  snapshot visibility, the existing 24-hour TTL, and a rejected-write case. A
+  test-only Redis user cannot issue `SET`, `SETEX`, or `PSETEX`, but can still
+  increment the version. The test verifies that denied writes leave the shared
+  version unchanged. It does not change permissions on an existing Redis server.
+
+Run the location tests with Docker available:
+
+```powershell
+dotnet test lucia.Tests/lucia.Tests.csproj --filter "FullyQualifiedName~Services.EntityLocation"
+```
+
+The four snapshot keys and separate version counter remain unchanged. This fix
+does not make concurrent publication or reads of multiple keys atomic.
+
 ## Evaluation Tests
 
 Eval tests measure agent quality using the [Microsoft.Extensions.AI.Evaluation](https://learn.microsoft.com/dotnet/ai/evaluation/) SDK. They invoke real agents against real LLMs and score responses with LLM-as-judge evaluators.
