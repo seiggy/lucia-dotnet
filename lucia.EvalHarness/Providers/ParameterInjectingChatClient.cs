@@ -1,3 +1,4 @@
+using System.Text.Json;
 using lucia.EvalHarness.Configuration;
 using Microsoft.Extensions.AI;
 
@@ -12,6 +13,8 @@ namespace lucia.EvalHarness.Providers;
 /// exists, so that both the OllamaSharp and OpenAI <see cref="IChatClient"/> adapters forward
 /// them on the wire:
 /// <list type="bullet">
+///   <item><description><c>NumContext</c> maps to Ollama's <c>num_ctx</c> additional property.
+///     The OpenAI adapter ignores it. A caller-supplied positive integer takes precedence.</description></item>
 ///   <item><description><c>Seed</c> → typed <see cref="ChatOptions.Seed"/> (Ollama <c>seed</c>, OpenAI <c>seed</c>).</description></item>
 ///   <item><description><c>NumPredict &gt; 0</c> → typed <see cref="ChatOptions.MaxOutputTokens"/> (Ollama <c>num_predict</c>, OpenAI <c>max_completion_tokens</c>).</description></item>
 ///   <item><description><c>NumPredict == 0</c> → omitted (backend default applies).</description></item>
@@ -31,12 +34,14 @@ public sealed class ParameterInjectingChatClient : DelegatingChatClient
 {
     private const string NumPredictKey = "num_predict";
     private const string RepeatPenaltyKey = "repeat_penalty";
+    private const string NumContextKey = "num_ctx";
 
     private readonly ModelParameterProfile _profile;
 
     public ParameterInjectingChatClient(IChatClient innerClient, ModelParameterProfile profile)
         : base(innerClient)
     {
+        profile.ValidateContext();
         _profile = profile;
     }
 
@@ -74,6 +79,25 @@ public sealed class ParameterInjectingChatClient : DelegatingChatClient
             options.MaxOutputTokens ??= _profile.NumPredict;
 
         options.AdditionalProperties ??= [];
+
+        if (_profile.NumContext is { } context && !options.AdditionalProperties.ContainsKey(NumContextKey))
+            options.AdditionalProperties[NumContextKey] = context;
+
+        if (options.AdditionalProperties.TryGetValue(NumContextKey, out var value))
+        {
+            var requestedContext = value switch
+            {
+                int tokens => tokens,
+                long tokens when tokens is > 0 and <= int.MaxValue => (int)tokens,
+                JsonElement element when element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var tokens) => tokens,
+                _ => 0
+            };
+            if (requestedContext <= 0)
+                throw new InvalidOperationException("Ollama num_ctx must be a positive integer token budget.");
+            options.AdditionalProperties[NumContextKey] = requestedContext;
+            if (options.MaxOutputTokens is { } output && output >= requestedContext)
+                throw new InvalidOperationException("Ollama num_ctx must exceed the output token reserve to leave room for input.");
+        }
 
         // RepeatPenalty has no strongly-typed M.E.AI equivalent (FrequencyPenalty is a different
         // knob), so it is provider-specific. OllamaSharp reads the "repeat_penalty" key; the OpenAI

@@ -13,6 +13,19 @@ namespace lucia.EvalHarness.Tests;
 public sealed class ParameterSweepRunnerTests
 {
     [Fact]
+    public async Task RunAsync_ContextBudgetStaysFixedForBaselineAndAllCombinations()
+    {
+        var calls = new List<(string ModelName, ModelParameterProfile Profile)>();
+        var runner = MakeRunner(calls, 70);
+        var config = new ParameterSweepConfig { NumContext = 16384, RunsPerCombination = 1, MaxCombinations = 2 };
+
+        await RunSweepAsync(runner, config, "baseline", ["target"]);
+
+        Assert.Equal(3, calls.Count);
+        Assert.All(calls, call => Assert.Equal(16384, call.Profile.NumContext));
+    }
+
+    [Fact]
     public async Task RunAsync_EachCombination_IsEvaluatedNTimes()
     {
         var callLog = new List<(string ModelName, ModelParameterProfile Profile)>();

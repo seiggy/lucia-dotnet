@@ -64,6 +64,9 @@ public sealed class ParameterSweepConfig
     /// </summary>
     public int? BaseSeed { get; set; } = ModelParameterProfile.DefaultSeed;
 
+    /// <summary>Fixed Ollama context budget shared by the baseline and all combinations.</summary>
+    public int? NumContext { get; set; }
+
     /// <summary>
     /// Generates the parameter combinations to test, applying <see cref="MaxCombinations"/> limit.
     /// Uses systematic sampling when the full grid is too large.
@@ -72,29 +75,32 @@ public sealed class ParameterSweepConfig
     /// </summary>
     public IReadOnlyList<ModelParameterProfile> GenerateCombinations()
     {
+        if (NumContext is <= 0)
+            throw new InvalidOperationException("Sweep NumContext must be a positive token budget.");
         var fullGrid = new List<ModelParameterProfile>();
         var index = 0;
         var runsPerCombo = Math.Max(1, RunsPerCombination);
 
         foreach (var temp in TemperatureValues)
-        foreach (var topK in TopKValues)
-        foreach (var topP in TopPValues)
-        foreach (var repeat in RepeatPenaltyValues)
-        {
-            fullGrid.Add(new ModelParameterProfile
-            {
-                Name = $"sweep-{index}",
-                Temperature = temp,
-                TopK = topK,
-                TopP = topP,
-                RepeatPenalty = repeat,
-                // Allocate a non-overlapping seed block per combination so that
-                // DeriveRunSeed(profile.Seed, runIndex) yields distinct seeds for
-                // every (combo, run) pair.
-                Seed = BaseSeed.HasValue ? BaseSeed.Value + index * runsPerCombo : null
-            });
-            index++;
-        }
+            foreach (var topK in TopKValues)
+                foreach (var topP in TopPValues)
+                    foreach (var repeat in RepeatPenaltyValues)
+                    {
+                        fullGrid.Add(new ModelParameterProfile
+                        {
+                            Name = $"sweep-{index}",
+                            Temperature = temp,
+                            TopK = topK,
+                            TopP = topP,
+                            RepeatPenalty = repeat,
+                            NumContext = NumContext,
+                            // Allocate a non-overlapping seed block per combination so that
+                            // DeriveRunSeed(profile.Seed, runIndex) yields distinct seeds for
+                            // every (combo, run) pair.
+                            Seed = BaseSeed.HasValue ? BaseSeed.Value + index * runsPerCombo : null
+                        });
+                        index++;
+                    }
 
         if (fullGrid.Count <= MaxCombinations)
             return fullGrid;

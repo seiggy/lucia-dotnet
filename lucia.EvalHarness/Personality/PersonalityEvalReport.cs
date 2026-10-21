@@ -1,4 +1,6 @@
+using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Evaluation;
+using System.Text.Json.Serialization;
 
 namespace lucia.EvalHarness.Personality;
 
@@ -9,6 +11,8 @@ namespace lucia.EvalHarness.Personality;
 public sealed class PersonalityEvalReport
 {
     public required string ModelName { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ModelParameterProfile? ParameterProfile { get; init; }
     public required string JudgeModelName { get; init; }
     public required IReadOnlyList<PersonalityScenarioResult> Results { get; init; }
     public required DateTimeOffset StartedAt { get; init; }
