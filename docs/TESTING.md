@@ -330,6 +330,16 @@ names use the validator's existing case-insensitive comparison and trailing
 `Async` normalization. Failure messages include the observed call's zero-based
 position and name, without argument values.
 
+Forbidden-tool decisions use AgentEval's `NeverCallTool` assertion. The tracer
+captures the tool names offered in actual model requests and supplies that
+inventory to AgentEval. A forbidden call always fails. If the tool was offered
+but never called, the policy passes. If the tool was not offered, or the offered
+inventory is unknown, AgentEval reports an inconclusive result rather than a
+vacuous pass. The scenario then has `Passed=false`, a null score, and an
+`Inconclusive NeverCallTool(...)` reason. A passing response judge cannot turn
+that result into a pass or assign it a numeric score. The strict ordered-chain
+matcher remains in Lucia; `NeverCallTool` does not replace it.
+
 Scenarios with no expected calls still reject all calls. Scenarios containing
 only optional expectations still reject undeclared calls, regardless of the
 strict-mode flag. Both explicit policies require conversation tracing. A policy

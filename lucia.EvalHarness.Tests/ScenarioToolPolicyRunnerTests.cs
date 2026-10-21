@@ -12,6 +12,81 @@ namespace lucia.EvalHarness.Tests;
 
 public sealed class ScenarioToolPolicyRunnerTests
 {
+    [Fact]
+    public async Task EvaluateScenariosAsync_OfferedForbiddenToolNotCalled_PassesUsingActualInventory()
+    {
+        using var loggerFactory = LoggerFactory.Create(_ => { });
+        await using var factory = new RealAgentFactory(
+            "http://unused:11434",
+            Path.Combine(AppContext.BaseDirectory, "TestData", "ha-snapshot.json"),
+            loggerFactory)
+        {
+            EnableTracing = true,
+            ChatClientCreator = (_, _, _) => ScriptedChatClient.Returning("Hello")
+        };
+        var instance = await factory.CreateLightAgentAsync("test-model");
+        var scenario = new TestScenario
+        {
+            Id = "no_forbidden_effect",
+            UserPrompt = "Say hello without changing the lights.",
+            ForbiddenTools = ["ControlLights"]
+        };
+
+        var result = await new EvalRunner(new HarnessConfiguration(), null).EvaluateScenariosAsync(
+            "test-model", instance, [scenario], factory.HomeAssistantClient, factory.EntityLocationService);
+        var testCase = Assert.Single(result.TestCaseResults);
+
+        Assert.Contains("ControlLights", instance.Tracer!.AvailableToolNames!);
+        Assert.True(testCase.Passed);
+        Assert.Equal(100d, testCase.Score);
+        Assert.Equal(100d, result.OverallScore);
+        Assert.Null(testCase.FailureReason);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EvaluateScenariosAsync_InconclusivePolicy_RemainsUnscoredWhenJudgePasses(bool inventoryKnown)
+    {
+        using var tracer = new ConversationTracer(ScriptedChatClient.Returning("Hello"));
+        await using var instance = new RealAgentInstance
+        {
+            AgentName = "agent",
+            Agent = A.Fake<ILuciaAgent>(),
+            DatasetFile = "unused",
+            Tracer = tracer,
+            RoutedAgentId = () => "agent",
+            ScenarioExecutor = async (prompt, ct) =>
+            {
+                var options = inventoryKnown
+                    ? new ChatOptions { Tools = [AIFunctionFactory.Create(() => "ok", "ListScenes")] }
+                    : null;
+                var response = await tracer.GetResponseAsync([new ChatMessage(ChatRole.User, prompt)], options, ct);
+                return response.Text!;
+            }
+        };
+        var scenario = new TestScenario
+        {
+            Id = "inconclusive_policy",
+            UserPrompt = "Say hello",
+            ExpectedAgent = "agent",
+            ForbiddenTools = ["UnlockDoor"],
+            ResponseCriteria = "Greet the user."
+        };
+        var judge = ScriptedChatClient.Returning("""{"passed":true,"reason":"Greets the user."}""");
+
+        var result = await new EvalRunner(new HarnessConfiguration(), judge).EvaluateScenariosAsync(
+            "test-model", instance, [scenario], A.Fake<IHomeAssistantClient>());
+        var testCase = Assert.Single(result.TestCaseResults);
+
+        Assert.False(testCase.Passed);
+        Assert.Null(testCase.Score);
+        Assert.Null(result.OverallScore);
+        Assert.Null(testCase.JudgeStatus);
+        Assert.Contains("Inconclusive", testCase.FailureReason);
+        Assert.Contains("NeverCallTool(UnlockDoor)", testCase.FailureReason);
+    }
+
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]

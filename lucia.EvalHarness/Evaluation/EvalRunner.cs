@@ -515,7 +515,8 @@ public sealed class EvalRunner
                 var validation = agentInstance.ScenarioExecutor is not null
                     && !RouteMatches(scenario.ExpectedAgent, agentInstance.RoutedAgentId?.Invoke())
                         ? RoutingFailure(scenario, agentInstance.RoutedAgentId?.Invoke())
-                        : await ScenarioValidator.ValidateAsync(scenario, conversation, haClient);
+                        : await ScenarioValidator.ValidateAsync(
+                            scenario, conversation, haClient, agentInstance.Tracer?.AvailableToolNames);
                 var passed = validation.Passed;
                 double? score = validation.Score;
                 var failureReason = validation.Passed ? null : validation.Summary;
@@ -540,8 +541,10 @@ public sealed class EvalRunner
                                 $"Response judge exceeded the {_config.JudgeTimeoutSeconds}s deadline for scenario '{scenario.Id}'.");
                             judgeReason = judgment.Reason;
                             passed &= judgment.Passed;
-                            score = 100d * (validation.Successes.Count + (judgment.Passed ? 1 : 0)) /
-                                    (validation.Successes.Count + validation.Issues.Count + 1);
+                            score = validation.Score.HasValue
+                                ? 100d * (validation.Successes.Count + (judgment.Passed ? 1 : 0)) /
+                                  (validation.Successes.Count + validation.Issues.Count + 1)
+                                : null;
                             if (!judgment.Passed)
                             {
                                 failureReason = (failureReason is null ? "" : failureReason + "; ") +

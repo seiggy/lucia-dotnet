@@ -41,7 +41,8 @@ public sealed class ScenarioValidatorToolPolicyTests
             ExpectedToolCalls = [new ExpectedToolCall { Tool = actual }]
         };
 
-        var result = await ValidateAsync(scenario, actual);
+        var result = await ScenarioValidator.ValidateAsync(scenario, CreateConversation(actual),
+            A.Fake<IHomeAssistantClient>(), ["UnlockDoor", "UnlockDoorStatus"]);
 
         Assert.Equal(expectedPass, result.Passed);
     }
