@@ -62,7 +62,6 @@ public sealed class EvalRunner
             ModelName = modelName
         };
 
-        var metrics = CreateCodeMetrics(testCases);
         var judgeMetric = CreateJudgeMetric();
         var testCaseResults = new List<TestCaseResult>();
         var perfSnapshots = new List<PerformanceSnapshot>();
@@ -81,6 +80,7 @@ public sealed class EvalRunner
         for (var i = 0; i < testCases.Count; i++)
         {
             var tc = testCases[i];
+            var metrics = CreateCodeMetrics(tc);
             onProgress?.Invoke($"[{i + 1}/{testCases.Count}] {tc.Name ?? tc.Input[..Math.Min(40, tc.Input.Length)]}...");
 
             // Reset conversation tracer and agent session for this test case
@@ -271,22 +271,12 @@ public sealed class EvalRunner
         };
     }
 
-    private static IReadOnlyList<IAgenticMetric> CreateCodeMetrics(IReadOnlyList<TestCase> testCases)
-    {
-        // Collect expected tools from all test cases for the selection metric
-        var allExpectedTools = testCases
-            .Where(tc => tc.ExpectedTools is { Count: > 0 })
-            .SelectMany(tc => tc.ExpectedTools!)
-            .Distinct()
-            .ToList();
-
-        return
-        [
-            new ToolSelectionMetric(allExpectedTools),
-            new ToolSuccessMetric(),
-            new ToolEfficiencyMetric()
-        ];
-    }
+    private static IReadOnlyList<IAgenticMetric> CreateCodeMetrics(TestCase testCase) =>
+    [
+        new ToolSelectionMetric(testCase.ExpectedTools ?? []),
+        new ToolSuccessMetric(),
+        new ToolEfficiencyMetric()
+    ];
 
     private IAgenticMetric? CreateJudgeMetric() =>
         _judgeChatClient is null
