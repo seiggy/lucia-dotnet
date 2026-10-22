@@ -76,7 +76,8 @@ public sealed class PersonalityEvalRunner
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> profiles,
         Action<PersonalityScenarioResult>? onProgress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        lucia.EvalHarness.Configuration.ModelParameterProfile? parameterProfile = null)
     {
         var startedAt = DateTimeOffset.UtcNow;
         var results = new List<PersonalityScenarioResult>();
@@ -99,6 +100,7 @@ public sealed class PersonalityEvalRunner
         return new PersonalityEvalReport
         {
             ModelName = modelName,
+            ParameterProfile = parameterProfile,
             JudgeModelName = judgeModelName,
             Results = results,
             StartedAt = startedAt,

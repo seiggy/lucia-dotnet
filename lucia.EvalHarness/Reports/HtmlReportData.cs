@@ -94,6 +94,9 @@ public sealed class HtmlReportData
                                     Temperature = pg.First().ParameterProfile!.Temperature,
                                     TopK = pg.First().ParameterProfile!.TopK,
                                     TopP = pg.First().ParameterProfile!.TopP,
+                                    NumContext = pg.First().ParameterProfile!.NumContext,
+                                    NumPredict = pg.First().ParameterProfile!.NumPredict,
+                                    Seed = pg.First().ParameterProfile!.Seed,
                                     RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
                                 },
                                 AvgOverall = Average(results.Select(m => m.OverallScore)),
@@ -155,6 +158,8 @@ public sealed class HtmlReportData
                             Temperature = m.ParameterProfile.Temperature,
                             TopK = m.ParameterProfile.TopK,
                             TopP = m.ParameterProfile.TopP,
+                            NumContext = m.ParameterProfile.NumContext,
+                            NumPredict = m.ParameterProfile.NumPredict,
                             RepeatPenalty = m.ParameterProfile.RepeatPenalty,
                             Seed = m.ParameterProfile.Seed
                         }

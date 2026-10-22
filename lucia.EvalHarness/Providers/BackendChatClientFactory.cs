@@ -24,11 +24,16 @@ public static class BackendChatClientFactory
         string modelName,
         ModelParameterProfile profile)
     {
-        return new ParameterInjectingChatClient(CreateChatClient(backend, modelName), profile);
+        if (backend.Type == InferenceBackendType.Ollama)
+            profile = profile.WithContextFallback();
+        profile.ValidateContext();
+        return new ParameterInjectingChatClient(CreateRawClient(backend, modelName, null), profile);
     }
 
     public static IChatClient CreateChatClient(InferenceBackend backend, string modelName) =>
-        CreateRawClient(backend, modelName, null);
+        backend.Type == InferenceBackendType.Ollama
+            ? CreateChatClient(backend, modelName, ModelParameterProfile.Default)
+            : CreateRawClient(backend, modelName, null);
 
     internal static IChatClient CreateRawClient(InferenceBackend backend, string modelName, HttpClient? httpClient)
     {

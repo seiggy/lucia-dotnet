@@ -309,6 +309,9 @@ function renderSummary() {
   const fast = fastestModel();
   const gpu = data.gpu;
   const pp = data.agents?.[0]?.models?.[0]?.parameters;
+  const contextRows = [...new Map((data.agents || []).flatMap(a => a.models || [])
+    .filter(m => m.parameters)
+    .map(m => [JSON.stringify([m.modelName, m.parameters.name, m.parameters.numContext]), m])).values()];
   const models = allModelNames();
   const agents = data.agents || [];
 
@@ -377,9 +380,18 @@ function renderSummary() {
       <div class="flex justify-between"><span style="color:var(--c-text2)">Temperature</span><span class="font-mono">${fmtNum(pp.temperature,2)}</span></div>
       <div class="flex justify-between"><span style="color:var(--c-text2)">Top-K</span><span class="font-mono">${pp.topK ?? '—'}</span></div>
       <div class="flex justify-between"><span style="color:var(--c-text2)">Top-P</span><span class="font-mono">${fmtNum(pp.topP,2)}</span></div>
+      <div class="flex justify-between gap-4"><span style="color:var(--c-text2)">Requested context</span><span class="font-mono">${pp.numContext != null ? pp.numContext + ' tokens' : 'Not configured'}</span></div>
+      <div class="flex justify-between gap-4"><span style="color:var(--c-text2)">Output limit</span><span class="font-mono">${pp.numPredict === -1 ? 'Unlimited' : pp.numPredict > 0 ? pp.numPredict + ' tokens' : 'Backend default'}</span></div>
       <div class="flex justify-between"><span style="color:var(--c-text2)">Repeat Penalty</span><span class="font-mono">${fmtNum(pp.repeatPenalty,2)}</span></div>
       <div class="flex justify-between"><span style="color:var(--c-text2)">Seed</span><span class="font-mono">${pp.seed != null ? pp.seed : 'random'}</span></div>
       ` : '<p style="color:var(--c-text3)">No parameter data</p>'}
+      ${contextRows.length > 1 ? `<div class="pt-3" style="border-top:1px solid var(--c-border)">
+        <div class="mb-2" style="color:var(--c-text2)">Requested contexts by model/profile</div>
+        ${contextRows.map(m => `<div class="flex justify-between gap-4 py-1">
+          <span>${esc(m.modelName)} / ${esc(m.parameters.name)}</span>
+          <span class="font-mono">${m.parameters.numContext != null ? m.parameters.numContext + ' tokens' : 'Not configured'}</span>
+        </div>`).join('')}
+      </div>` : ''}
     </div>
   </div>`;
 

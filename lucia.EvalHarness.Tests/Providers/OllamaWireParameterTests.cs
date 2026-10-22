@@ -15,6 +15,28 @@ namespace lucia.EvalHarness.Tests.Providers;
 /// </summary>
 public class OllamaWireParameterTests
 {
+    [Fact]
+    public async Task UnconfiguredProfile_UsesFallbackOnWire()
+    {
+        var options = await SendAndCaptureOptionsAsync(Profile().WithContextFallback());
+        Assert.Equal(16384, options.GetProperty("num_ctx").GetInt32());
+    }
+
+    [Fact]
+    public async Task ConfiguredContext_IsWiredAsNumCtx()
+    {
+        var options = await SendAndCaptureOptionsAsync(Profile() with { NumContext = 16384 });
+        Assert.Equal(16384, options.GetProperty("num_ctx").GetInt32());
+    }
+
+    [Fact]
+    public async Task CallerContext_WinsOnWire()
+    {
+        var options = await SendAndCaptureOptionsAsync(Profile() with { NumContext = 16384 },
+            new ChatOptions { AdditionalProperties = new() { ["num_ctx"] = 8192 } });
+        Assert.Equal(8192, options.GetProperty("num_ctx").GetInt32());
+    }
+
     private const string ValidChatResponse =
         "{\"model\":\"test-model\",\"created_at\":\"2024-01-01T00:00:00.0000000Z\"," +
         "\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}," +
@@ -27,12 +49,12 @@ public class OllamaWireParameterTests
         int numPredict = -1,
         double repeatPenalty = 1.1,
         int? seed = 42) => new()
-    {
-        Name = "test",
-        NumPredict = numPredict,
-        RepeatPenalty = repeatPenalty,
-        Seed = seed
-    };
+        {
+            Name = "test",
+            NumPredict = numPredict,
+            RepeatPenalty = repeatPenalty,
+            Seed = seed
+        };
 
     private static async Task<JsonElement> SendAndCaptureOptionsAsync(
         ModelParameterProfile profile,

@@ -61,13 +61,15 @@ public static class ParameterSelector
                 .AddChoices(choices));
 
         if (selection == "Custom...")
-            return PromptCustomProfile();
+            return PromptCustomProfile(profiles.TryGetValue("default", out var defaults)
+                ? defaults.NumContext ?? ModelParameterProfile.DefaultNumContext
+                : ModelParameterProfile.DefaultNumContext);
 
         var profileName = selection.Split(' ')[0];
         return profiles[profileName];
     }
 
-    private static ModelParameterProfile PromptCustomProfile()
+    private static ModelParameterProfile PromptCustomProfile(int defaultContext)
     {
         AnsiConsole.MarkupLine("[dim]Configure custom inference parameters:[/]");
 
@@ -99,6 +101,13 @@ public static class ParameterSelector
                     ? ValidationResult.Success()
                     : ValidationResult.Error("Must be between 0.0 and 2.0")));
 
+        var numContext = AnsiConsole.Prompt(
+            new TextPrompt<int>("  [cornflowerblue]Requested Ollama context tokens[/]:")
+                .DefaultValue(defaultContext)
+                .Validate(tokens => tokens > 0
+                    ? ValidationResult.Success()
+                    : ValidationResult.Error("Must be a positive token budget.")));
+
         AnsiConsole.WriteLine();
 
         return new ModelParameterProfile
@@ -107,7 +116,8 @@ public static class ParameterSelector
             Temperature = temperature,
             TopK = topK,
             TopP = topP,
-            RepeatPenalty = repeatPenalty
+            RepeatPenalty = repeatPenalty,
+            NumContext = numContext
         };
     }
 }

@@ -54,7 +54,11 @@ public sealed class ParameterSweepRunner
         CancellationToken ct = default)
     {
         var startedAt = DateTimeOffset.UtcNow;
-        var combinations = sweepConfig.GenerateCombinations();
+        var context = sweepConfig.NumContext
+            ?? (_evalBackend is null ? _agentFactory.ParameterProfile.NumContext : null)
+            ?? ModelParameterProfile.DefaultNumContext;
+        var combinations = sweepConfig.GenerateCombinations()
+            .Select(profile => profile with { NumContext = context }).ToList();
         var runsPerCombination = Math.Max(1, sweepConfig.RunsPerCombination);
 
         // 1. Run baseline N times so baseline noise matches sweep noise
@@ -70,7 +74,8 @@ public sealed class ParameterSweepRunner
             // baseline runs too instead of falling back to the profile's default seed.
             var baselineRunProfile = ModelParameterProfile.Default with
             {
-                Seed = SweepRunAggregator.DeriveRunSeed(sweepConfig.BaseSeed, runIndex)
+                Seed = SweepRunAggregator.DeriveRunSeed(sweepConfig.BaseSeed, runIndex),
+                NumContext = context
             };
 
             var run = await EvalAsync(baselineModel, agentNames, testCaseLoader,

@@ -230,6 +230,54 @@ advertised with embedding-server arguments are excluded from chat evaluations.
 `ApiKey` supplies bearer authentication for OpenAI-compatible servers and
 OpenRouter. OpenRouter requires a key to run inference.
 
+### Ollama context budgets
+
+The harness sends an explicit `options.num_ctx` for native Ollama evaluations.
+The profile's `NumContext` takes precedence over `Harness:Ollama:DefaultNumContext`.
+If both are missing or blank, the harness uses 16,384 tokens. This is a harness
+fallback, not an Ollama default or a guarantee that every prompt fits.
+
+```json
+{
+  "Harness": {
+    "Ollama": { "DefaultNumContext": 16384 },
+    "ParameterProfiles": {
+      "precise": { "Name": "precise", "NumContext": 32768 }
+    }
+  }
+}
+```
+
+Environment overrides include `Harness__Ollama__DefaultNumContext` and
+`Harness__ParameterProfiles__precise__NumContext`. Built-in profiles inherit the
+configured default. The custom-profile prompt also exposes the budget. Zero or
+negative budgets fail validation rather than silently selecting a backend default.
+
+Size the budget for the largest serialized agent instructions, tool definitions,
+conversation, and output reserve in the run. Check the model's supported context
+and memory use on the target machine. Larger contexts use more memory. See
+[Ollama context length](https://docs.ollama.com/context-length) and verify the
+loaded allocation with `ollama ps`. A positive output limit must be smaller than
+the selected context, but this check does not tokenize the input or guarantee fit.
+Unlimited output remains supported and does not reserve a bounded output size.
+
+Standard JSON, Markdown, HTML, console profile summaries, personality exports,
+and sweep exports retain the resolved profile budget. Reports call it
+**requested context**; they do not claim it is a measured backend allocation.
+Sweeps use one fixed context across the baseline and combinations, inheriting
+the factory's selected profile unless `ParameterSweepConfig.NumContext` overrides
+it. Personality runs use the resolved `default` inference profile.
+
+An explicit positive integer `num_ctx` on a caller's `ChatOptions` still wins over
+the profile value. Profile reports describe the resolved profile setting, not a
+per-request override audit. OpenAI-compatible adapters do not send this
+Ollama-only setting; configure their context allocation on the server instead.
+
+The fix does not estimate tokenizer-specific input sizes, automatically select a
+budget from VRAM, or collect observed `/api/ps` context lengths. Those are separate
+qualification steps. Wire tests run offline through the installed OllamaSharp
+adapter, so no model downloads or live inference are required for CI.
+
 For Foundry, set `Endpoint` and `AzureResourceId`. Discovery uses `AzureCliCredential`
 against the management API and requires permission to read the account's
 deployments. Inference uses the configured API key or Azure CLI credentials.
