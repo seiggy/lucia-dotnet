@@ -16,8 +16,10 @@ public static class JsonlConverter
     /// <summary>
     /// Converts a conversation trace to an OpenAI fine-tuning JSONL line.
     /// When <paramref name="agentFilter"/> is specified, only messages from that agent's execution are included.
+    /// Tool-result previews require a separate export opt-in and are sanitized again using the supplied policy.
     /// </summary>
-    public static string ConvertTraceToJsonl(ConversationTrace trace, bool includeCorrections, string? agentFilter = null)
+    public static string ConvertTraceToJsonl(ConversationTrace trace, bool includeCorrections, string? agentFilter = null,
+        TraceCaptureOptions? traceCaptureOptions = null)
     {
         var executions = GetFilteredExecutions(trace, agentFilter);
         var messages = new List<Dictionary<string, string>>();
@@ -68,18 +70,24 @@ public static class JsonlConverter
         });
 
         // Include tool calls when exporting a specific agent
-        if (agentFilter is not null)
+        if (agentFilter is not null && traceCaptureOptions?.IncludeToolResultsInTrainingExport == true)
         {
+            var policy = new ToolResultCapturePolicy(traceCaptureOptions);
             foreach (var execution in executions)
             {
                 if (execution.ToolCalls is { Count: > 0 })
                 {
                     foreach (var toolCall in execution.ToolCalls)
                     {
+                        // Re-sanitize legacy results using the current export policy.
+                        var result = policy.Sanitize(toolCall.Result, out _);
+                        if (result is null)
+                            continue;
+
                         messages.Add(new Dictionary<string, string>
                         {
                             ["role"] = "tool",
-                            ["content"] = $"{toolCall.ToolName}: {toolCall.Result ?? string.Empty}"
+                            ["content"] = $"{toolCall.ToolName}: {result}"
                         });
                     }
                 }
