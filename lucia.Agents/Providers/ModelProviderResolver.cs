@@ -13,6 +13,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using OllamaSharp;
 using OpenAI;
 
@@ -30,15 +31,18 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ModelProviderResolver> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private readonly IOptionsMonitor<ModelTelemetryOptions>? _telemetryOptions;
 
     public ModelProviderResolver(
         IHttpClientFactory httpClientFactory,
         ILogger<ModelProviderResolver> logger,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        IOptionsMonitor<ModelTelemetryOptions>? telemetryOptions = null)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
         _serviceProvider = serviceProvider;
+        _telemetryOptions = telemetryOptions;
     }
 
     public IChatClient CreateClient(ModelProvider provider)
@@ -61,11 +65,16 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             _ => throw new NotSupportedException($"Provider type '{provider.ProviderType}' is not supported")
         };
 
-        // Wrap with telemetry and logging
-        return new ChatClientBuilder(inner)
-            .UseOpenTelemetry(sourceName: "lucia", configure: cfg => cfg.EnableSensitiveData = true)
-            .UseLogging()
-            .Build(_serviceProvider);
+        // One policy and one telemetry wrapper for every provider. SDK payload logging also contains content.
+        var includeContent = _telemetryOptions?.CurrentValue.IncludeModelContent ?? false;
+        var builder = new ChatClientBuilder(inner)
+            .UseOpenTelemetry(sourceName: "lucia", configure: cfg => cfg.EnableSensitiveData = includeContent);
+        if (includeContent)
+        {
+            builder.UseLogging();
+        }
+
+        return builder.Build(_serviceProvider);
     }
 
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(ModelProvider provider)
@@ -73,7 +82,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         _logger.LogDebug("Creating IEmbeddingGenerator for provider {ProviderId} (type={ProviderType}, model={Model})",
             provider.Id, provider.ProviderType, provider.ModelName);
 
-        return provider.ProviderType switch
+        var inner = provider.ProviderType switch
         {
             ProviderType.OpenAI => CreateOpenAIEmbeddingGenerator(provider),
             ProviderType.OpenRouter => CreateOpenRouterEmbeddingGenerator(provider),
@@ -86,6 +95,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
                 $"Provider type '{provider.ProviderType}' does not support embedding generation. " +
                 "Supported types: OpenAI, OpenRouter, LlamaCpp, AzureOpenAI, AzureAIInference, Ollama, GoogleGemini.")
         };
+
+        var includeContent = _telemetryOptions?.CurrentValue.IncludeModelContent ?? false;
+        return inner.AsBuilder()
+            .UseOpenTelemetry(sourceName: "lucia", configure: cfg => cfg.EnableSensitiveData = includeContent)
+            .Build();
     }
 
     public async Task<ModelProviderConnectionTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default)
@@ -129,11 +143,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         var client = new OpenAIClient(credential, options);
         return client.GetChatClient(provider.ModelName)
-            .AsIChatClient()
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+            .AsIChatClient();
     }
 
     private static IChatClient CreateOpenRouterClient(ModelProvider provider)
@@ -144,11 +154,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         var client = new OpenAIClient(credential, options);
         return client.GetChatClient(provider.ModelName)
-            .AsIChatClient()
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+            .AsIChatClient();
     }
 
     private static IChatClient CreateLlamaCppClient(ModelProvider provider)
@@ -182,22 +188,14 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             var credential = new AzureCliCredential();
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetChatClient(provider.ModelName).AsIChatClient()
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.GetChatClient(provider.ModelName).AsIChatClient();
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
             var credential = new ApiKeyCredential(provider.Auth.ApiKey);
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetChatClient(provider.ModelName).AsIChatClient()
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.GetChatClient(provider.ModelName).AsIChatClient();
         }
 
         throw new InvalidOperationException("Azure OpenAI provider requires either an API key or Azure credentials");
@@ -214,22 +212,14 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             var credential = new AzureCliCredential();
             var client = new ChatCompletionsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIChatClient(provider.ModelName)
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.AsIChatClient(provider.ModelName);
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
             var credential = new AzureKeyCredential(provider.Auth.ApiKey);
             var client = new ChatCompletionsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIChatClient(provider.ModelName)
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.AsIChatClient(provider.ModelName);
         }
 
         throw new InvalidOperationException("Azure AI Inference provider requires either an API key or Azure credentials");
@@ -256,11 +246,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             ?? throw new InvalidOperationException("Anthropic provider requires an API key");
 
         var client = new AnthropicClient(new Anthropic.Core.ClientOptions { ApiKey = apiKey });
-        return client.AsIChatClient(provider.ModelName)
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+        return client.AsIChatClient(provider.ModelName);
     }
 
     private static IChatClient CreateGeminiClient(ModelProvider provider)
@@ -276,11 +262,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var credential = new ApiKeyCredential(apiKey);
         var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
         var client = new OpenAIClient(credential, options);
-        return client.GetChatClient(provider.ModelName).AsIChatClient()
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+        return client.GetChatClient(provider.ModelName).AsIChatClient();
     }
 
     public async Task<AIAgent?> CreateAIAgentAsync(ModelProvider provider, CancellationToken ct = default)
@@ -329,11 +311,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var options = CreateOpenAiCompatibleOptions(provider.Endpoint);
 
         var client = new OpenAIClient(credential, options);
-        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
     }
 
     private static IEmbeddingGenerator<string, Embedding<float>> CreateOpenRouterEmbeddingGenerator(ModelProvider provider)
@@ -343,11 +321,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var options = CreateOpenAiCompatibleOptions(provider.Endpoint, DefaultOpenRouterEndpoint);
 
         var client = new OpenAIClient(credential, options);
-        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
     }
 
     private static IEmbeddingGenerator<string, Embedding<float>> CreateLlamaCppEmbeddingGenerator(ModelProvider provider)
@@ -355,11 +329,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var client = new OpenAIClient(
             new ApiKeyCredential(GetLlamaCppApiKey(provider.Auth.ApiKey)),
             new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
-        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: cfg =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
     }
 
     private static string GetLlamaCppApiKey(string? apiKey) =>
@@ -377,22 +347,14 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             // DefaultAzureCredential requires AzureOpenAIClient for token-based auth
             var credential = new AzureCliCredential();
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
             var credential = new AzureKeyCredential(provider.Auth.ApiKey);
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
         }
 
         throw new InvalidOperationException("Azure OpenAI embedding provider requires either an API key or Azure credentials");
@@ -409,22 +371,14 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             var credential = new AzureCliCredential();
             var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIEmbeddingGenerator(provider.ModelName)
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.AsIEmbeddingGenerator(provider.ModelName);
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
             var credential = new AzureKeyCredential(provider.Auth.ApiKey);
             var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIEmbeddingGenerator(provider.ModelName)
-                .AsBuilder()
-                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                    cfg.EnableSensitiveData = true)
-                .Build();
+            return client.AsIEmbeddingGenerator(provider.ModelName);
         }
 
         throw new InvalidOperationException("Azure AI Inference embedding provider requires either an API key or Azure credentials");
@@ -453,11 +407,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var credential = new ApiKeyCredential(apiKey);
         var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
         var client = new OpenAIClient(credential, options);
-        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
-            .AsBuilder()
-            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
-                cfg.EnableSensitiveData = true)
-            .Build();
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
     }
 
     #endregion
