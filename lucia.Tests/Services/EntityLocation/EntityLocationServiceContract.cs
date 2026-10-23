@@ -4,6 +4,8 @@ using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.Tests.Data.Providers;
 using lucia.Tests.TestDoubles;
+using lucia.TimerAgent;
+using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -269,6 +271,123 @@ public abstract class EntityLocationServiceContract
     }
 
     // ── Visibility ──────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task AgentHierarchy_RejectsMissingCallerIdentity(string? callerAgentId)
+    {
+        await using var scope = await CreateAsync(new SampleHomeAssistant());
+        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
+        await Assert.ThrowsAnyAsync<ArgumentException>(() =>
+            filtered.SearchHierarchyForAgentAsync("Kitchen", null, null, callerAgentId!));
+    }
+
+    [Theory]
+    [InlineData(null, true, false)]
+    [InlineData(null, true, true)]
+    [InlineData("", false, false)]
+    [InlineData("", false, true)]
+    [InlineData("timer-agent", true, false)]
+    [InlineData("TIMER-AGENT", true, true)]
+    [InlineData("light-agent", false, false)]
+    [InlineData("light-agent", false, true)]
+    public async Task AgentQueries_RespectVisibilityWithAndWithoutDomainFilter(
+        string? allowedAgent, bool visible, bool filterDomain)
+    {
+        await using var scope = await CreateAsync(new SampleHomeAssistant());
+        await LoadAsync(scope.Store);
+        await scope.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?>
+        {
+            ["light.kitchen_ceiling"] = allowedAgent is null ? null : allowedAgent.Length == 0 ? [] : [allowedAgent]
+        });
+        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
+        string[]? domains = filterDomain ? ["LIGHT"] : null;
+        var options = new HybridMatchOptions { Threshold = 0, ScoreDropoffRatio = 0 };
+
+        var byArea = await filtered.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent", domains);
+        var byFloor = await filtered.FindEntitiesByLocationForAgentAsync("Ground Floor", "timer-agent", domains);
+        var byEntity = await filtered.SearchEntitiesForAgentAsync("Kitchen", "timer-agent", domains, options);
+        var hierarchy = await filtered.SearchHierarchyForAgentAsync("Kitchen", null, domains, "timer-agent");
+
+        Assert.Equal(visible, byArea.Any(entity => entity.EntityId == "light.kitchen_ceiling"));
+        Assert.Equal(visible, byFloor.Any(entity => entity.EntityId == "light.kitchen_ceiling"));
+        Assert.Equal(visible, byEntity.Any(match => match.Entity.EntityId == "light.kitchen_ceiling"));
+        Assert.Equal(visible, hierarchy.ResolvedEntities.Any(entity => entity.EntityId == "light.kitchen_ceiling"));
+        Assert.Contains(byArea, entity => entity.EntityId == "light.kitchen_island");
+        Assert.Contains(byEntity, match => match.Entity.EntityId == "light.kitchen_island");
+
+        // Admin and legacy inventory methods remain unscoped, including the hidden entity.
+        Assert.Contains(await scope.Store.FindEntitiesByLocationAsync("Kitchen"), entity => entity.EntityId == "light.kitchen_ceiling");
+        Assert.Contains(await scope.Store.FindEntitiesByLocationAsync("Kitchen", domains), entity => entity.EntityId == "light.kitchen_ceiling");
+        Assert.Contains(await scope.Store.FindEntitiesByLocationAsync("Kitchen", domains, options), entity => entity.EntityId == "light.kitchen_ceiling");
+        Assert.Contains(await scope.Store.SearchEntitiesAsync("Kitchen", domains, options), match => match.Entity.EntityId == "light.kitchen_ceiling");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task AgentQueries_RejectMissingCallerIdentity(string? callerAgentId)
+    {
+        await using var scope = await CreateAsync(new SampleHomeAssistant());
+        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => filtered.FindEntitiesByLocationForAgentAsync("Kitchen", callerAgentId!));
+        await Assert.ThrowsAnyAsync<ArgumentException>(() => filtered.SearchEntitiesForAgentAsync("Kitchen", callerAgentId!));
+    }
+
+    [Fact]
+    public async Task AgentQueries_ApplyDomainFilterAndLatestLocalVisibility()
+    {
+        await using var scope = await CreateAsync(new SampleHomeAssistant());
+        await LoadAsync(scope.Store);
+        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
+        Assert.Contains(await filtered.FindEntitiesByLocationForAgentAsync("Bedroom", "timer-agent"), entity => entity.Domain == "climate");
+        Assert.All(await filtered.FindEntitiesByLocationForAgentAsync("Bedroom", "timer-agent", ["light"]), entity => Assert.Equal("light", entity.Domain));
+        Assert.All(await filtered.SearchEntitiesForAgentAsync("Bedroom", "timer-agent", ["light"]), match => Assert.Equal("light", match.Entity.Domain));
+
+        await scope.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?> { ["light.kitchen_ceiling"] = [] });
+        Assert.DoesNotContain(await filtered.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent"), entity => entity.EntityId == "light.kitchen_ceiling");
+        await scope.Store.ClearAllAgentFiltersAsync();
+        Assert.Contains(await filtered.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent"), entity => entity.EntityId == "light.kitchen_ceiling");
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", false)]
+    [InlineData("timer-agent", true)]
+    [InlineData("light-agent", false)]
+    public async Task TimerAndAlarm_LocationResolutionUsesTheProductionVisibilityPolicy(string? allowedAgent, bool visible)
+    {
+        var home = new SampleHomeAssistant();
+        home.Entities.Add(SampleHomeAssistant.Entity("assist_satellite.office_sat", "Office Satellite"));
+        home.AreaEntities["office"].Add("assist_satellite.office_sat");
+        await using var scope = await CreateAsync(home);
+        await LoadAsync(scope.Store);
+        var agents = allowedAgent is null ? null : allowedAgent.Length == 0 ? new List<string>() : [allowedAgent];
+        await scope.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?>
+        {
+            ["assist_satellite.office_sat"] = agents,
+            ["media_player.office_speaker"] = agents
+        });
+
+        var tasks = new ScheduledTaskStore();
+        var repository = A.Fake<IScheduledTaskRepository>();
+        var timer = new TimerSkill(scope.Store, home.Client, tasks, repository,
+            TimeProvider.System, NullLogger<TimerSkill>.Instance);
+        var alarm = new AlarmSkill(A.Fake<IAlarmClockRepository>(), tasks, repository,
+            new CronScheduleService(TimeProvider.System, NullLogger<CronScheduleService>.Instance),
+            scope.Store, TimeProvider.System, NullLogger<AlarmSkill>.Instance);
+
+        await timer.SetTimerAsync(60, "Done!", "Office");
+        await alarm.SetAlarmAsync("Wake up", "07:00", "Office");
+
+        Assert.Equal(visible ? 1 : 0, timer.ActiveTimerCount);
+        Assert.Equal(visible ? 2 : 0, tasks.Count);
+        if (!visible)
+            A.CallTo(() => home.Client.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._)).MustNotHaveHappened();
+    }
 
     [Fact]
     public async Task GetVisibilityConfigAsync_Default_ExposesEverything()

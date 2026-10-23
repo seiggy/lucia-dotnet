@@ -65,12 +65,20 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
         var home = new SampleHomeAssistant();
         await using var first = await CreateAsync(home);
         await LoadAsync(first.Store);
-        await first.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?> { ["light.porch"] = ["light-agent"] });
+        await first.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?>
+        {
+            ["light.porch"] = ["light-agent"],
+            ["light.kitchen_ceiling"] = ["timer-agent"]
+        });
         var redis = await SharedRedis.Value;
 
         var second = CreateService(new SampleHomeAssistant(), redis);
         await second.InitializeAsync();
 
         Assert.Equal(["light-agent"], (await second.GetVisibilityConfigAsync()).EntityAgentMap["light.porch"]);
+        Assert.DoesNotContain(await second.FindEntitiesByLocationForAgentAsync("Kitchen", "light-agent"),
+            entity => entity.EntityId == "light.kitchen_ceiling");
+        Assert.Contains(await second.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent"),
+            entity => entity.EntityId == "light.kitchen_ceiling");
     }
 }

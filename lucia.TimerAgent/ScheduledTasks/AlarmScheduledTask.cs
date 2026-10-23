@@ -130,6 +130,12 @@ public sealed class AlarmScheduledTask : IScheduledTask
             return null;
         }
 
+        if (entityLocationService is not IAgentFilteredEntityLocationService filteredLocationService)
+        {
+            logger.LogWarning("Alarm {AlarmId} cannot resolve presence without agent-filtered location search", Id);
+            return null;
+        }
+
         var occupiedAreas = await presenceService.GetOccupiedAreasAsync(ct).ConfigureAwait(false);
         var bestArea = occupiedAreas
             .Where(a => a.IsOccupied)
@@ -148,8 +154,9 @@ public sealed class AlarmScheduledTask : IScheduledTask
             Id, bestArea.AreaName, bestArea.Confidence);
 
         // Find a media_player in the occupied area
-        var mediaPlayers = await entityLocationService.FindEntitiesByLocationAsync(
+        var mediaPlayers = await filteredLocationService.FindEntitiesByLocationForAgentAsync(
             bestArea.AreaId,
+            TimerAgent.AgentId,
             domainFilter: ["media_player"],
             ct: ct).ConfigureAwait(false);
 

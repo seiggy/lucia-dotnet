@@ -33,6 +33,11 @@ Unit tests verify individual classes in isolation using [FakeItEasy](https://fak
 
 ### Writing Unit Tests
 
+Agent visibility tests exercise the production location service and its timer/alarm
+callers without a live model or Home Assistant. The service contract also runs
+against a disposable Redis container. See [agent-scoped entity discovery](AGENT_ENTITY_VISIBILITY.md)
+for commands, the allow-list matrix and the boundary between discovery and execution.
+
 ```csharp
 public class MyServiceTests
 {
