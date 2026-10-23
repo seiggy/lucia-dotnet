@@ -199,7 +199,8 @@ public static class ConfigurationApi
         string section,
         [FromBody] Dictionary<string, string?> values,
         [FromServices] IConfigStoreWriter configStore,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        [FromServices] IPromptCacheService promptCache)
     {
         if (values is null || values.Count == 0)
         {
@@ -225,6 +226,21 @@ public static class ConfigurationApi
         if (configuration is IConfigurationRoot configRoot)
         {
             configRoot.Reload();
+        }
+
+        // Routing cache keys contain no fingerprint of the router system prompt or agent
+        // catalog, so cached routing decisions must be dropped when RouterExecutor changes.
+        // The chat response cache is untouched: threshold changes affect lookups, not entries.
+        if (string.Equals(section, "RouterExecutor", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                await promptCache.EvictAllAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Best-effort: stale routing entries self-expire via the 48h cache TTL.
+            }
         }
 
         return TypedResults.Ok(updateCount);

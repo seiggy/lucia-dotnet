@@ -14,6 +14,7 @@ using Microsoft.Extensions.Options;
 
 using lucia.Agents.Models;
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Services;
 
 using StackExchange.Redis;
 
@@ -293,6 +294,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     public async Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(
         string normalizedPrompt,
         string? semanticQueryText = null,
+        string? expectedInstructionsHash = null,
         CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity();
@@ -371,6 +373,12 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 var candidate = JsonSerializer.Deserialize<CachedChatResponseData>(values[i].ToString(), SerializerOptions);
                 if (candidate?.Embedding is null)
                     continue;
+
+                // Scope semantic matches to the same agent: entries cached under different
+                // system instructions (or legacy entries without a hash) must never be served.
+                if (!ChatCacheScope.Matches(candidate.InstructionsHash, expectedInstructionsHash))
+                    continue;
+
                 var candidateEmbedding = new Embedding<float>(candidate.Embedding);
                 var score = _embeddingSimilarityService.ComputeSimilarity(queryEmbedding, candidateEmbedding);
                 if (score > bestScore)
