@@ -33,6 +33,16 @@ Unit tests verify individual classes in isolation using [FakeItEasy](https://fak
 
 ### Writing Unit Tests
 
+Tool-result capture and export privacy checks run offline:
+
+```powershell
+dotnet test lucia.Tests --filter "FullyQualifiedName~Training"
+```
+
+See [safe tool-result capture](TOOL_RESULT_CAPTURE.md) for the policy and scope.
+The tests use in-memory traces and stub chat clients. Export-handler tests create
+and remove their own temporary JSONL file. No Ollama or Home Assistant is used.
+
 ```csharp
 public class MyServiceTests
 {

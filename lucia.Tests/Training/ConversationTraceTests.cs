@@ -69,6 +69,9 @@ public sealed class ConversationTraceTests
 
         Assert.True(options.Enabled);
         Assert.Equal(30, options.RetentionDays);
+        Assert.False(options.CaptureToolResults);
+        Assert.False(options.IncludeToolResultsInTrainingExport);
+        Assert.Equal(4096, options.MaxToolResultBytes);
 
         Assert.NotNull(options.RedactionPatterns);
         Assert.Equal(2, options.RedactionPatterns.Length);
