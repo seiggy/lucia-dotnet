@@ -257,7 +257,9 @@ sampling defaults.
 
 llama.cpp endpoints accept a server root or an existing `/v1` suffix. Router models
 can be selected while unloaded; the router loads them when requested. Models
-advertised with embedding-server arguments are excluded from chat evaluations.
+advertised with embedding-server arguments or an embedding-only `capabilities`
+array are excluded from chat evaluations. Mixed embedding/chat capabilities and
+models without capability metadata remain selectable.
 `ApiKey` supplies bearer authentication for OpenAI-compatible servers and
 OpenRouter. OpenRouter requires a key to run inference.
 
@@ -342,6 +344,10 @@ List configured backends and their available models without starting evaluations
 ```powershell
 dotnet run --project .\lucia.EvalHarness -- --list-backend-models
 ```
+
+For Lucia.OS, use `OpenAICompat` with an inference-only key and an already-loaded
+chat model. See [Lucia.OS inference qualification](LUCIA_OS_INFERENCE.md) for the
+source-pinned contract checks, configuration and separate live acceptance steps.
 
 ### Music Agent isolation runs
 
