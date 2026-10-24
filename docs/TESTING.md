@@ -351,6 +351,54 @@ The router asks for a JSON schema response. A server that cannot honor it fails
 every orchestrated case for that model with no route. For llama.cpp behind
 LiteLLM, the server needs xgrammar installed.
 
+### Strict and forbidden tool calls
+
+Scenarios can reject calls left after their ordered expectations and ban specific
+tools anywhere in the trace:
+
+```yaml
+reject_unlisted_tool_calls: true
+forbidden_tools:
+  - ActivateScene
+expected_tool_calls:
+  - tool: ListScenes
+```
+
+`reject_unlisted_tool_calls` defaults to `false`. Required calls still match in
+order. Declared optional lookups can be absent or repeat consecutively, including
+their declared alternatives. With strict mode enabled, a call left after that
+chain fails validation. Repeating a required call also fails unless another
+expectation declares it. Strict mode does not turn the chain into an unordered
+allow-list.
+
+`forbidden_tools` defaults to an empty list. Every assistant tool call is checked,
+including calls before, between, and after expected calls. A forbidden tool fails
+even if strict mode is off or the same tool appears in the expected chain. Tool
+names use the validator's existing case-insensitive comparison and trailing
+`Async` normalization. Failure messages include the observed call's zero-based
+position and name, without argument values.
+
+Forbidden-tool decisions use AgentEval's `NeverCallTool` assertion. The tracer
+captures the tool names offered in actual model requests and supplies that
+inventory to AgentEval. A forbidden call always fails. If the tool was offered
+but never called, the policy passes. If the tool was not offered, or the offered
+inventory is unknown, AgentEval reports an inconclusive result rather than a
+vacuous pass. The scenario then has `Passed=false`, a null score, and an
+`Inconclusive NeverCallTool(...)` reason. A passing response judge cannot turn
+that result into a pass or assign it a numeric score. The strict ordered-chain
+matcher remains in Lucia; `NeverCallTool` does not replace it.
+
+Scenarios with no expected calls still reject all calls. Scenarios containing
+only optional expectations still reject undeclared calls, regardless of the
+strict-mode flag. Both explicit policies require conversation tracing. A policy
+violation keeps the scenario's `Passed` result false even when other checks and
+the response judge produce a high numeric score. These checks detect observed
+calls after execution; they do not prevent a tool from running. Pair them with
+`expected_final_state` assertions to verify effects on mock Home Assistant state.
+
+The scene fixtures `list_scenes` and `out_of_domain` now explicitly forbid
+`ActivateScene`. The listing fixture also enables strict mode.
+
 ### Semantic response checks
 
 Set `response_criteria` on a scenario to have the selected LLM judge evaluate its

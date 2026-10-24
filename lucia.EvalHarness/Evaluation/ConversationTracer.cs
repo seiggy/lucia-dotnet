@@ -15,6 +15,11 @@ public sealed class ConversationTracer : DelegatingChatClient
     /// </summary>
     public List<ConversationTurn> Turns { get; } = [];
 
+    /// <summary>Tools offered to the model in this scenario, or null if no inventory was captured.</summary>
+    public IReadOnlyCollection<string>? AvailableToolNames => _availableToolNames;
+
+    private HashSet<string>? _availableToolNames;
+
     /// <summary>
     /// Tracks messages already recorded so we don't duplicate them when
     /// FunctionInvokingChatClient replays the conversation on subsequent rounds.
@@ -28,6 +33,15 @@ public sealed class ConversationTracer : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        if (options?.Tools is { } tools)
+        {
+            _availableToolNames ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tool in tools)
+            {
+                _availableToolNames.Add(tool.Name);
+            }
+        }
+
         // Record input messages we haven't seen before.
         // On round N, FunctionInvokingChatClient replays system + user + all
         // prior assistant/tool messages — skip ones we already captured.
@@ -60,5 +74,6 @@ public sealed class ConversationTracer : DelegatingChatClient
     {
         Turns.Clear();
         _recorded.Clear();
+        _availableToolNames = null;
     }
 }
