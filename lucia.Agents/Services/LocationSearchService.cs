@@ -41,12 +41,21 @@ public sealed class LocationSearchService
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
+    public Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         LocationSnapshot snap,
         string locationName,
         IReadOnlyList<string>? domainFilter,
         HybridMatchOptions hybridMatchOptions,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        FindEntitiesByLocationAsync(snap, locationName, domainFilter, hybridMatchOptions, callerAgentId: null, ct);
+
+    internal async Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
+        LocationSnapshot snap,
+        string locationName,
+        IReadOnlyList<string>? domainFilter,
+        HybridMatchOptions hybridMatchOptions,
+        string? callerAgentId,
+        CancellationToken ct)
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.query", locationName);
@@ -103,7 +112,8 @@ public sealed class LocationSearchService
 
             // Collect entities from matched areas, applying domain filter
             var result = snap.Entities
-                .Where(e => e.AreaId is not null && matchedAreaIds.Contains(e.AreaId));
+                .Where(e => e.AreaId is not null && matchedAreaIds.Contains(e.AreaId))
+                .Where(e => callerAgentId is null || IsVisibleToAgent(e, callerAgentId));
 
             if (domainFilter is { Count: > 0 })
             {
@@ -125,25 +135,38 @@ public sealed class LocationSearchService
         }
     }
 
-    public async Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesAsync(
+    public Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesAsync(
         LocationSnapshot snap,
         string query,
         IReadOnlyList<string>? domainFilter = null,
         HybridMatchOptions? options = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default) =>
+        SearchEntitiesAsync(snap, query, domainFilter, options, callerAgentId: null, ct);
+
+    internal async Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesAsync(
+        LocationSnapshot snap,
+        string query,
+        IReadOnlyList<string>? domainFilter,
+        HybridMatchOptions? options,
+        string? callerAgentId,
+        CancellationToken ct)
     {
-        var candidates = (IReadOnlyList<HomeAssistantEntity>)snap.Entities;
+        IEnumerable<HomeAssistantEntity> candidates = snap.Entities;
+        if (callerAgentId is not null)
+            candidates = candidates.Where(entity => IsVisibleToAgent(entity, callerAgentId));
         if (domainFilter is { Count: > 0 })
         {
             var filterSet = domainFilter.ToHashSet(StringComparer.OrdinalIgnoreCase);
-            candidates = snap.Entities.Where(e => filterSet.Contains(e.Domain)).ToList();
+            candidates = candidates.Where(e => filterSet.Contains(e.Domain));
         }
+
+        var entityCandidates = candidates.ToList();
 
         var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
         if (embeddingService is null)
         {
             // Fallback: substring match on FriendlyName and EntityId when no embedding provider
-            return candidates
+            return entityCandidates
                 .Where(e =>
                     (e.FriendlyName is not null && e.FriendlyName.Contains(query, StringComparison.OrdinalIgnoreCase))
                     || e.EntityId.Contains(query, StringComparison.OrdinalIgnoreCase))
@@ -158,7 +181,7 @@ public sealed class LocationSearchService
         }
 
         return await _entityMatcher.FindMatchesAsync(
-            query, candidates, embeddingService, options ?? DefaultOptions, ct).ConfigureAwait(false);
+            query, entityCandidates, embeddingService, options ?? DefaultOptions, ct).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<EntityMatchResult<AreaInfo>>> SearchAreasAsync(
@@ -205,18 +228,11 @@ public sealed class LocationSearchService
         IReadOnlyList<EntityMatchResult<HomeAssistantEntity>> entityMatches = [];
 
         // An empty allow-list hides the entity from every agent, with or without a domain filter.
-        var filteredEntities = snap.Entities
-            .Where(e => e.IncludeForAgent is null || e.IncludeForAgent.Count > 0)
+        IReadOnlyList<HomeAssistantEntity> filteredEntities = snap.Entities
+            .Where(e => IsVisibleToAgent(e, callerAgentId))
             .Where(e => domainFilter is not { Count: > 0 }
                 || domainFilter.Contains(e.Domain, StringComparer.OrdinalIgnoreCase))
-            .ToList() as IReadOnlyList<HomeAssistantEntity>;
-        if (callerAgentId is not null)
-        {
-            filteredEntities = filteredEntities
-                .Where(entity => entity.IncludeForAgent is null
-                    || entity.IncludeForAgent.Contains(callerAgentId))
-                .ToList();
-        }
+            .ToList();
 
         if (embeddingService is not null)
         {
@@ -323,6 +339,13 @@ public sealed class LocationSearchService
             BestFloorScore = bestFloorHybrid
         };
     }
+
+    // Unscoped hierarchy searches retain their existing behavior: exclude globally hidden
+    // entities, but do not require a particular agent. Admin inventory queries do not use this rule.
+    private static bool IsVisibleToAgent(HomeAssistantEntity entity, string? callerAgentId) =>
+        entity.IncludeForAgent is null
+        || entity.IncludeForAgent.Count > 0
+        && (callerAgentId is null || entity.IncludeForAgent.Contains(callerAgentId, StringComparer.OrdinalIgnoreCase));
 
     public static AreaInfo? GetAreaForEntity(LocationSnapshot snap, string entityId)
     {

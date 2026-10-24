@@ -19,7 +19,9 @@ public sealed class AlarmSkillTests
     private readonly ScheduledTaskStore _taskStore = new();
     private readonly IScheduledTaskRepository _taskRepository = A.Fake<IScheduledTaskRepository>();
     private readonly CronScheduleService _cronService;
-    private readonly IEntityLocationService _entityLocationService = A.Fake<IEntityLocationService>();
+    private readonly IEntityLocationService _entityLocationService = A.Fake<IEntityLocationService>(
+        options => options.Implements<IAgentFilteredEntityLocationService>());
+    private IAgentFilteredEntityLocationService FilteredLocations => (IAgentFilteredEntityLocationService)_entityLocationService;
     private readonly FakeTimeProvider _timeProvider = new();
     private readonly ILogger<AlarmSkill> _logger = A.Fake<ILogger<AlarmSkill>>();
     private readonly ILogger<CronScheduleService> _cronLogger = A.Fake<ILogger<CronScheduleService>>();
@@ -42,6 +44,18 @@ public sealed class AlarmSkillTests
     }
 
     // -- SetAlarmAsync tests --
+
+    [Fact]
+    public async Task LocationResolution_WithoutFilteredService_DoesNotCreateAlarm()
+    {
+        var unscoped = A.Fake<IEntityLocationService>();
+        var skill = new AlarmSkill(_alarmRepository, _taskStore, _taskRepository,
+            _cronService, unscoped, _timeProvider, _logger);
+        Assert.Contains("Could not find", await skill.SetAlarmAsync("Wake up", "07:00", "bedroom"));
+        Assert.True(_taskStore.IsEmpty);
+        A.CallTo(() => unscoped.FindEntitiesByLocationAsync(A<string>._,
+            A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
+    }
 
     [Fact]
     public async Task SetAlarmAsync_OneShotAlarm_CreatesAlarmAndSchedulesTask()
@@ -146,8 +160,8 @@ public sealed class AlarmSkillTests
     [Fact]
     public async Task SetAlarmAsync_LocationResolution_FindsMediaPlayer()
     {
-        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
-            "bedroom", A<IReadOnlyList<string>>._, A<CancellationToken>._))
+        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
+            "bedroom", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
             .Returns(new List<HomeAssistantEntity>
             {
                 new() { EntityId = "media_player.bedroom_speaker", FriendlyName = "Bedroom Speaker", AreaId = "bedroom" }
@@ -164,8 +178,8 @@ public sealed class AlarmSkillTests
     [Fact]
     public async Task SetAlarmAsync_LocationNotFound_ReturnsError()
     {
-        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
-            "garage", A<IReadOnlyList<string>>._, A<CancellationToken>._))
+        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
+            "garage", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
             .Returns(new List<HomeAssistantEntity>());
 
         var result = await _skill.SetAlarmAsync("Test", "07:00", "garage");

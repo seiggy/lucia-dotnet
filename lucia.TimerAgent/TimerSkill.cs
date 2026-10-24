@@ -245,9 +245,16 @@ public sealed class TimerSkill
             return input;
         }
 
-        // Search for assist_satellite entities in the requested location
-        var entities = await _entityLocationService.FindEntitiesByLocationAsync(
+        if (_entityLocationService is not IAgentFilteredEntityLocationService filteredLocationService)
+        {
+            _logger.LogWarning("Agent-filtered satellite location search is unavailable");
+            return null;
+        }
+
+        // Search only satellites visible to the timer agent before reading live state.
+        var entities = await filteredLocationService.FindEntitiesByLocationForAgentAsync(
             input,
+            TimerAgent.AgentId,
             domainFilter: ["assist_satellite"],
             ct: cancellationToken).ConfigureAwait(false);
 

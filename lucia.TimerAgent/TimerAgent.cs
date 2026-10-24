@@ -19,6 +19,7 @@ namespace lucia.TimerAgent;
 /// </summary>
 public sealed class TimerAgent : ILuciaAgent
 {
+    public const string AgentId = "timer-agent";
     private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Timer", "1.0.0");
 
     private readonly AgentCard _agent;
@@ -113,7 +114,7 @@ public sealed class TimerAgent : ILuciaAgent
 
         _agent = new AgentCard
         {
-            Name = "timer-agent",
+            Name = AgentId,
             Description = "Agent that manages #timers, #alarms, #reminders, and #scheduled-actions on Home Assistant devices using TTS and media playback",
             DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
             IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
@@ -192,7 +193,7 @@ public sealed class TimerAgent : ILuciaAgent
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("agent.id", "timer-agent");
+        activity?.SetTag("agent.id", AgentId);
         _logger.LogInformation("Initializing TimerAgent...");
 
         var selfUrl = _configuration["services:selfUrl"];
@@ -208,7 +209,7 @@ public sealed class TimerAgent : ILuciaAgent
         else if (isStandalone)
         {
             // In standalone mode, plugin runs in-process — use relative path
-            _agent.SetUrl("/a2a/timer-agent");
+            _agent.SetUrl($"/a2a/{AgentId}");
         }
         else
         {
@@ -239,7 +240,7 @@ public sealed class TimerAgent : ILuciaAgent
         await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var definition = await _definitionRepository.GetAgentDefinitionAsync("timer-agent", cancellationToken).ConfigureAwait(false);
+            var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
             var newConnectionName = definition?.ModelConnectionName;
 
             if (_aiAgent is null
@@ -261,13 +262,13 @@ public sealed class TimerAgent : ILuciaAgent
 
     private AIAgent BuildAgent(IChatClient chatClient)
     {
-        var traced = _tracingFactory.Wrap(chatClient, "timer-agent");
+        var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
             AIContextProviders = _tracingFactory.AIContextProviders,
             ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
-            Id = "timer-agent",
-            Name = "timer-agent",
+            Id = AgentId,
+            Name = AgentId,
             Description = "Sets timed announcements on satellite devices",
             ChatOptions = new()
             {

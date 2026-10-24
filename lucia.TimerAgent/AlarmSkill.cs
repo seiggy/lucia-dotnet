@@ -452,8 +452,15 @@ public sealed class AlarmSkill
         if (input.Contains('.'))
             return input;
 
-        var entities = await _entityLocationService.FindEntitiesByLocationAsync(
+        if (_entityLocationService is not IAgentFilteredEntityLocationService filteredLocationService)
+        {
+            _logger.LogWarning("Agent-filtered alarm location search is unavailable");
+            return null;
+        }
+
+        var entities = await filteredLocationService.FindEntitiesByLocationForAgentAsync(
             input,
+            TimerAgent.AgentId,
             domainFilter: ["media_player"],
             ct: default).ConfigureAwait(false);
 
