@@ -86,10 +86,10 @@ public sealed class RedisLocationSnapshotStore : ILocationSnapshotStore
             var batch = db.CreateBatch();
             var tasks = new List<Task>
             {
-                batch.StringSetAsync(FloorsKey, floorsJson, CacheTtl, flags: CommandFlags.FireAndForget),
-                batch.StringSetAsync(AreasKey, areasJson, CacheTtl, flags: CommandFlags.FireAndForget),
-                batch.StringSetAsync(EntitiesKey, entitiesJson, CacheTtl, flags: CommandFlags.FireAndForget),
-                batch.StringSetAsync(LoadedAtKey, loadedAt?.ToString("O") ?? "", CacheTtl, flags: CommandFlags.FireAndForget)
+                batch.StringSetAsync(FloorsKey, floorsJson, CacheTtl),
+                batch.StringSetAsync(AreasKey, areasJson, CacheTtl),
+                batch.StringSetAsync(EntitiesKey, entitiesJson, CacheTtl),
+                batch.StringSetAsync(LoadedAtKey, loadedAt?.ToString("O") ?? "", CacheTtl)
             };
             batch.Execute();
 
@@ -99,7 +99,8 @@ public sealed class RedisLocationSnapshotStore : ILocationSnapshotStore
         }
         catch (RedisException ex)
         {
-            _logger.LogWarning(ex, "Failed to save location data to Redis — data is available in-memory only");
+            _logger.LogWarning(ex, "Failed to save location data to Redis; the snapshot version must not be published");
+            throw;
         }
     }
 
