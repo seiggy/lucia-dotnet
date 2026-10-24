@@ -33,6 +33,17 @@ Unit tests verify individual classes in isolation using [FakeItEasy](https://fak
 
 ### Writing Unit Tests
 
+Model telemetry privacy and personality output-budget checks run without external
+services:
+
+```powershell
+dotnet test lucia.Tests --filter "FullyQualifiedName~ModelTelemetry|FullyQualifiedName~PersonalityOutputBudgetTests"
+```
+
+See [model telemetry privacy and personality limits](MODEL_PRIVACY_AND_PERSONALITY.md)
+for policy scope and the in-memory payload checks. These tests do not start Ollama
+or call a live model.
+
 ```csharp
 public class MyServiceTests
 {
