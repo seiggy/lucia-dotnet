@@ -55,6 +55,7 @@ public sealed record InferenceCostSummary
             return values[0];
         }
 
-        return values.All(value => value is "estimated" or "local") ? "estimated" : "partial";
+        // Retain the old "local" status when aggregating previously exported results.
+        return values.All(value => value is "estimated" or "local" or "no_provider_charge") ? "estimated" : "partial";
     }
 }
