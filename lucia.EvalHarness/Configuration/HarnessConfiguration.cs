@@ -97,6 +97,11 @@ public sealed class HarnessConfiguration
         if (JudgeTimeoutSeconds <= 0)
             throw new InvalidOperationException(
                 $"Harness:JudgeTimeoutSeconds must be positive, but was {JudgeTimeoutSeconds}.");
+
+        if (Ollama.DefaultNumContext is <= 0)
+            throw new InvalidOperationException("Harness:Ollama:DefaultNumContext must be positive when configured.");
+        foreach (var profile in GetAllProfiles().Values)
+            profile.ValidateContext();
     }
 
     /// <summary>
@@ -134,6 +139,7 @@ public sealed class HarnessConfiguration
             merged[name] = profile;
         }
 
-        return merged;
+        return merged.ToDictionary(pair => pair.Key,
+            pair => pair.Value.WithContextFallback(Ollama.DefaultNumContext), StringComparer.OrdinalIgnoreCase);
     }
 }

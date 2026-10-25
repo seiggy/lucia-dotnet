@@ -7,6 +7,9 @@ namespace lucia.EvalHarness.Configuration;
 /// </summary>
 public sealed record ModelParameterProfile
 {
+    /// <summary>Harness fallback when neither the profile nor configuration selects an Ollama budget.</summary>
+    public const int DefaultNumContext = 16384;
+
     /// <summary>
     /// Human-readable name for this profile (e.g., "default", "creative", "precise").
     /// </summary>
@@ -35,6 +38,27 @@ public sealed record ModelParameterProfile
     /// Ollama default: -1.
     /// </summary>
     public int NumPredict { get; init; } = -1;
+
+    /// <summary>Requested Ollama context length in tokens. Null means no budget was configured.</summary>
+    public int? NumContext { get; init; }
+
+    /// <summary>Resolves profile override, configured default, then the harness fallback.</summary>
+    public ModelParameterProfile WithContextFallback(int? defaultBudget = null)
+    {
+        var resolved = this with { NumContext = NumContext ?? defaultBudget ?? DefaultNumContext };
+        resolved.ValidateContext(required: true);
+        return resolved;
+    }
+
+    /// <summary>Checks an explicitly selected context budget. Native Ollama evaluations require one.</summary>
+    public void ValidateContext(bool required = false)
+    {
+        if (NumContext is <= 0 || (required && NumContext is null))
+            throw new InvalidOperationException(
+                $"Profile '{Name}' requires a positive NumContext for Ollama. Configure Harness:ParameterProfiles:{Name}:NumContext or Harness:Ollama:DefaultNumContext.");
+        if (NumContext is { } context && NumPredict > 0 && NumPredict >= context)
+            throw new InvalidOperationException($"Profile '{Name}': NumContext must exceed NumPredict to leave room for input.");
+    }
 
     /// <summary>
     /// Penalizes repeated tokens. Higher values reduce repetition.
@@ -99,5 +123,5 @@ public sealed record ModelParameterProfile
     /// Formats parameters as a compact summary string for display.
     /// </summary>
     public string ToSummary() =>
-        $"temp={Temperature}, top_k={TopK}, top_p={TopP}, repeat={RepeatPenalty}";
+        $"temp={Temperature}, top_k={TopK}, top_p={TopP}, repeat={RepeatPenalty}, num_predict={NumPredict}, num_ctx={NumContext?.ToString() ?? "not configured"}";
 }

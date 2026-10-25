@@ -17,6 +17,14 @@ namespace lucia.EvalHarness.Tests.Providers;
 /// </summary>
 public class OpenAIWireParameterTests
 {
+    [Fact]
+    public async Task ConfiguredOllamaContext_DoesNotLeakOntoOpenAIWire()
+    {
+        var body = await SendAndCaptureBodyAsync(Profile() with { NumContext = 16384 });
+        Assert.False(body.TryGetProperty("num_ctx", out _));
+        Assert.False(body.TryGetProperty("options", out _));
+    }
+
     private const string ValidChatResponse =
         "{\"id\":\"chatcmpl-1\",\"object\":\"chat.completion\",\"created\":1700000000," +
         "\"model\":\"test-model\",\"choices\":[{\"index\":0," +
@@ -27,12 +35,12 @@ public class OpenAIWireParameterTests
         int numPredict = -1,
         double repeatPenalty = 1.1,
         int? seed = 42) => new()
-    {
-        Name = "test",
-        NumPredict = numPredict,
-        RepeatPenalty = repeatPenalty,
-        Seed = seed
-    };
+        {
+            Name = "test",
+            NumPredict = numPredict,
+            RepeatPenalty = repeatPenalty,
+            Seed = seed
+        };
 
     private static async Task<JsonElement> SendAndCaptureBodyAsync(
         ModelParameterProfile profile,

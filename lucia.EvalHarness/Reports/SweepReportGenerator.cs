@@ -55,6 +55,11 @@ public static class SweepReportGenerator
         var baselineModel = result.BaselineResults.FirstOrDefault()?.ModelName ?? "unknown";
         sb.AppendLine($"## Baseline: {baselineModel} (mean score: {FormatScore(baselineMean)})");
         sb.AppendLine();
+        if (result.BaselineResults.FirstOrDefault()?.ParameterProfile is { } baselineProfile)
+        {
+            sb.AppendLine($"Requested baseline parameters: {baselineProfile.ToSummary()}");
+            sb.AppendLine();
+        }
         sb.AppendLine("| Agent | Score (run 1) |");
         sb.AppendLine("|-------|---------------|");
         foreach (var br in result.BaselineResults)
@@ -169,6 +174,7 @@ public static class SweepReportGenerator
                 r.OverallScore,
                 r.OverallScoreStatus,
                 r.OverallScoreReason,
+                r.ParameterProfile,
                 r.Cost,
                 r.MeanTestCostUsd,
                 r.TestCaseResults
@@ -189,6 +195,8 @@ public static class SweepReportGenerator
                     e.Profile.Temperature,
                     e.Profile.TopK,
                     e.Profile.TopP,
+                    e.Profile.NumContext,
+                    e.Profile.NumPredict,
                     e.Profile.RepeatPenalty
                 },
                 // Emit both averageScore (backward compat) and meanScore (new)
@@ -225,6 +233,8 @@ public static class SweepReportGenerator
                 w.Profile.Temperature,
                 w.Profile.TopK,
                 w.Profile.TopP,
+                w.Profile.NumContext,
+                w.Profile.NumPredict,
                 w.Profile.RepeatPenalty
             },
             // Emit both averageScore (backward compat) and meanScore (new)

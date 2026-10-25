@@ -73,7 +73,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// chat client instances created by this factory.
     /// Defaults to <see cref="ModelParameterProfile.Default"/>.
     /// </summary>
-    public ModelParameterProfile ParameterProfile { get; set; } = ModelParameterProfile.Default;
+    public ModelParameterProfile ParameterProfile { get; set; } = ModelParameterProfile.Default.WithContextFallback();
 
     /// <summary>
     /// Factory function that allocates a backend <see cref="IChatClient"/>.

@@ -16,6 +16,13 @@ public sealed class HtmlParameterData
     [JsonPropertyName("topP")]
     public double TopP { get; init; }
 
+    [JsonPropertyName("numContext")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? NumContext { get; init; }
+
+    [JsonPropertyName("numPredict")]
+    public int NumPredict { get; init; }
+
     [JsonPropertyName("repeatPenalty")]
     public double RepeatPenalty { get; init; }
 

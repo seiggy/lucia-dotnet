@@ -1,7 +1,8 @@
 using Microsoft.Extensions.AI;
-using OllamaSharp;
 using Spectre.Console;
 using lucia.EvalHarness.Evaluation;
+using lucia.EvalHarness.Configuration;
+using lucia.EvalHarness.Providers;
 
 namespace lucia.EvalHarness.Personality;
 
@@ -27,10 +28,13 @@ public static class PersonalityEvalDisplay
         TimeProvider? timeProvider = null,
         CancellationToken ct = default,
         Func<string, IChatClient>? chatClientFactory = null,
-        string? backendName = null)
+        string? backendName = null,
+        ModelParameterProfile? parameterProfile = null)
     {
         var runner = new PersonalityEvalRunner(agentTimeout, judgeTimeout, timeProvider);
         var reports = new List<PersonalityEvalReport>();
+        var inferenceProfile = parameterProfile
+            ?? (chatClientFactory is null ? ModelParameterProfile.Default.WithContextFallback() : null);
         var totalCombinations = PersonalityEvalRunner.CountCombinations(scenarios, selectedProfiles);
 
         await AnsiConsole.Progress()
@@ -52,7 +56,11 @@ public static class PersonalityEvalDisplay
                         maxValue: totalCombinations);
 
                     using var chatClient = chatClientFactory is null
-                        ? new OllamaApiClient(new Uri(ollamaEndpoint), model)
+                        ? BackendChatClientFactory.CreateChatClient(new InferenceBackend
+                        {
+                            Name = "Ollama",
+                            Endpoint = ollamaEndpoint
+                        }, model, inferenceProfile!)
                         : chatClientFactory(model);
 
                     var report = await runner.RunAsync(
@@ -63,7 +71,8 @@ public static class PersonalityEvalDisplay
                         scenarios,
                         selectedProfiles,
                         onProgress: _ => task.Increment(1),
-                        ct: ct);
+                        ct: ct,
+                        parameterProfile: inferenceProfile);
 
                     task.Value = task.MaxValue;
                     reports.Add(report);

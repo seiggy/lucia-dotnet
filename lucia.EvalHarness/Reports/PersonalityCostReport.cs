@@ -30,6 +30,8 @@ public static class PersonalityCostReport
         {
             table.AddRow(Markup.Escape(report.ModelName), Score(report.AverageCombinedScore),
                 CostReportFormatting.Tokens(report.Cost), CostReportFormatting.Cost(report.Cost));
+            if (report.ParameterProfile is { } profile)
+                table.AddRow(Markup.Escape($"  Requested context: {profile.NumContext} tokens"), "", "", "");
             foreach (var result in report.Results)
             {
                 table.AddRow(Markup.Escape($"  {result.ScenarioId} / {result.ProfileName}"),
@@ -81,9 +83,16 @@ public static class PersonalityCostReport
             var summary = $"{report.ModelName}: {Score(report.AverageCombinedScore)}/5, " +
                 $"{CostReportFormatting.Tokens(report.Cost)} tokens in / out / cached, {CostReportFormatting.Cost(report.Cost)}";
             markdown.Append("## ").AppendLine(Markdown(summary)).AppendLine()
+                .AppendLine(report.ParameterProfile is { } profile
+                    ? $"Requested context: {profile.NumContext} tokens. Parameters: {profile.ToSummary()}"
+                    : "Requested context: not recorded.")
+                .AppendLine()
                 .AppendLine("| Scenario | Profile | Score / 5 | Tokens in / out / cached | Est. USD |")
                 .AppendLine("|---|---|---|---|---|");
             html.Append("<h2>").Append(WebUtility.HtmlEncode(summary)).AppendLine("</h2>")
+                .Append("<p>").Append(WebUtility.HtmlEncode(report.ParameterProfile is { } htmlProfile
+                    ? $"Requested context: {htmlProfile.NumContext} tokens. Parameters: {htmlProfile.ToSummary()}"
+                    : "Requested context: not recorded.")).AppendLine("</p>")
                 .AppendLine("<div class=\"table-scroll\"><table><thead><tr><th>Scenario</th><th>Profile</th><th>Score / 5</th><th>Tokens in / out / cached</th><th>Est. USD</th></tr></thead><tbody>");
             foreach (var result in report.Results)
             {

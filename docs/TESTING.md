@@ -80,6 +80,37 @@ Integration tests verify components with real infrastructure (Redis, PostgreSQL)
 | `Integration/DurableTaskPersistenceTests.cs` | Redis | Task durability across restarts |
 | `Integration/ExtractDeviceIdTests.cs` | None | Device ID extraction from HA entities |
 
+### Redis location snapshot publication
+
+`RedisLocationSnapshotStore.SaveAsync` waits for acknowledgments for the floors,
+areas, entities, and loaded-at writes. A failed save propagates to its caller,
+so save-then-version-bump operations do not publish a version for a rejected save.
+These operations can fail even when the local in-memory snapshot was updated;
+they do not roll back local changes or partial Redis writes. Acknowledgment is
+not a guarantee of disk durability or atomic multi-key publication.
+
+The regression tests use two complementary checks:
+
+- `Services/EntityLocation/RedisLocationSnapshotStoreTests.cs` and
+  `RedisSnapshotPublicationTests.cs` use controlled acknowledgments, without
+  timing sleeps. They cover every snapshot write, enqueue/execute/reply failures,
+  and version ordering for reload, removal, and embedding eviction.
+- `Services/EntityLocation/RedisSnapshotPublicationIntegrationTests.cs` uses an
+  isolated Redis container and separate writer/reader connections. It verifies
+  snapshot visibility, the existing 24-hour TTL, and a rejected-write case. A
+  test-only Redis user cannot issue `SET`, `SETEX`, or `PSETEX`, but can still
+  increment the version. The test verifies that denied writes leave the shared
+  version unchanged. It does not change permissions on an existing Redis server.
+
+Run the location tests with Docker available:
+
+```powershell
+dotnet test lucia.Tests/lucia.Tests.csproj --filter "FullyQualifiedName~Services.EntityLocation"
+```
+
+The four snapshot keys and separate version counter remain unchanged. This fix
+does not make concurrent publication or reads of multiple keys atomic.
+
 ## Evaluation Tests
 
 Eval tests measure agent quality using the [Microsoft.Extensions.AI.Evaluation](https://learn.microsoft.com/dotnet/ai/evaluation/) SDK. They invoke real agents against real LLMs and score responses with LLM-as-judge evaluators.
@@ -230,6 +261,54 @@ advertised with embedding-server arguments are excluded from chat evaluations.
 `ApiKey` supplies bearer authentication for OpenAI-compatible servers and
 OpenRouter. OpenRouter requires a key to run inference.
 
+### Ollama context budgets
+
+The harness sends an explicit `options.num_ctx` for native Ollama evaluations.
+The profile's `NumContext` takes precedence over `Harness:Ollama:DefaultNumContext`.
+If both are missing or blank, the harness uses 16,384 tokens. This is a harness
+fallback, not an Ollama default or a guarantee that every prompt fits.
+
+```json
+{
+  "Harness": {
+    "Ollama": { "DefaultNumContext": 16384 },
+    "ParameterProfiles": {
+      "precise": { "Name": "precise", "NumContext": 32768 }
+    }
+  }
+}
+```
+
+Environment overrides include `Harness__Ollama__DefaultNumContext` and
+`Harness__ParameterProfiles__precise__NumContext`. Built-in profiles inherit the
+configured default. The custom-profile prompt also exposes the budget. Zero or
+negative budgets fail validation rather than silently selecting a backend default.
+
+Size the budget for the largest serialized agent instructions, tool definitions,
+conversation, and output reserve in the run. Check the model's supported context
+and memory use on the target machine. Larger contexts use more memory. See
+[Ollama context length](https://docs.ollama.com/context-length) and verify the
+loaded allocation with `ollama ps`. A positive output limit must be smaller than
+the selected context, but this check does not tokenize the input or guarantee fit.
+Unlimited output remains supported and does not reserve a bounded output size.
+
+Standard JSON, Markdown, HTML, console profile summaries, personality exports,
+and sweep exports retain the resolved profile budget. Reports call it
+**requested context**; they do not claim it is a measured backend allocation.
+Sweeps use one fixed context across the baseline and combinations, inheriting
+the factory's selected profile unless `ParameterSweepConfig.NumContext` overrides
+it. Personality runs use the resolved `default` inference profile.
+
+An explicit positive integer `num_ctx` on a caller's `ChatOptions` still wins over
+the profile value. Profile reports describe the resolved profile setting, not a
+per-request override audit. OpenAI-compatible adapters do not send this
+Ollama-only setting; configure their context allocation on the server instead.
+
+The fix does not estimate tokenizer-specific input sizes, automatically select a
+budget from VRAM, or collect observed `/api/ps` context lengths. Those are separate
+qualification steps. Wire tests run offline through the installed OllamaSharp
+adapter, so no model downloads or live inference are required for CI.
+
 For Foundry, set `Endpoint` and `AzureResourceId`. Discovery uses `AzureCliCredential`
 against the management API and requires permission to read the account's
 deployments. Inference uses the configured API key or Azure CLI credentials.
@@ -302,6 +381,54 @@ confidence, per-agent instruction, and the agent's reply.
 The router asks for a JSON schema response. A server that cannot honor it fails
 every orchestrated case for that model with no route. For llama.cpp behind
 LiteLLM, the server needs xgrammar installed.
+
+### Strict and forbidden tool calls
+
+Scenarios can reject calls left after their ordered expectations and ban specific
+tools anywhere in the trace:
+
+```yaml
+reject_unlisted_tool_calls: true
+forbidden_tools:
+  - ActivateScene
+expected_tool_calls:
+  - tool: ListScenes
+```
+
+`reject_unlisted_tool_calls` defaults to `false`. Required calls still match in
+order. Declared optional lookups can be absent or repeat consecutively, including
+their declared alternatives. With strict mode enabled, a call left after that
+chain fails validation. Repeating a required call also fails unless another
+expectation declares it. Strict mode does not turn the chain into an unordered
+allow-list.
+
+`forbidden_tools` defaults to an empty list. Every assistant tool call is checked,
+including calls before, between, and after expected calls. A forbidden tool fails
+even if strict mode is off or the same tool appears in the expected chain. Tool
+names use the validator's existing case-insensitive comparison and trailing
+`Async` normalization. Failure messages include the observed call's zero-based
+position and name, without argument values.
+
+Forbidden-tool decisions use AgentEval's `NeverCallTool` assertion. The tracer
+captures the tool names offered in actual model requests and supplies that
+inventory to AgentEval. A forbidden call always fails. If the tool was offered
+but never called, the policy passes. If the tool was not offered, or the offered
+inventory is unknown, AgentEval reports an inconclusive result rather than a
+vacuous pass. The scenario then has `Passed=false`, a null score, and an
+`Inconclusive NeverCallTool(...)` reason. A passing response judge cannot turn
+that result into a pass or assign it a numeric score. The strict ordered-chain
+matcher remains in Lucia; `NeverCallTool` does not replace it.
+
+Scenarios with no expected calls still reject all calls. Scenarios containing
+only optional expectations still reject undeclared calls, regardless of the
+strict-mode flag. Both explicit policies require conversation tracing. A policy
+violation keeps the scenario's `Passed` result false even when other checks and
+the response judge produce a high numeric score. These checks detect observed
+calls after execution; they do not prevent a tool from running. Pair them with
+`expected_final_state` assertions to verify effects on mock Home Assistant state.
+
+The scene fixtures `list_scenes` and `out_of_domain` now explicitly forbid
+`ActivateScene`. The listing fixture also enables strict mode.
 
 ### Semantic response checks
 
