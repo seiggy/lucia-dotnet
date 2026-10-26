@@ -45,6 +45,10 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         _telemetryOptions = telemetryOptions;
     }
 
+    // Without registered options, fall back to the same default the options class ships with.
+    private bool IncludeModelContent =>
+        (_telemetryOptions?.CurrentValue ?? new ModelTelemetryOptions()).IncludeModelContent;
+
     public IChatClient CreateClient(ModelProvider provider)
     {
         _logger.LogDebug("Creating IChatClient for provider {ProviderId} (type={ProviderType}, model={Model})",
@@ -66,7 +70,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         };
 
         // One policy and one telemetry wrapper for every provider. SDK payload logging also contains content.
-        var includeContent = _telemetryOptions?.CurrentValue.IncludeModelContent ?? false;
+        var includeContent = IncludeModelContent;
         var builder = new ChatClientBuilder(inner)
             .UseOpenTelemetry(sourceName: "lucia", configure: cfg => cfg.EnableSensitiveData = includeContent);
         if (includeContent)
@@ -96,7 +100,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
                 "Supported types: OpenAI, OpenRouter, LlamaCpp, AzureOpenAI, AzureAIInference, Ollama, GoogleGemini.")
         };
 
-        var includeContent = _telemetryOptions?.CurrentValue.IncludeModelContent ?? false;
+        var includeContent = IncludeModelContent;
         return inner.AsBuilder()
             .UseOpenTelemetry(sourceName: "lucia", configure: cfg => cfg.EnableSensitiveData = includeContent)
             .Build();

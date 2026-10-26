@@ -21,7 +21,7 @@ public sealed class ModelTelemetryPrivacyTests
     [InlineData(ProviderType.Ollama)]
     [InlineData(ProviderType.Anthropic)]
     [InlineData(ProviderType.GoogleGemini)]
-    public void Chat_DefaultsToOneContentPrivateTelemetryWrapper(ProviderType type)
+    public void Chat_DefaultsToOneContentCapturingTelemetryWrapper(ProviderType type)
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         var resolver = new ModelProviderResolver(new StubHttpClientFactory(), NullLogger<ModelProviderResolver>.Instance, services);
@@ -35,7 +35,7 @@ public sealed class ModelTelemetryPrivacyTests
                 .GetProperty("InnerClient", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.GetValue(wrapper)!;
         }
 
-        Assert.False(Assert.Single(wrappers).EnableSensitiveData);
+        Assert.True(Assert.Single(wrappers).EnableSensitiveData);
     }
 
     [Theory]
@@ -46,7 +46,7 @@ public sealed class ModelTelemetryPrivacyTests
     [InlineData(ProviderType.AzureAIInference)]
     [InlineData(ProviderType.Ollama)]
     [InlineData(ProviderType.GoogleGemini)]
-    public void Embeddings_DefaultToOneContentPrivateTelemetryWrapper(ProviderType type)
+    public void Embeddings_DefaultToOneContentCapturingTelemetryWrapper(ProviderType type)
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         var resolver = new ModelProviderResolver(new StubHttpClientFactory(), NullLogger<ModelProviderResolver>.Instance, services);
@@ -60,7 +60,7 @@ public sealed class ModelTelemetryPrivacyTests
                 .GetProperty("InnerGenerator", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.GetValue(wrapper)!;
         }
 
-        Assert.False(Assert.Single(wrappers).EnableSensitiveData);
+        Assert.True(Assert.Single(wrappers).EnableSensitiveData);
     }
 
     private static ModelProvider Provider(ProviderType type) => new()
@@ -79,14 +79,14 @@ public sealed class ModelTelemetryPrivacyTests
     [InlineData(ProviderType.Ollama)]
     [InlineData(ProviderType.Anthropic)]
     [InlineData(ProviderType.GoogleGemini)]
-    public void Chat_ContentCaptureRequiresExplicitOptIn(ProviderType type)
+    public void Chat_ContentCaptureCanBeTurnedOff(ProviderType type)
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         var options = A.Fake<IOptionsMonitor<ModelTelemetryOptions>>();
-        A.CallTo(() => options.CurrentValue).Returns(new ModelTelemetryOptions { IncludeModelContent = true });
+        A.CallTo(() => options.CurrentValue).Returns(new ModelTelemetryOptions { IncludeModelContent = false });
         var resolver = new ModelProviderResolver(new StubHttpClientFactory(), NullLogger<ModelProviderResolver>.Instance, services, options);
         using var client = resolver.CreateClient(Provider(type));
-        Assert.True(client.GetService<OpenTelemetryChatClient>()!.EnableSensitiveData);
+        Assert.False(client.GetService<OpenTelemetryChatClient>()!.EnableSensitiveData);
     }
 
     [Theory]
@@ -97,13 +97,13 @@ public sealed class ModelTelemetryPrivacyTests
     [InlineData(ProviderType.AzureAIInference)]
     [InlineData(ProviderType.Ollama)]
     [InlineData(ProviderType.GoogleGemini)]
-    public void Embeddings_ContentCaptureRequiresExplicitOptIn(ProviderType type)
+    public void Embeddings_ContentCaptureCanBeTurnedOff(ProviderType type)
     {
         using var services = new ServiceCollection().AddLogging().BuildServiceProvider();
         var options = A.Fake<IOptionsMonitor<ModelTelemetryOptions>>();
-        A.CallTo(() => options.CurrentValue).Returns(new ModelTelemetryOptions { IncludeModelContent = true });
+        A.CallTo(() => options.CurrentValue).Returns(new ModelTelemetryOptions { IncludeModelContent = false });
         var resolver = new ModelProviderResolver(new StubHttpClientFactory(), NullLogger<ModelProviderResolver>.Instance, services, options);
         using var generator = resolver.CreateEmbeddingGenerator(Provider(type));
-        Assert.True(generator.GetService<OpenTelemetryEmbeddingGenerator<string, Embedding<float>>>()!.EnableSensitiveData);
+        Assert.False(generator.GetService<OpenTelemetryEmbeddingGenerator<string, Embedding<float>>>()!.EnableSensitiveData);
     }
 }

@@ -25,7 +25,7 @@ public sealed class ModelTelemetryPayloadTests
     [InlineData("Development", false, true)]
     [InlineData("Development", true, false)]
     [InlineData("Development", true, true)]
-    public async Task Chat_ContentIsPrivateUnlessExplicitlyEnabled_WhileMetadataRemains(
+    public async Task Chat_ContentFollowsPolicy_WhileMetadataRemains(
         string environmentName, bool includeContent, bool streaming)
     {
         var model = "synthetic-" + Guid.NewGuid().ToString("N");
@@ -74,7 +74,7 @@ public sealed class ModelTelemetryPayloadTests
     [Theory]
     [InlineData("Production")]
     [InlineData("Development")]
-    public async Task Embeddings_DefaultPolicyRetainsMetadataWithoutRawInput(string environmentName)
+    public async Task Embeddings_ContentOffRetainsMetadataWithoutRawInput(string environmentName)
     {
         var model = "synthetic-" + Guid.NewGuid().ToString("N");
         var input = "PRIVATE_EMBEDDING_" + model;
@@ -86,8 +86,10 @@ public sealed class ModelTelemetryPayloadTests
         A.CallTo(() => factory.CreateClient(A<string>._)).Returns(http);
         var environment = A.Fake<IHostEnvironment>();
         A.CallTo(() => environment.EnvironmentName).Returns(environmentName);
+        var options = A.Fake<IOptionsMonitor<ModelTelemetryOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new ModelTelemetryOptions { IncludeModelContent = false });
         using var services = new ServiceCollection().AddSingleton(environment).BuildServiceProvider();
-        var resolver = new ModelProviderResolver(factory, NullLogger<ModelProviderResolver>.Instance, services);
+        var resolver = new ModelProviderResolver(factory, NullLogger<ModelProviderResolver>.Instance, services, options);
         using var generator = resolver.CreateEmbeddingGenerator(Provider(model));
 
         Assert.Single(await generator.GenerateAsync([input]));

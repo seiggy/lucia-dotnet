@@ -10,15 +10,15 @@ namespace lucia.Tests.Services;
 public sealed class ModelTelemetryConfigurationTests
 {
     [Theory]
-    [InlineData(null, false)]
+    [InlineData(null, true)]
     [InlineData("false", false)]
     [InlineData("true", true)]
-    public void RealRegistration_BindsExplicitContentPolicy(string? configured, bool expected)
+    public void RealRegistration_BindsContentPolicyAndDefaultsOn(string? configured, bool expected)
     {
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration.Sources.Clear();
         if (configured is not null)
-            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["Observability:IncludeModelContent"] = configured });
+            builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?> { ["ModelTelemetry:IncludeModelContent"] = configured });
         builder.AddLuciaAgents();
         using var services = builder.Services.BuildServiceProvider();
         Assert.Equal(expected, services.GetRequiredService<IOptionsMonitor<ModelTelemetryOptions>>().CurrentValue.IncludeModelContent);
