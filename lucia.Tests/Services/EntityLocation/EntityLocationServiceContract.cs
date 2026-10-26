@@ -293,7 +293,7 @@ public abstract class EntityLocationServiceContract
     [InlineData("TIMER-AGENT", true, true)]
     [InlineData("light-agent", false, false)]
     [InlineData("light-agent", false, true)]
-    public async Task AgentQueries_RespectVisibilityWithAndWithoutDomainFilter(
+    public async Task AgentHierarchy_RespectsVisibilityWithAndWithoutDomainFilter(
         string? allowedAgent, bool visible, bool filterDomain)
     {
         await using var scope = await CreateAsync(new SampleHomeAssistant());
@@ -304,53 +304,16 @@ public abstract class EntityLocationServiceContract
         });
         var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
         string[]? domains = filterDomain ? ["LIGHT"] : null;
-        var options = new HybridMatchOptions { Threshold = 0, ScoreDropoffRatio = 0 };
 
-        var byArea = await filtered.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent", domains);
-        var byFloor = await filtered.FindEntitiesByLocationForAgentAsync("Ground Floor", "timer-agent", domains);
-        var byEntity = await filtered.SearchEntitiesForAgentAsync("Kitchen", "timer-agent", domains, options);
         var hierarchy = await filtered.SearchHierarchyForAgentAsync("Kitchen", null, domains, "timer-agent");
 
-        Assert.Equal(visible, byArea.Any(entity => entity.EntityId == "light.kitchen_ceiling"));
-        Assert.Equal(visible, byFloor.Any(entity => entity.EntityId == "light.kitchen_ceiling"));
-        Assert.Equal(visible, byEntity.Any(match => match.Entity.EntityId == "light.kitchen_ceiling"));
         Assert.Equal(visible, hierarchy.ResolvedEntities.Any(entity => entity.EntityId == "light.kitchen_ceiling"));
-        Assert.Contains(byArea, entity => entity.EntityId == "light.kitchen_island");
-        Assert.Contains(byEntity, match => match.Entity.EntityId == "light.kitchen_island");
+        Assert.Contains(hierarchy.ResolvedEntities, entity => entity.EntityId == "light.kitchen_island");
 
-        // Admin and legacy inventory methods remain unscoped, including the hidden entity.
-        Assert.Contains(await scope.Store.FindEntitiesByLocationAsync("Kitchen"), entity => entity.EntityId == "light.kitchen_ceiling");
+        // Dashboard inventory searches stay unscoped, including the hidden entity.
+        var options = new HybridMatchOptions { Threshold = 0, ScoreDropoffRatio = 0 };
         Assert.Contains(await scope.Store.FindEntitiesByLocationAsync("Kitchen", domains), entity => entity.EntityId == "light.kitchen_ceiling");
-        Assert.Contains(await scope.Store.FindEntitiesByLocationAsync("Kitchen", domains, options), entity => entity.EntityId == "light.kitchen_ceiling");
         Assert.Contains(await scope.Store.SearchEntitiesAsync("Kitchen", domains, options), match => match.Entity.EntityId == "light.kitchen_ceiling");
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData(" ")]
-    public async Task AgentQueries_RejectMissingCallerIdentity(string? callerAgentId)
-    {
-        await using var scope = await CreateAsync(new SampleHomeAssistant());
-        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => filtered.FindEntitiesByLocationForAgentAsync("Kitchen", callerAgentId!));
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => filtered.SearchEntitiesForAgentAsync("Kitchen", callerAgentId!));
-    }
-
-    [Fact]
-    public async Task AgentQueries_ApplyDomainFilterAndLatestLocalVisibility()
-    {
-        await using var scope = await CreateAsync(new SampleHomeAssistant());
-        await LoadAsync(scope.Store);
-        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
-        Assert.Contains(await filtered.FindEntitiesByLocationForAgentAsync("Bedroom", "timer-agent"), entity => entity.Domain == "climate");
-        Assert.All(await filtered.FindEntitiesByLocationForAgentAsync("Bedroom", "timer-agent", ["light"]), entity => Assert.Equal("light", entity.Domain));
-        Assert.All(await filtered.SearchEntitiesForAgentAsync("Bedroom", "timer-agent", ["light"]), match => Assert.Equal("light", match.Entity.Domain));
-
-        await scope.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?> { ["light.kitchen_ceiling"] = [] });
-        Assert.DoesNotContain(await filtered.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent"), entity => entity.EntityId == "light.kitchen_ceiling");
-        await scope.Store.ClearAllAgentFiltersAsync();
-        Assert.Contains(await filtered.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent"), entity => entity.EntityId == "light.kitchen_ceiling");
     }
 
     [Theory]

@@ -3,6 +3,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
+using lucia.Tests.TestDoubles;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,9 @@ public sealed class AlarmSkillTests
         // Fix time to 2025-07-15 12:00:00 UTC (a Tuesday)
         _timeProvider.SetUtcNow(new DateTimeOffset(2025, 7, 15, 12, 0, 0, TimeSpan.Zero));
         _cronService = new CronScheduleService(_timeProvider, _cronLogger);
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(A<string>._, A<HybridMatchOptions?>._,
+                A<IReadOnlyList<string>?>._, A<string>._, A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved([]));
 
         _skill = new AlarmSkill(
             _alarmRepository,
@@ -54,6 +58,8 @@ public sealed class AlarmSkillTests
         Assert.Contains("Could not find", await skill.SetAlarmAsync("Wake up", "07:00", "bedroom"));
         Assert.True(_taskStore.IsEmpty);
         A.CallTo(() => unscoped.FindEntitiesByLocationAsync(A<string>._,
+            A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
+        A.CallTo(() => unscoped.SearchHierarchyAsync(A<string>._, A<HybridMatchOptions?>._,
             A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
     }
 
@@ -160,12 +166,12 @@ public sealed class AlarmSkillTests
     [Fact]
     public async Task SetAlarmAsync_LocationResolution_FindsMediaPlayer()
     {
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-            "bedroom", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(new List<HomeAssistantEntity>
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "bedroom", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(new List<HomeAssistantEntity>
             {
                 new() { EntityId = "media_player.bedroom_speaker", FriendlyName = "Bedroom Speaker", AreaId = "bedroom" }
-            });
+            }));
 
         var result = await _skill.SetAlarmAsync("Wake Up", "07:00", "bedroom");
 
@@ -178,9 +184,9 @@ public sealed class AlarmSkillTests
     [Fact]
     public async Task SetAlarmAsync_LocationNotFound_ReturnsError()
     {
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-            "garage", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(new List<HomeAssistantEntity>());
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "garage", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved([]));
 
         var result = await _skill.SetAlarmAsync("Test", "07:00", "garage");
 

@@ -186,31 +186,6 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         return await _search.SearchEntitiesAsync(_snapshot, query, domainFilter, options, ct).ConfigureAwait(false);
     }
 
-    public async Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationForAgentAsync(
-        string locationName,
-        string callerAgentId,
-        IReadOnlyList<string>? domainFilter = null,
-        HybridMatchOptions? options = null,
-        CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(callerAgentId);
-        await EnsureFreshAsync(ct).ConfigureAwait(false);
-        return await _search.FindEntitiesByLocationAsync(_snapshot, locationName, domainFilter,
-            options ?? LocationSearchService.DefaultOptions, callerAgentId, ct).ConfigureAwait(false);
-    }
-
-    public async Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesForAgentAsync(
-        string query,
-        string callerAgentId,
-        IReadOnlyList<string>? domainFilter = null,
-        HybridMatchOptions? options = null,
-        CancellationToken ct = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(callerAgentId);
-        await EnsureFreshAsync(ct).ConfigureAwait(false);
-        return await _search.SearchEntitiesAsync(_snapshot, query, domainFilter, options, callerAgentId, ct).ConfigureAwait(false);
-    }
-
     public async Task<IReadOnlyList<EntityMatchResult<AreaInfo>>> SearchAreasAsync(
         string query,
         HybridMatchOptions? options = null,
@@ -243,6 +218,7 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         string callerAgentId,
         CancellationToken ct = default)
     {
+        // A null caller would silently search the unscoped hierarchy, so require an identity.
         ArgumentException.ThrowIfNullOrWhiteSpace(callerAgentId);
         return SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId, ct);
     }

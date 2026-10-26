@@ -76,9 +76,9 @@ public sealed class RedisEntityLocationServiceTests : EntityLocationServiceContr
         await second.InitializeAsync();
 
         Assert.Equal(["light-agent"], (await second.GetVisibilityConfigAsync()).EntityAgentMap["light.porch"]);
-        Assert.DoesNotContain(await second.FindEntitiesByLocationForAgentAsync("Kitchen", "light-agent"),
+        Assert.DoesNotContain((await second.SearchHierarchyForAgentAsync("Kitchen", null, null, "light-agent")).ResolvedEntities,
             entity => entity.EntityId == "light.kitchen_ceiling");
-        Assert.Contains(await second.FindEntitiesByLocationForAgentAsync("Kitchen", "timer-agent"),
+        Assert.Contains((await second.SearchHierarchyForAgentAsync("Kitchen", null, null, "timer-agent")).ResolvedEntities,
             entity => entity.EntityId == "light.kitchen_ceiling");
     }
 }

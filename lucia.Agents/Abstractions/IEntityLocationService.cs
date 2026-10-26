@@ -7,9 +7,6 @@ namespace lucia.Agents.Abstractions;
 /// Provides centralized, cached entity location resolution across floors, areas, and entities.
 /// Shared as a singleton across all skills in both AgentHost and A2AHost.
 /// Data is cached in Redis with a 24h TTL and held in thread-safe immutable in-memory collections.
-/// Inventory and location/entity/area/floor search methods on this interface are unscoped.
-/// Agent callers must use <see cref="IAgentFilteredEntityLocationService"/> for scoped searches.
-/// Legacy hierarchy search excludes globally hidden entities but does not select a caller agent.
 /// </summary>
 public interface IEntityLocationService
 {
@@ -42,7 +39,6 @@ public interface IEntityLocationService
     /// <summary>
     /// Find entities by logical location name using HybridEntityMatcher
     /// against floors and areas, then returning all entities in matched locations.
-    /// Unscoped inventory lookup; does not enforce per-agent visibility.
     /// </summary>
     Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         string locationName,
@@ -50,7 +46,6 @@ public interface IEntityLocationService
 
     /// <summary>
     /// Find entities by location, filtered to specific domains (e.g., "light", "climate").
-    /// Unscoped inventory lookup; domain filtering is not per-agent visibility filtering.
     /// </summary>
     Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         string locationName,
@@ -59,7 +54,6 @@ public interface IEntityLocationService
 
     /// <summary>
     /// Find entities by location with full control over match configuration.
-    /// Unscoped inventory lookup; use the agent-filtered interface for agent calls.
     /// </summary>
     Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         string locationName,
@@ -69,7 +63,6 @@ public interface IEntityLocationService
 
     /// <summary>
     /// Hybrid search directly against entities by name/alias.
-    /// Unscoped inventory search for administrative callers; includes agent-hidden entities.
     /// </summary>
     Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesAsync(
         string query,
@@ -79,7 +72,6 @@ public interface IEntityLocationService
 
     /// <summary>
     /// Hybrid search against areas by name/alias.
-    /// Unscoped location metadata. No area-level visibility policy is defined.
     /// </summary>
     Task<IReadOnlyList<EntityMatchResult<AreaInfo>>> SearchAreasAsync(
         string query,
@@ -88,7 +80,6 @@ public interface IEntityLocationService
 
     /// <summary>
     /// Hybrid search against floors by name/alias.
-    /// Unscoped location metadata. No floor-level visibility policy is defined.
     /// </summary>
     Task<IReadOnlyList<EntityMatchResult<FloorInfo>>> SearchFloorsAsync(
         string query,

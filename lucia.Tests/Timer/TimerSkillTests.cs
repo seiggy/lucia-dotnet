@@ -5,6 +5,7 @@ using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
+using lucia.Tests.TestDoubles;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,9 @@ public sealed class TimerSkillTests
     public TimerSkillTests()
     {
         _timeProvider.SetUtcNow(new DateTimeOffset(2025, 7, 15, 12, 0, 0, TimeSpan.Zero));
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(A<string>._, A<HybridMatchOptions?>._,
+                A<IReadOnlyList<string>?>._, A<string>._, A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved([]));
         _skill = new TimerSkill(_entityLocationService, _haClient, _taskStore, _taskRepository, _timeProvider, _logger);
     }
 
@@ -42,6 +46,8 @@ public sealed class TimerSkillTests
         await _skill.SetTimerAsync(60, "Done!", "office");
         A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
             A<string>._, A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
+        A.CallTo(() => _entityLocationService.SearchHierarchyAsync(A<string>._, A<HybridMatchOptions?>._,
+            A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
     }
 
     [Fact]
@@ -53,6 +59,8 @@ public sealed class TimerSkillTests
         Assert.Contains("Could not find", result);
         Assert.Equal(0, skill.ActiveTimerCount);
         A.CallTo(() => unscoped.FindEntitiesByLocationAsync(A<string>._,
+            A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
+        A.CallTo(() => unscoped.SearchHierarchyAsync(A<string>._, A<HybridMatchOptions?>._,
             A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
     }
 
@@ -263,10 +271,8 @@ public sealed class TimerSkillTests
         // A bare location name (no dot) forces resolution via the entity location service.
         await _skill.SetTimerAsync(120, "Locate me", "office", cts.Token);
 
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-            "office", "timer-agent",
-            A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._,
-            A<CancellationToken>.That.IsEqualTo(cts.Token)))
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "office", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>.That.IsEqualTo(cts.Token)))
             .MustHaveHappenedOnceExactly();
     }
 
@@ -274,9 +280,9 @@ public sealed class TimerSkillTests
     public async Task SetTimerAsync_LocationName_SatelliteSupportsAnnounce_ResolvedFromLiveState()
     {
         // The entity registry never carries supported_features, so capability must come from state.
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-                "office", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "office", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(
                 [MakeSatellite("assist_satellite.office_sat")]));
 
         A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._))
@@ -295,9 +301,9 @@ public sealed class TimerSkillTests
     public async Task SetTimerAsync_LocationName_SatelliteLacksAnnounce_ReturnsNotFound()
     {
         // features=2 (StartConversation only) — no Announce bit.
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-                "office", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "office", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(
                 [MakeSatellite("assist_satellite.office_sat")]));
 
         A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._))
@@ -313,9 +319,9 @@ public sealed class TimerSkillTests
     public async Task SetTimerAsync_LocationName_StateUnavailable_FallsBackToFirstSatellite()
     {
         // HA state fetch fails (e.g. transient network error) — fail open rather than reject.
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-                "office", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "office", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(
                 [MakeSatellite("assist_satellite.office_sat")]));
 
         A.CallTo(() => _haClient.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._))
@@ -333,9 +339,9 @@ public sealed class TimerSkillTests
     [Fact]
     public async Task SetTimerAsync_LocationName_PrefersAnnounceCapableOverFirstCandidate()
     {
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-                "office", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "office", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(
             [
                 MakeSatellite("assist_satellite.office_incapable"),
                 MakeSatellite("assist_satellite.office_capable")
@@ -359,9 +365,9 @@ public sealed class TimerSkillTests
     {
         // Candidate A is confirmed incapable; candidate B's state is unreadable.
         // An unverified satellite in the right area beats a known-bad one.
-        A.CallTo(() => FilteredLocations.FindEntitiesByLocationForAgentAsync(
-                "office", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(Task.FromResult<IReadOnlyList<HomeAssistantEntity>>(
+        A.CallTo(() => FilteredLocations.SearchHierarchyForAgentAsync(
+            "office", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(
             [
                 MakeSatellite("assist_satellite.office_incapable"),
                 MakeSatellite("assist_satellite.office_unknown")

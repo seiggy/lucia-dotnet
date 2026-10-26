@@ -416,12 +416,11 @@ Track active and archived tasks with status counters (Active, Completed, Failed,
 
 Manage the Home Assistant entity hierarchy — floors, areas, and entities — with visibility controls. Toggle entity visibility to control which devices Lucia agents can see. Pull the HA exposed-entity list over WebSocket for pre-filtered entity management. Search and filter entities by area, domain, or name.
 
-Agent-scoped location, entity and hierarchy searches share the entity allow-list
-policy. Timer and alarm location resolution uses the registered `timer-agent`
-identity, including presence-based lookup when an alarm fires. Administrative
-inventory stays unfiltered. Visibility filtering is not a Home Assistant
-authorization boundary; direct entity IDs and execution-time revocation need
-separate checks. See [agent-scoped entity discovery](docs/AGENT_ENTITY_VISIBILITY.md).
+Visibility applies to the timer agent too. Timers and alarms resolve a location
+through the agent-scoped hierarchy search as `timer-agent`, including the
+presence lookup when an alarm fires. The dashboard's own entity search stays
+unfiltered. Visibility controls discovery, not Home Assistant authorization, so
+a full entity ID still passes through. See [agent-scoped entity discovery](docs/AGENT_ENTITY_VISIBILITY.md).
 
 ### Matcher Debug
 

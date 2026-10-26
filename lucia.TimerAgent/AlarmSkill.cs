@@ -458,11 +458,12 @@ public sealed class AlarmSkill
             return null;
         }
 
-        var entities = await filteredLocationService.FindEntitiesByLocationForAgentAsync(
+        var hierarchyResult = await filteredLocationService.SearchHierarchyForAgentAsync(
             input,
-            TimerAgent.AgentId,
+            options: null,
             domainFilter: ["media_player"],
-            ct: default).ConfigureAwait(false);
+            TimerAgent.AgentId).ConfigureAwait(false);
+        var entities = hierarchyResult.ResolvedEntities;
 
         if (entities.Count > 0)
         {

@@ -5,6 +5,7 @@ using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
+using lucia.Tests.TestDoubles;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.Logging;
 
@@ -327,12 +328,12 @@ public sealed class AlarmScheduledTaskTests
                 new("kitchen", "Kitchen", false, 0, PresenceConfidence.Medium)
             });
 
-        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).FindEntitiesByLocationForAgentAsync(
-            "bedroom", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(new List<HomeAssistantEntity>
+        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).SearchHierarchyForAgentAsync(
+            "Bedroom", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(new List<HomeAssistantEntity>
             {
                 new() { EntityId = "media_player.bedroom_speaker", FriendlyName = "Bedroom Speaker", AreaId = "bedroom" }
-            });
+            }));
 
         var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
         await task.ExecuteAsync(sp, CancellationToken.None);
@@ -345,6 +346,50 @@ public sealed class AlarmScheduledTaskTests
             A<ServiceCallRequest?>.That.Matches(r =>
                 r != null && r.EntityId == "media_player.bedroom_speaker"),
             A<CancellationToken>._)).MustHaveHappened();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PresenceTarget_PrefersPlayerInOccupiedAreaOverSimilarRoom()
+    {
+        var task = CreateAlarmTask(
+            targetEntity: "presence",
+            alarmSoundUri: "media-source://local/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(1),
+            autoDismissAfter: TimeSpan.FromMilliseconds(300));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var presenceService = A.Fake<IPresenceDetectionService>();
+        var entityLocationService = A.Fake<IEntityLocationService>(options => options.Implements<IAgentFilteredEntityLocationService>());
+
+        A.CallTo(() => presenceService.GetOccupiedAreasAsync(A<CancellationToken>._))
+            .Returns(new List<OccupiedArea> { new("bedroom", "Bedroom", true, 1, PresenceConfidence.Highest) });
+
+        // "Bedroom" also matches the guest bedroom, which the hierarchy ranks first.
+        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).SearchHierarchyForAgentAsync(
+            "Bedroom", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(new List<HomeAssistantEntity>
+            {
+                new() { EntityId = "media_player.guest_bedroom_speaker", FriendlyName = "Guest Bedroom Speaker", AreaId = "guest_bedroom" },
+                new() { EntityId = "media_player.bedroom_speaker", FriendlyName = "Bedroom Speaker", AreaId = "bedroom" }
+            }));
+
+        var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        A.CallTo(() => haClient.CallServiceAsync(
+            "media_player",
+            "play_media",
+            A<string?>._,
+            A<ServiceCallRequest?>.That.Matches(r =>
+                r != null && r.EntityId == "media_player.bedroom_speaker"),
+            A<CancellationToken>._)).MustHaveHappened();
+        A.CallTo(() => haClient.CallServiceAsync(
+            "media_player",
+            "play_media",
+            A<string?>._,
+            A<ServiceCallRequest?>.That.Matches(r =>
+                r != null && r.EntityId == "media_player.guest_bedroom_speaker"),
+            A<CancellationToken>._)).MustNotHaveHappened();
     }
 
     [Fact]
@@ -367,12 +412,12 @@ public sealed class AlarmScheduledTaskTests
                 new("office", "Office", true, 2, PresenceConfidence.Highest)
             });
 
-        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).FindEntitiesByLocationForAgentAsync(
-            "office", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(new List<HomeAssistantEntity>
+        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).SearchHierarchyForAgentAsync(
+            "Office", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(new List<HomeAssistantEntity>
             {
                 new() { EntityId = "media_player.office_speaker", FriendlyName = "Office Speaker", AreaId = "office" }
-            });
+            }));
 
         var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
         await task.ExecuteAsync(sp, CancellationToken.None);
@@ -433,9 +478,9 @@ public sealed class AlarmScheduledTaskTests
                 new("garage", "Garage", true, 1, PresenceConfidence.High)
             });
 
-        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).FindEntitiesByLocationForAgentAsync(
-            "garage", "timer-agent", A<IReadOnlyList<string>?>._, A<HybridMatchOptions?>._, A<CancellationToken>._))
-            .Returns(new List<HomeAssistantEntity>());
+        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).SearchHierarchyForAgentAsync(
+            "Garage", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved([]));
 
         var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
         await task.ExecuteAsync(sp, CancellationToken.None);
@@ -489,6 +534,8 @@ public sealed class AlarmScheduledTaskTests
         var services = BuildPresenceServiceProvider(haClient, presence, unscoped);
         await CreateAlarmTask(targetEntity: "presence").ExecuteAsync(services, CancellationToken.None);
         A.CallTo(() => unscoped.FindEntitiesByLocationAsync(A<string>._,
+            A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
+        A.CallTo(() => unscoped.SearchHierarchyAsync(A<string>._, A<HybridMatchOptions?>._,
             A<IReadOnlyList<string>?>._, A<CancellationToken>._)).MustNotHaveHappened();
         A.CallTo(() => haClient.CallServiceAsync(A<string>._, A<string>._, A<string?>._,
             A<ServiceCallRequest?>._, A<CancellationToken>._)).MustNotHaveHappened();
