@@ -2,7 +2,7 @@
 # Purpose: Optimized image for Jetson Nano (ARM64/aarch64) without voice pipeline
 #
 # Target Platform: ARM64 (aarch64)
-# Base Image: mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8 (minimal, ARM64-optimized)
+# Base Image: mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-arm64v8 (minimal, ARM64-optimized)
 # 
 # Features:
 #   - No speech pipeline (EXCLUDE_SPEECH=true during build)
@@ -39,7 +39,7 @@ RUN npm run build
 # ============================================================================
 # Stage 1: Base Runtime Image (Minimal ARM64)
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8@sha256:0a961de5dbc02a50d4362ca2ae4e09b2c3426c1b51a6c00d336a0849643d8757 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-arm64v8@sha256:bfdb8a0389d3f274f8f5fe95b9b8fc2249084047a07e7d927b91fbcc6e46b68c AS base
 
 # Set working directory
 WORKDIR /app
@@ -67,7 +67,7 @@ EXPOSE 8080 8081
 # ============================================================================
 # Stage 2: Build Stage
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8@sha256:a3c9e022cfe0fa95d9a19ac4a136c88c34f9d04b5029c8aedfb2098979067fcf AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403-noble-arm64v8@sha256:f34803987e201bd321984712d40a4bed1f797d4756b9b21eb5b6ddd2b178d2ef AS build
 
 # Set build configuration (can be overridden via --build-arg)
 ARG BUILD_CONFIGURATION=Release

@@ -313,7 +313,7 @@ RUN npm run build
 # Requires that fix to be merged; a plain `--runtime linux-arm64` must resolve the
 # arm64 native package (not the x64-only Gpu.Linux).
 # ============================================================================
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:3dae2f7699441af56216ff64d5c9b6dfce7cd7dc7f4f71d353d29662b10a384f AS dotnet-publish
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.403@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS dotnet-publish
 WORKDIR /src
 
 COPY ["Directory.Build.props", "."]
@@ -406,7 +406,7 @@ RUN set -eux; \
 # NO apt (removes runtime apt mutability): healthcheck uses a digest-pinned static
 # busybox; ca-certificates ship in the Microsoft aspnet base for outbound TLS.
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8@sha256:e3736b0d423db99c6988e1ddf5ea725c14b12579bb120024e5ff7ff204a14080 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-arm64v8@sha256:bfdb8a0389d3f274f8f5fe95b9b8fc2249084047a07e7d927b91fbcc6e46b68c AS runtime
 ARG VERSION=development
 ENV LUCIA_VERSION=${VERSION}
 WORKDIR /app
