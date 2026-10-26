@@ -586,6 +586,14 @@ See `infra/docker/.env.lucia.example` for a full template. ComfyUI, Whisper, Pip
 | **ModelProviders** | LLM backend configurations (per-agent model assignment) |
 | **PromptCache** | Routing and chat cache thresholds (hot-reloadable) |
 
+Tool-result previews are off by default. Set `TraceCapture:CaptureToolResults` to
+`true` to store sanitized, bounded previews. `TraceCapture:MaxToolResultBytes`
+defaults to 4096 UTF-8 bytes per result. Newly generated training exports exclude
+results unless `TraceCapture:IncludeToolResultsInTrainingExport` is also enabled.
+`TraceCapture:Enabled=false` disables both orchestrator and per-agent trace
+persistence. See [safe tool-result capture](docs/TOOL_RESULT_CAPTURE.md) for scope,
+limits and migration notes.
+
 ### Home Assistant Integration Setup
 
 After installing the custom component:

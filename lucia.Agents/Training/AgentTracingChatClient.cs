@@ -4,6 +4,7 @@ using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Training.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Training;
 
@@ -19,6 +20,8 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
     private readonly ITraceRepository _repository;
     private readonly ILogger<AgentTracingChatClient> _logger;
     private readonly LiveActivityChannel? _liveChannel;
+    private readonly TraceCaptureOptions _traceOptions;
+    private readonly ToolResultCapturePolicy _resultPolicy;
 
     /// <summary>
     /// AsyncLocal session ID shared across the orchestrator request.
@@ -31,13 +34,16 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         string agentId,
         ITraceRepository repository,
         ILogger<AgentTracingChatClient> logger,
-        LiveActivityChannel? liveChannel = null)
+        LiveActivityChannel? liveChannel = null,
+        IOptions<TraceCaptureOptions>? traceOptions = null)
         : base(innerClient)
     {
         _agentId = agentId;
         _repository = repository;
         _logger = logger;
         _liveChannel = liveChannel;
+        _traceOptions = traceOptions?.Value ?? new TraceCaptureOptions();
+        _resultPolicy = new ToolResultCapturePolicy(_traceOptions);
     }
 
     /// <summary>
@@ -73,6 +79,15 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        if (!_traceOptions.Enabled)
+        {
+            ResetAccumulators();
+            var untraced = await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
+            foreach (var message in untraced.Messages)
+                EmitLiveToolEvents(message);
+            return untraced;
+        }
+
         var sessionId = CurrentSessionId.Value ?? Guid.NewGuid().ToString("N");
         var requestMessages = messages.ToList();
         var availableTools = new List<string>();
@@ -90,7 +105,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
 
         // Capture request messages for this round (skip already captured)
         var capturedMessages = _accumulatedMessages.Select(m => m.MessageId).ToHashSet();
-        foreach (var msg in requestMessages.Where(msg => !capturedMessages.Contains(msg.MessageId)))
+        foreach (var msg in requestMessages.Where(msg => msg.Role != ChatRole.Tool && !capturedMessages.Contains(msg.MessageId)))
         {
             _accumulatedMessages.Add(new TracedMessage
             {
@@ -148,12 +163,15 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                 .Any(m => m.Contents.OfType<FunctionCallContent>().Any());
 
             if (hasPendingToolCalls) return response;
+            // ChatResponse.Text can include text from tool-role messages as well.
+            var finalResponse = string.Join(Environment.NewLine, response.Messages
+                .Where(message => message.Role == ChatRole.Assistant).Select(ExtractTextContent));
             var trace = new ConversationTrace
             {
                 SystemPrompt = requestMessages.FirstOrDefault(c => c.Role == ChatRole.System)?.Text,
                 SessionId = sessionId,
                 UserInput = ExtractUserInput(requestMessages),
-                FinalResponse = response.Text,
+                FinalResponse = finalResponse,
                 TotalDurationMs = _totalElapsedMs,
                 Metadata =
                 {
@@ -174,7 +192,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                         ToolCalls = _accumulatedToolCalls.ToList(),
                         ExecutionDurationMs = _totalElapsedMs,
                         Success = true,
-                        ResponseContent = response.Text
+                        ResponseContent = finalResponse
                     }
                 ]
             };
@@ -287,7 +305,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         return string.Join("\n", userMessages);
     }
 
-    private static void CaptureToolContentFromMessage(ChatMessage message, List<TracedToolCall> toolCalls)
+    private void CaptureToolContentFromMessage(ChatMessage message, List<TracedToolCall> toolCalls)
     {
         foreach (var content in message.Contents)
         {
@@ -305,26 +323,10 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                     break;
                 case FunctionResultContent fr:
                 {
-                    var resultText = fr.Result?.ToString();
-                    var truncatedResult = resultText is not null
-                        ? resultText[..Math.Min(2000, resultText.Length)]
-                        : null;
-
-                    // Try to attach result to the matching tool call
-                    var matchingCall = toolCalls.LastOrDefault(tc => tc.Result is null && tc.CallId is not null && tc.CallId == fr.CallId)
-                        ?? toolCalls.LastOrDefault(tc => tc.Result is null);
+                    var matchingCall = toolCalls.LastOrDefault(tc => tc.CallId == fr.CallId);
                     if (matchingCall is not null)
                     {
-                        matchingCall.Result = truncatedResult;
-                    }
-                    else
-                    {
-                        toolCalls.Add(new TracedToolCall
-                        {
-                            ToolName = fr.CallId,
-                            CallId = fr.CallId,
-                            Result = truncatedResult
-                        });
+                        ApplyToolResult(matchingCall, fr);
                     }
                     break;
                 }
@@ -347,17 +349,21 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
             if (content is not FunctionResultContent fr)
                 continue;
 
-            var resultText = fr.Result?.ToString();
-            var truncatedResult = resultText is not null
-                ? resultText[..Math.Min(2000, resultText.Length)]
-                : null;
-
-            var target = _accumulatedToolCalls.LastOrDefault(tc => tc.Result is null && tc.CallId is not null && tc.CallId == fr.CallId)
-                ?? _accumulatedToolCalls.LastOrDefault(tc => tc.Result is null);
+            var target = _accumulatedToolCalls.LastOrDefault(tc => tc.CallId == fr.CallId);
             if (target is not null)
             {
-                target.Result = truncatedResult;
+                ApplyToolResult(target, fr);
             }
         }
+    }
+
+    private void ApplyToolResult(TracedToolCall target, FunctionResultContent result)
+    {
+        target.ResultIsError = result.Exception is not null ? true : null;
+        if (!_traceOptions.CaptureToolResults)
+            return;
+
+        target.Result = _resultPolicy.Sanitize(result.Result, out var truncated);
+        target.ResultTruncated = truncated;
     }
 }

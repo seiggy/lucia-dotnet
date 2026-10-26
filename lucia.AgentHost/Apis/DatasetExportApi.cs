@@ -3,6 +3,7 @@ using lucia.Agents.Training;
 using lucia.Agents.Training.Models;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace lucia.AgentHost.Apis;
 
@@ -35,6 +36,7 @@ public static class DatasetExportApi
 
     private static async Task<Results<Created<DatasetExportRecord>, BadRequest<string>>> CreateExportAsync(
         [FromServices] ITraceRepository repository,
+        [FromServices] IOptions<TraceCaptureOptions> traceOptions,
         [FromBody] ExportFilterCriteria filter,
         CancellationToken ct)
     {
@@ -55,7 +57,7 @@ public static class DatasetExportApi
         {
             foreach (var trace in traces)
             {
-                var jsonlLine = ConvertTraceToJsonl(trace, filter.IncludeCorrections, filter.AgentFilter);
+                var jsonlLine = JsonlConverter.ConvertTraceToJsonl(trace, filter.IncludeCorrections, filter.AgentFilter, traceOptions.Value);
                 await writer.WriteLineAsync(jsonlLine).ConfigureAwait(false);
             }
         }
@@ -116,10 +118,4 @@ public static class DatasetExportApi
         var stream = new FileStream(record.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         return TypedResults.Stream(stream, "application/jsonl", $"export-{id}.jsonl");
     }
-
-    /// <summary>
-    /// Converts a conversation trace to an OpenAI fine-tuning JSONL line.
-    /// </summary>
-    private static string ConvertTraceToJsonl(ConversationTrace trace, bool includeCorrections, string? agentFilter = null) =>
-        JsonlConverter.ConvertTraceToJsonl(trace, includeCorrections, agentFilter);
 }
