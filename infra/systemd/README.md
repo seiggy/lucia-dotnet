@@ -42,11 +42,16 @@ The systemd deployment method runs Lucia as a native Linux service with:
 | Component | Minimum Version | Installation |
 | --------- | --------------- | ------------ |
 | **systemd** | 240+ | Included in most modern Linux distros |
-| **.NET Runtime** | 10.0+ | [Install Guide](https://learn.microsoft.com/en-us/dotnet/core/install/linux) |
+| **ASP.NET Core Runtime** | 10.0.14+ | [Install Guide](https://learn.microsoft.com/en-us/dotnet/core/install/linux) |
 | **Redis** | 7.0+ | `sudo apt install redis-server` (Ubuntu/Debian) |
 | **curl** | Any | `sudo apt install curl` |
 
 ### System Requirements
+
+Update the runtime on existing framework-dependent installations and restart
+Lucia to apply the .NET 10.0.14 security fixes. Self-contained appliance releases
+bundle their runtime and must be rebuilt and redeployed; updating the host's
+shared runtime does not patch those bundles.
 
 - **CPU:** 2+ cores recommended
 - **RAM:** 2GB minimum, 4GB recommended

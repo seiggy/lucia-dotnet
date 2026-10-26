@@ -40,6 +40,13 @@ For a self-built image, pass `--build-arg VERSION=your-version`; the default is
 not change its embedded version. Release CI rebuilds the metadata layer for a
 versioned release rather than reusing a `master` image's version.
 
+Build images use .NET SDK 10.0.403, and runtime images use .NET 10.0.14.
+Microsoft base images are pinned by digest, including the ARM64 Jetson variants.
+CUDA and ROCm variants install ASP.NET Core 10.0.14 explicitly. Rebuild and
+redeploy existing images to apply the
+[October 25 security update](https://github.com/dotnet/core/blob/main/release-notes/10.0/10.0.14/10.0.14.md);
+pulling source changes does not patch an already-running container.
+
 ### 1. Start Services
 
 ```bash
@@ -303,7 +310,7 @@ The `Dockerfile.agenthost-jetson` and `docker-compose.jetson.yml` are optimized 
 
 | Feature | Standard | Jetson |
 | --- | --- | --- |
-| **Base Image** | `mcr.microsoft.com/dotnet/aspnet:10.0` | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8` |
+| **Base Image** | `mcr.microsoft.com/dotnet/aspnet:10.0.14` | `mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-arm64v8` |
 | **Architecture** | x64 | ARM64 (aarch64) |
 | **Speech Pipeline** | ✅ Enabled (Wyoming + ONNX) | ❌ Disabled (ExcludeSpeech=true) |
 | **Model Storage** | ~585MB voice models | None |
