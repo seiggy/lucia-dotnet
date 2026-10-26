@@ -216,8 +216,12 @@ public sealed class EntityLocationService : IEntityLocationService, IAgentFilter
         HybridMatchOptions? options,
         IReadOnlyList<string>? domainFilter,
         string callerAgentId,
-        CancellationToken ct = default) =>
-        SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId, ct);
+        CancellationToken ct = default)
+    {
+        // A null caller would silently search the unscoped hierarchy, so require an identity.
+        ArgumentException.ThrowIfNullOrWhiteSpace(callerAgentId);
+        return SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId, ct);
+    }
 
     private async Task<HierarchicalSearchResult> SearchHierarchyCoreAsync(
         string query,

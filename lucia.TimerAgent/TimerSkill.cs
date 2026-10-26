@@ -245,11 +245,21 @@ public sealed class TimerSkill
             return input;
         }
 
-        // Search for assist_satellite entities in the requested location
-        var entities = await _entityLocationService.FindEntitiesByLocationAsync(
+        if (_entityLocationService is not IAgentFilteredEntityLocationService filteredLocationService)
+        {
+            _logger.LogWarning("Agent-filtered satellite location search is unavailable");
+            return null;
+        }
+
+        // Hierarchy search resolves "office", "upstairs" or "office satellite" alike, and only
+        // scores satellites visible to the timer agent before reading live state.
+        var hierarchyResult = await filteredLocationService.SearchHierarchyForAgentAsync(
             input,
+            options: null,
             domainFilter: ["assist_satellite"],
-            ct: cancellationToken).ConfigureAwait(false);
+            TimerAgent.AgentId,
+            cancellationToken).ConfigureAwait(false);
+        var entities = hierarchyResult.ResolvedEntities;
 
         if (entities.Count == 0)
         {

@@ -130,6 +130,12 @@ public sealed class AlarmScheduledTask : IScheduledTask
             return null;
         }
 
+        if (entityLocationService is not IAgentFilteredEntityLocationService filteredLocationService)
+        {
+            logger.LogWarning("Alarm {AlarmId} cannot resolve presence without agent-filtered location search", Id);
+            return null;
+        }
+
         var occupiedAreas = await presenceService.GetOccupiedAreasAsync(ct).ConfigureAwait(false);
         var bestArea = occupiedAreas
             .Where(a => a.IsOccupied)
@@ -147,11 +153,17 @@ public sealed class AlarmScheduledTask : IScheduledTask
             "Alarm {AlarmId} presence resolved to area '{AreaName}' (confidence={Confidence})",
             Id, bestArea.AreaName, bestArea.Confidence);
 
-        // Find a media_player in the occupied area
-        var mediaPlayers = await entityLocationService.FindEntitiesByLocationAsync(
-            bestArea.AreaId,
+        // Find a media_player in the occupied area. Hierarchy matching scores names, and may
+        // also match similarly named rooms, so prefer a player in the occupied area itself.
+        var hierarchyResult = await filteredLocationService.SearchHierarchyForAgentAsync(
+            bestArea.AreaName,
+            options: null,
             domainFilter: ["media_player"],
-            ct: ct).ConfigureAwait(false);
+            TimerAgent.AgentId,
+            ct).ConfigureAwait(false);
+        var mediaPlayers = hierarchyResult.ResolvedEntities
+            .OrderByDescending(e => string.Equals(e.AreaId, bestArea.AreaId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         if (mediaPlayers.Count == 0)
         {
