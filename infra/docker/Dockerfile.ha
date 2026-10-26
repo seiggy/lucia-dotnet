@@ -13,7 +13,7 @@ COPY lucia-dashboard/ .
 RUN npm run build
 
 # .NET build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
 WORKDIR /src
 
 # Copy solution and project files for restore
@@ -51,7 +51,7 @@ RUN dotnet publish lucia.AgentHost/lucia.AgentHost.csproj \
     /p:CpuOnly=true
 
 # Runtime stage — slim aspnet image, no GPU libs
-FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:8c0b6857eab7b2aa57884c839bf4678414606bd7d17370f18a842ac5cf414711
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.14@sha256:de0ee358cdd672f7017a003bed21e9ac9ed48a27c922a59b18175b6e82fa7fee
 ARG VERSION=development
 ENV LUCIA_VERSION=${VERSION}
 WORKDIR /app

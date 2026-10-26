@@ -119,7 +119,8 @@ public sealed class HarnessConfiguration
             {
                 Name = "Ollama",
                 Endpoint = Ollama.Endpoint,
-                Type = InferenceBackendType.Ollama
+                Type = InferenceBackendType.Ollama,
+                NoProviderCharge = Ollama.NoProviderCharge
             }
         ];
     }

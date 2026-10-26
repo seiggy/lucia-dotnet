@@ -11,6 +11,10 @@ public interface ILocationSnapshotStore
     /// <summary>Returns the stored snapshot, or <see langword="null"/> when nothing usable is stored.</summary>
     Task<StoredLocationSnapshot?> TryLoadAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Saves the snapshot and propagates write failures. Callers must await a successful save before
+    /// publishing a new shared version.
+    /// </summary>
     Task SaveAsync(LocationSnapshot snapshot, DateTimeOffset? loadedAt, CancellationToken ct = default);
 
     /// <summary>Drops the stored snapshot so the next load reads Home Assistant.</summary>

@@ -8,7 +8,7 @@ public static class CostReportFormatting
     public const string EstimateNote =
         "USD estimates use configured or published token rates and request fees. Context tiers apply to each request's input tokens. " +
         "Model-under-test calls only; judge charges and electricity are excluded. " +
-        "Local Ollama/llama.cpp provider cost is zero. Unknown usage or cloud pricing is not free. " +
+        "NoProviderCharge explicitly declares no provider charge; protocol alone does not. Unknown usage or pricing is not free. " +
         "Unreported cache usage receives no discount. Quality first; cost breaks exact ties.";
 
     public static string Usd(decimal? value) =>

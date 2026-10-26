@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory() as temporary:
     wheel.chmod(0o644)
     dockerfile = root / "Dockerfile"
     dockerfile.write_text(
-        "FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:8c0b6857eab7b2aa57884c839bf4678414606bd7d17370f18a842ac5cf414711\n"
+        "FROM mcr.microsoft.com/dotnet/aspnet:10.0.14@sha256:de0ee358cdd672f7017a003bed21e9ac9ed48a27c922a59b18175b6e82fa7fee\n"
         + recipe + "\n"
     )
     image = f"lucia-uv-smoke:{uuid.uuid4().hex}"

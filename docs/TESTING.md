@@ -90,6 +90,37 @@ Integration tests verify components with real infrastructure (Redis, PostgreSQL)
 | `Integration/DurableTaskPersistenceTests.cs` | Redis | Task durability across restarts |
 | `Integration/ExtractDeviceIdTests.cs` | None | Device ID extraction from HA entities |
 
+### Redis location snapshot publication
+
+`RedisLocationSnapshotStore.SaveAsync` waits for acknowledgments for the floors,
+areas, entities, and loaded-at writes. A failed save propagates to its caller,
+so save-then-version-bump operations do not publish a version for a rejected save.
+These operations can fail even when the local in-memory snapshot was updated;
+they do not roll back local changes or partial Redis writes. Acknowledgment is
+not a guarantee of disk durability or atomic multi-key publication.
+
+The regression tests use two complementary checks:
+
+- `Services/EntityLocation/RedisLocationSnapshotStoreTests.cs` and
+  `RedisSnapshotPublicationTests.cs` use controlled acknowledgments, without
+  timing sleeps. They cover every snapshot write, enqueue/execute/reply failures,
+  and version ordering for reload, removal, and embedding eviction.
+- `Services/EntityLocation/RedisSnapshotPublicationIntegrationTests.cs` uses an
+  isolated Redis container and separate writer/reader connections. It verifies
+  snapshot visibility, the existing 24-hour TTL, and a rejected-write case. A
+  test-only Redis user cannot issue `SET`, `SETEX`, or `PSETEX`, but can still
+  increment the version. The test verifies that denied writes leave the shared
+  version unchanged. It does not change permissions on an existing Redis server.
+
+Run the location tests with Docker available:
+
+```powershell
+dotnet test lucia.Tests/lucia.Tests.csproj --filter "FullyQualifiedName~Services.EntityLocation"
+```
+
+The four snapshot keys and separate version counter remain unchanged. This fix
+does not make concurrent publication or reads of multiple keys atomic.
+
 ## Evaluation Tests
 
 Eval tests measure agent quality using the [Microsoft.Extensions.AI.Evaluation](https://learn.microsoft.com/dotnet/ai/evaluation/) SDK. They invoke real agents against real LLMs and score responses with LLM-as-judge evaluators.
@@ -236,7 +267,9 @@ sampling defaults.
 
 llama.cpp endpoints accept a server root or an existing `/v1` suffix. Router models
 can be selected while unloaded; the router loads them when requested. Models
-advertised with embedding-server arguments are excluded from chat evaluations.
+advertised with embedding-server arguments or an embedding-only `capabilities`
+array are excluded from chat evaluations. Mixed embedding/chat capabilities and
+models without capability metadata remain selectable.
 `ApiKey` supplies bearer authentication for OpenAI-compatible servers and
 OpenRouter. OpenRouter requires a key to run inference.
 
@@ -322,6 +355,10 @@ List configured backends and their available models without starting evaluations
 dotnet run --project .\lucia.EvalHarness -- --list-backend-models
 ```
 
+For Lucia.OS, use `OpenAICompat` with an inference-only key and an already-loaded
+chat model. See [Lucia.OS inference qualification](LUCIA_OS_INFERENCE.md) for the
+source-pinned contract checks, configuration and separate live acceptance steps.
+
 ### Music Agent isolation runs
 
 The Music Agent scenarios live in `lucia.EvalHarness/TestData/music-agent.yaml`.
@@ -360,6 +397,54 @@ confidence, per-agent instruction, and the agent's reply.
 The router asks for a JSON schema response. A server that cannot honor it fails
 every orchestrated case for that model with no route. For llama.cpp behind
 LiteLLM, the server needs xgrammar installed.
+
+### Strict and forbidden tool calls
+
+Scenarios can reject calls left after their ordered expectations and ban specific
+tools anywhere in the trace:
+
+```yaml
+reject_unlisted_tool_calls: true
+forbidden_tools:
+  - ActivateScene
+expected_tool_calls:
+  - tool: ListScenes
+```
+
+`reject_unlisted_tool_calls` defaults to `false`. Required calls still match in
+order. Declared optional lookups can be absent or repeat consecutively, including
+their declared alternatives. With strict mode enabled, a call left after that
+chain fails validation. Repeating a required call also fails unless another
+expectation declares it. Strict mode does not turn the chain into an unordered
+allow-list.
+
+`forbidden_tools` defaults to an empty list. Every assistant tool call is checked,
+including calls before, between, and after expected calls. A forbidden tool fails
+even if strict mode is off or the same tool appears in the expected chain. Tool
+names use the validator's existing case-insensitive comparison and trailing
+`Async` normalization. Failure messages include the observed call's zero-based
+position and name, without argument values.
+
+Forbidden-tool decisions use AgentEval's `NeverCallTool` assertion. The tracer
+captures the tool names offered in actual model requests and supplies that
+inventory to AgentEval. A forbidden call always fails. If the tool was offered
+but never called, the policy passes. If the tool was not offered, or the offered
+inventory is unknown, AgentEval reports an inconclusive result rather than a
+vacuous pass. The scenario then has `Passed=false`, a null score, and an
+`Inconclusive NeverCallTool(...)` reason. A passing response judge cannot turn
+that result into a pass or assign it a numeric score. The strict ordered-chain
+matcher remains in Lucia; `NeverCallTool` does not replace it.
+
+Scenarios with no expected calls still reject all calls. Scenarios containing
+only optional expectations still reject undeclared calls, regardless of the
+strict-mode flag. Both explicit policies require conversation tracing. A policy
+violation keeps the scenario's `Passed` result false even when other checks and
+the response judge produce a high numeric score. These checks detect observed
+calls after execution; they do not prevent a tool from running. Pair them with
+`expected_final_state` assertions to verify effects on mock Home Assistant state.
+
+The scene fixtures `list_scenes` and `out_of_domain` now explicitly forbid
+`ActivateScene`. The listing fixture also enables strict mode.
 
 ### Semantic response checks
 
@@ -475,9 +560,53 @@ cached-input rate, and output at the output rate. If a provider does not report
 cache counts, no cache discount is assumed. Missing cloud usage or required rates
 produce unavailable/partial estimates, never zero-cost cloud results.
 
-Ollama and OpenAI-compatible self-hosted backends have zero provider cost and the
-best cost preference. Electricity and hardware costs are excluded. Tests that
-never executed are not counted as free runs.
+Provider charges are independent of the API protocol and endpoint address.
+`OpenAICompat` can point at a paid service or a local proxy to one; native Ollama
+can also be hosted remotely. Neither protocol automatically means free inference.
+
+`NoProviderCharge` defaults to `false` for every backend. With that default,
+configured `ModelPricing` and reported usage produce an estimate. Missing usage
+or required prices remain unknown, not zero. OpenRouter can populate its pricing
+from discovery; generic OpenAI-compatible providers need configured rates.
+
+For a server with no model-under-test provider charge, explicitly set
+`Harness:Backends:<index>:NoProviderCharge` to `true`. The result is recorded as
+`no_provider_charge`, even if usage is unavailable. This declaration overrides
+stored prices; set it back to `false` when changing to a paid host. It does not
+claim that electricity, hardware, a subscription, or judge calls are free.
+
+```json
+{
+  "Harness": {
+    "Backends": [
+      {
+        "Name": "Self-hosted llama.cpp",
+        "Type": "OpenAICompat",
+        "Endpoint": "http://localhost:1234",
+        "NoProviderCharge": true
+      },
+      {
+        "Name": "Bitdeer",
+        "Type": "OpenAICompat",
+        "Endpoint": "https://api-inference.bitdeer.ai/v1",
+        "NoProviderCharge": false
+      }
+    ]
+  }
+}
+```
+
+Keep the Bitdeer key in user secrets at `Harness:Backends:1:ApiKey` for this
+example. Add rates under `Harness:Backends:1:ModelPricing:<exact-model-id>` using
+the pricing fields above and the provider's applicable rates. Until then, its
+cost remains unknown. This example configures an API connection; it is not a
+claim that a particular Bitdeer model has been qualified.
+
+When named `Backends` are absent, `Harness:Ollama:NoProviderCharge` supplies the
+same declaration to the synthesized Ollama backend. It also defaults to `false`.
+Existing local configurations must opt in to retain known-zero provider costs.
+Unexecuted tests remain `no_calls`, not free runs. Earlier exported `local`
+statuses remain recognized when aggregating historical results.
 
 Console, JSON, Markdown, and HTML reports include cost information and token
 usage. Recommendations rank by quality first, then lower known mean cost per

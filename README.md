@@ -877,7 +877,7 @@ The **Plugins** page has three tabs:
 
 ### Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) or later
+- [.NET 10 SDK 10.0.403](https://dotnet.microsoft.com/download/dotnet/10.0) or a later stable .NET 10 SDK, with runtime 10.0.14 or later
 - [Node.js 22+](https://nodejs.org/) (for the dashboard)
 - [Docker](https://www.docker.com/) (required for Redis and PostgreSQL via Aspire)
 

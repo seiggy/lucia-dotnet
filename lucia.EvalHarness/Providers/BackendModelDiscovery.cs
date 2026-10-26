@@ -157,10 +157,26 @@ public sealed class BackendModelDiscovery(HttpClient httpClient, TokenCredential
             ? name.GetString()!
             : throw new JsonException($"Discovered model is missing '{property}'.");
 
-    private static bool IsEmbeddingModel(JsonElement model) =>
-        model.TryGetProperty("status", out var status) &&
-        status.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array &&
-        args.EnumerateArray().Any(arg => arg.GetString() is "--embeddings" or "--embedding" or "--embd");
+    private static bool IsEmbeddingModel(JsonElement model)
+    {
+        // Lucia.OS advertises capabilities rather than llama.cpp process arguments.
+        // Keep mixed-capability models that can also serve chat or Responses.
+        if (model.TryGetProperty("capabilities", out var capabilities) && capabilities.ValueKind == JsonValueKind.Array)
+        {
+            var names = capabilities.EnumerateArray()
+                .Where(value => value.ValueKind == JsonValueKind.String)
+                .Select(value => value.GetString())
+                .ToArray();
+            if (names.Contains("embedding") && !names.Contains("chat") && !names.Contains("responses"))
+            {
+                return true;
+            }
+        }
+
+        return model.TryGetProperty("status", out var status) &&
+               status.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array &&
+               args.EnumerateArray().Any(arg => arg.GetString() is "--embeddings" or "--embedding" or "--embd");
+    }
 
     private static bool HasTextOutput(JsonElement model) =>
         model.TryGetProperty("architecture", out var architecture) &&
