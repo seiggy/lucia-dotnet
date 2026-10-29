@@ -75,7 +75,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             "name": "Lucia Home Agent",
             "manufacturer": "Lucia",
             "model": "Conversation Agent",
-            "sw_version": "1.2.0",
+            "sw_version": "1.6.3",
         }
 
     @property
