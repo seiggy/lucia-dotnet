@@ -1014,6 +1014,19 @@ Lucia includes OpenTelemetry instrumentation out of the box via the `lucia.Servi
 
 The Aspire Dashboard provides built-in log aggregation, trace visualization, and metrics during development. Lucia's own Activity Dashboard shows a live agent mesh graph and real-time event stream. For production, export to Prometheus, Grafana, Jaeger, or any OTLP-compatible backend.
 
+Model-provider telemetry records prompts and responses by default, as earlier
+releases did, which helps with troubleshooting and collecting training data. The
+setup wizard explains this and lets you turn it off. Upgraded installs keep it on.
+To change it later, set `ModelTelemetry:IncludeModelContent` on the Configuration
+page and restart Lucia. With it off, traces keep model metadata, timing, token
+usage and errors without message content.
+
+Personality rewrites share a configurable `PersonalityPrompt:MaxOutputTokens`
+output ceiling. Missing or blank values fall back to 4096 tokens. A rewrite that
+reaches its output limit returns the original response instead of partial text.
+See [model telemetry privacy and personality limits](docs/MODEL_PRIVACY_AND_PERSONALITY.md)
+for configuration, scope and tests.
+
 ## 🗺️ Roadmap
 
 ### ✅ Completed

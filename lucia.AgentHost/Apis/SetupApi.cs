@@ -35,6 +35,7 @@ public static class SetupApi
         // Phase 2 — authenticated: require the dashboard API key (header or session cookie)
         group.MapPost("/configure-ha", ConfigureHomeAssistantAsync).RequireAuthorization();
         group.MapPost("/test-ha-connection", TestHaConnectionAsync).RequireAuthorization();
+        group.MapPost("/configure-model-telemetry", ConfigureModelTelemetryAsync).RequireAuthorization();
         group.MapPost("/generate-ha-key", GenerateHaKeyAsync).RequireAuthorization();
         group.MapPost("/validate-ha-connection", ValidateHaConnectionAsync).RequireAuthorization();
         group.MapGet("/ha-status", GetHaStatusAsync).RequireAuthorization();
@@ -51,6 +52,7 @@ public static class SetupApi
         IApiKeyService apiKeyService,
         IModelProviderRepository providerRepository,
         IConfigStoreWriter configStore,
+        IConfiguration configuration,
         HttpContext httpContext)
     {
         var ct = httpContext.RequestAborted;
@@ -82,6 +84,8 @@ public static class SetupApi
         var providers = await providerRepository.GetEnabledProvidersAsync(ct).ConfigureAwait(false);
         var hasChatProvider = providers.Any(
             p => p.Purpose == ModelPurpose.Chat && !string.IsNullOrWhiteSpace(p.ModelName));
+        var modelTelemetry = configuration.GetSection(ModelTelemetryOptions.SectionName).Get<ModelTelemetryOptions>()
+            ?? new ModelTelemetryOptions();
 
         return Results.Ok(new
         {
@@ -92,6 +96,7 @@ public static class SetupApi
             hasHaApiKey,
             haUrl = !string.IsNullOrWhiteSpace(haUrl) ? haUrl : null,
             hasChatProvider,
+            includeModelContent = modelTelemetry.IncludeModelContent,
             pluginValidated = string.Equals(pluginValidated, "true", StringComparison.OrdinalIgnoreCase),
             setupComplete = string.Equals(setupComplete, "true", StringComparison.OrdinalIgnoreCase),
         });
@@ -177,6 +182,30 @@ public static class SetupApi
         }
 
         return Results.Ok(new { saved = true });
+    }
+
+    /// <summary>
+    /// Step 2d: Save whether model telemetry records prompts and responses. The wizard asks
+    /// before any model provider exists, so model clients are built with the chosen policy.
+    /// </summary>
+    internal static async Task<IResult> ConfigureModelTelemetryAsync(
+        [FromBody] ConfigureModelTelemetryRequest request,
+        IConfigStoreWriter configStore,
+        IConfiguration configuration,
+        HttpContext httpContext)
+    {
+        await configStore.SetAsync(
+            $"{ModelTelemetryOptions.SectionName}:{nameof(ModelTelemetryOptions.IncludeModelContent)}",
+            request.IncludeModelContent ? "true" : "false",
+            "setup-wizard",
+            cancellationToken: httpContext.RequestAborted).ConfigureAwait(false);
+
+        if (configuration is IConfigurationRoot configurationRoot)
+        {
+            configurationRoot.Reload();
+        }
+
+        return Results.Ok(new { saved = true, includeModelContent = request.IncludeModelContent });
     }
 
     /// <summary>
@@ -432,5 +461,6 @@ public static class SetupApi
     }
 
     public sealed record ConfigureHaRequest(string BaseUrl, string AccessToken);
+    public sealed record ConfigureModelTelemetryRequest(bool IncludeModelContent);
     public sealed record ValidateHaConnectionRequest(string HomeAssistantInstanceId);
 }

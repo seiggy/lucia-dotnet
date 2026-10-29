@@ -2,6 +2,7 @@ using lucia.Agents.Services;
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.Models;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
@@ -438,6 +439,18 @@ public static class ConfigurationApi
                 new("Enabled", "boolean", "Whether trace capture is enabled", "true"),
                 new("RetentionDays", "number", "Number of days to retain unlabeled traces before cleanup", "30"),
                 new("RedactionPatterns", "array", "Regex patterns for redacting sensitive data from trace content", "")
+            ]
+        },
+        new()
+        {
+            Section = ModelTelemetryOptions.SectionName,
+            Description = "Model call telemetry. Restart Lucia after changing this so every model client picks it up.",
+            Properties =
+            [
+                new(nameof(ModelTelemetryOptions.IncludeModelContent), "boolean",
+                    "Record prompts, responses and tool-call arguments in OpenTelemetry traces and Trace-level logs. " +
+                    "Useful for troubleshooting and building training data. Anyone with access to your telemetry " +
+                    "collector can read them. When off, traces keep timing, model, token usage and errors.", "true")
             ]
         },
         new()

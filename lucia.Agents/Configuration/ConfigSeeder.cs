@@ -29,6 +29,8 @@ public sealed class ConfigSeeder : IHostedService
         "TraceCapture",
         "Wyoming",
         "PersonalityPrompt",
+        // Seeding on upgrade pins the shipped default for existing installs.
+        ModelTelemetryOptions.SectionName,
         LightControlSkillOptions.SectionName,
         ClimateControlSkillOptions.SectionName,
         FanControlSkillOptions.SectionName,
