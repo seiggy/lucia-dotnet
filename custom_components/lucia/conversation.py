@@ -196,6 +196,17 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 prompt_override=prompt_override,
             )
 
+            if result.response_type == "ignored":
+                # Unrecognized voice (TV, calls): blank speech makes HA skip TTS and end the run.
+                _LOGGER.debug("Lucia ignored voice input from an unrecognized speaker")
+                intent_response = intent.IntentResponse(language=user_input.language)
+                intent_response.async_set_speech("")
+                return ConversationResult(
+                    response=intent_response,
+                    conversation_id=ha_conversation_id,
+                    continue_conversation=False,
+                )
+
             response_text = result.text
             continue_conversation = result.needs_input
 
