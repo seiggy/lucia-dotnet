@@ -128,7 +128,8 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         var result = await ProcessAsync(text, speaker: speaker);
 
         Assert.Null(result.LlmPrompt);
-        Assert.Equal("error", result.Response?.Type);
+        Assert.Equal("ignored", result.Response?.Type);
+        Assert.Equal(string.Empty, result.Response?.Text);
         Assert.False(result.Response?.NeedsInput);
         A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
         A.CallTo(() => _executor.ExecuteAsync(A<CommandRouteResult>._, A<ConversationContext>._, A<CancellationToken>._))
@@ -150,7 +151,8 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         var result = await _processor.ProcessAsync(CreateRequest(text));
 
         Assert.Null(result.LlmPrompt);
-        Assert.Equal("error", result.Response?.Type);
+        Assert.Equal("ignored", result.Response?.Type);
+        Assert.Equal(string.Empty, result.Response?.Text);
         A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
     }
 

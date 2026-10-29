@@ -17,7 +17,7 @@ class ConversationResult:
     """Result from the conversation endpoint."""
 
     text: str
-    response_type: str  # "command", "llm", "onboarding", or "error"
+    response_type: str  # "command", "llm", "onboarding", "ignored", or "error"
     conversation_id: str | None = None
     command_detail: dict | None = field(default=None)
     needs_input: bool = False
@@ -113,7 +113,7 @@ def _parse_json_response(response: httpx.Response) -> ConversationResult:
     needs_input = data.get("needsInput", False)
     command_detail = data.get("command")
 
-    if not resp_text:
+    if not resp_text and resp_type != "ignored":
         resp_text = "I processed your request but have no response text."
 
     return ConversationResult(

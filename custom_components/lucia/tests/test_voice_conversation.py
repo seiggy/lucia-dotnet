@@ -9,9 +9,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 
 class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_first_turn_keeps_ha_and_backend_ids_for_followup(self):
-        """Forward Wyoming metadata unchanged and keep the satellite listening."""
-        base = Path(__file__).resolve().parent.parent
+    def _stub_modules(self, send):
+        """Return stand-ins for the Home Assistant modules conversation.py imports."""
         modules = {
             name: ModuleType(name)
             for name in (
@@ -43,6 +42,65 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
         helpers.intent = SimpleNamespace(IntentResponse=Mock(side_effect=lambda **kw: Mock(**kw)))
         modules["lucia_voice_test.const"].DOMAIN = "lucia"
         modules["lucia_voice_test.const"].CONF_PROMPT_OVERRIDE = "prompt_override"
+        modules["lucia_voice_test.fast_conversation"].send_conversation = send
+        return modules
+
+    def test_ignored_json_response_keeps_empty_text(self):
+        """The parser must not replace an ignored turn's blank text with filler speech."""
+        base = Path(__file__).resolve().parent.parent
+        with patch.dict(sys.modules, {"httpx": ModuleType("httpx")}):
+            spec = importlib.util.spec_from_file_location("lucia_fast_test", base / "fast_conversation.py")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+        response = Mock(json=Mock(return_value={"type": "ignored", "text": "", "needsInput": False}))
+
+        result = module._parse_json_response(response)
+
+        self.assertEqual("ignored", result.response_type)
+        self.assertEqual("", result.text)
+
+    async def test_ignored_voice_ends_turn_without_speech(self):
+        """An unrecognized speaker produces blank speech so Home Assistant skips TTS."""
+        base = Path(__file__).resolve().parent.parent
+        send = AsyncMock(return_value=SimpleNamespace(
+            text="", needs_input=False, conversation_id="backend-1", response_type="ignored",
+        ))
+        with patch.dict(sys.modules, self._stub_modules(send)):
+            for name in ("conversation_tracker", "conversation"):
+                spec = importlib.util.spec_from_file_location(
+                    f"lucia_voice_test.{name}", base / f"{name}.py"
+                )
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = module
+                spec.loader.exec_module(module)
+
+            entity = module.LuciaConversationEntity(SimpleNamespace(entry_id="entry", options={}))
+            entity.hass = SimpleNamespace(
+                data={"lucia": {"entry": {"httpx_client": object(), "repository": "http://lucia"}}},
+                config=SimpleNamespace(location_name="Home"),
+                bus=Mock(),
+            )
+            chat_log = SimpleNamespace(
+                conversation_id="ha-session-1",
+                async_add_assistant_content_without_tools=Mock(),
+            )
+            user_input = SimpleNamespace(
+                conversation_id=None, device_id="satellite-1", context=None,
+                text="movie dialogue", language="en", agent_id="lucia",
+            )
+
+            result = await entity._async_handle_message(user_input, chat_log)
+
+            self.assertFalse(result.continue_conversation)
+            result.response.async_set_speech.assert_called_once_with("")
+            chat_log.async_add_assistant_content_without_tools.assert_not_called()
+            entity.hass.bus.async_fire.assert_not_called()
+            self.assertIsNone(entity._tracker.get("ha-session-1"))
+
+    async def test_first_turn_keeps_ha_and_backend_ids_for_followup(self):
+        """Forward Wyoming metadata unchanged and keep the satellite listening."""
+        base = Path(__file__).resolve().parent.parent
         onboarding_response = SimpleNamespace(
             text="May I save your voice profile?",
             needs_input=True,
@@ -50,9 +108,8 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
             response_type="onboarding",
         )
         send = AsyncMock(return_value=onboarding_response)
-        modules["lucia_voice_test.fast_conversation"].send_conversation = send
 
-        with patch.dict(sys.modules, modules):
+        with patch.dict(sys.modules, self._stub_modules(send)):
             for name in ("conversation_tracker", "conversation"):
                 spec = importlib.util.spec_from_file_location(
                     f"lucia_voice_test.{name}", base / f"{name}.py"

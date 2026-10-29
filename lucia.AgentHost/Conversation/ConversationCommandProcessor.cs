@@ -197,10 +197,11 @@ public sealed partial class ConversationCommandProcessor
                 cleanRequest with { Text = "[Rejected voice command]" },
                 CommandRouteResult.NoMatch(TimeSpan.Zero),
                 null, Reason, sw, CommandTraceOutcome.Error, error: Reason).ConfigureAwait(false);
+            // Accidental wake-word activations (TV, calls) end silently; Home Assistant skips TTS for empty speech.
             return ProcessingResult.CommandHandled(new ConversationResponse
             {
-                Type = "error",
-                Text = Reason,
+                Type = "ignored",
+                Text = string.Empty,
                 ConversationId = conversationId,
                 NeedsInput = false,
             });
