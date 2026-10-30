@@ -3,6 +3,14 @@
 > Historical context: Entries below are kept as originally written. Any "coming soon" or "next steps" language in older notes reflects that point in time, not necessarily current capability. For current behavior and setup, use `custom_components/lucia/README.md`.
 
 
+## 1.6.3
+
+The component version now matches the Lucia release tag.
+
+### Fixes
+- Voice turns that Lucia ignores because no enrolled speaker was recognized now end silently. The integration returns blank speech, so the Assist pipeline skips text-to-speech instead of speaking a rejection or "I processed your request but have no response text."
+
+
 ## 1.2.0-preview.1
 
 ### Breaking Changes
