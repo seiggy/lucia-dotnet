@@ -35,7 +35,10 @@ case "$*" in
   '-t rootfs get-current-slot') cat "$TEST_ROOT/slot" ;;
   'get-current-slot') cat "$TEST_ROOT/bootloader-slot" ;;
   'verify') exit 0 ;;
-  '-t rootfs set-active-boot-slot '*) exit 0 ;;
+  '-t rootfs set-active-boot-slot '*)
+    test -e "$TEST_ROOT/ignore-slot-switch" || echo "$4" > "$TEST_ROOT/active-slot" ;;
+  '-t rootfs dump-slots-info')
+    case "$(cat "$TEST_ROOT/active-slot")" in 0) echo 'Active rootfs slot: A' ;; 1) echo 'Active rootfs slot: B' ;; esac ;;
   *) exit 64 ;;
 esac
 """,
@@ -75,6 +78,7 @@ esac
         )
         (self.root / "ab").write_text("1")
         (self.root / "slot").write_text("0")
+        (self.root / "active-slot").write_text("0")
         self.set_mounted_slot(0)
         self.reset_state()
 
@@ -158,6 +162,14 @@ esac
         self.assertEqual(self.operation()["Status"], "failed")
         self.assertEqual(self.log.read_text().count("systemctl --no-block reboot"), 2)
         self.assertIn("status=failed", (self.state / "os.env").read_text())
+
+    def test_unrecorded_slot_switch_stops_without_rebooting(self):
+        (self.root / "ignore-slot-switch").touch()
+        self.run_validator()
+        self.assertEqual(self.operation()["Status"], "failed")
+        self.assertIn("did not record the OS slot switch", self.operation()["Message"])
+        self.assertIn("set-active-boot-slot 1", self.log.read_text())
+        self.assertNotIn("reboot", self.log.read_text())
 
     def test_success_uses_the_shipped_nvidia_verify_command(self):
         self.reset_state("pending")
