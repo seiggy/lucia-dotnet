@@ -98,7 +98,9 @@ request_recovery_reboot() {
     mv -f "${state}.tmp" "$state"
     sync -f "$(dirname "$state")"
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$slot" \
-        || stop_recovery "NVIDIA rejected the OS slot switch. No reboot was requested."
+        && "$nvbootctrl_path" -t rootfs dump-slots-info \
+            | grep -qx "Active rootfs slot: $([[ "$slot" == 0 ]] && printf A || printf B)" \
+        || stop_recovery "NVIDIA did not record the OS slot switch. No reboot was requested; check that the update service can write UEFI variables."
     "$systemctl_path" --no-block reboot \
         || stop_recovery "The OS recovery reboot was rejected. Keep the device powered on and inspect the update status."
 }

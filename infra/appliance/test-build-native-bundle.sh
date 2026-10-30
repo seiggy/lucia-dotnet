@@ -158,6 +158,8 @@ test_bundle_contains_native_service_contract() {
         && [[ -x "$os_validator" && -f "$os_validation_unit" ]] \
         && [[ -x "$manager_health" ]] \
         && grep -q '^TimeoutStartSec=1100s$' "$os_validation_unit" \
+        && grep -q '^ReadWritePaths=/var/lib/lucia/updates /sys/firmware/efi/efivars$' "$os_validation_unit" \
+        && grep -q '^CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_SYS_ADMIN CAP_SYS_BOOT CAP_LINUX_IMMUTABLE$' "$os_validation_unit" \
         && grep -q '^RemainAfterExit=yes$' "$update_recovery_unit" \
         && grep -q '^TimeoutStartSec=1800s$' "$update_recovery_unit" \
         && grep -q '^RequiresMountsFor=/opt/lucia /var/lib/lucia$' \
@@ -178,8 +180,8 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^Environment=LUCIA_APPLIANCE_SOCKET=/run/lucia-appliance/appliance-manager.sock$' "$manager_unit" \
         && grep -q '^User=root$' "$manager_unit" \
         && grep -q '^Group=lucia$' "$manager_unit" \
-        && grep -q '^ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia$' "$manager_unit" \
-        && grep -q '^CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_ADMIN CAP_SYS_BOOT$' "$manager_unit" \
+        && grep -q '^ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia /sys/firmware/efi/efivars$' "$manager_unit" \
+        && grep -q '^CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_ADMIN CAP_SYS_BOOT CAP_LINUX_IMMUTABLE$' "$manager_unit" \
         && ! grep -q '^PrivateDevices=true$' "$manager_unit" \
         && grep -q '^IPAddressDeny=any$' "$manager_unit" \
         && grep -q '^IPAddressAllow=localhost$' "$manager_unit" \
