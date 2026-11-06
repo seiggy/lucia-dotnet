@@ -220,18 +220,23 @@ rejects the configuration.
 - `lucia_slot` is the committed slot (`a` = `APP`, `b` = `APP_b`).
 - `lucia_trial` is a one-shot slot. GRUB clears it with `save_env` before
   booting it, so a trial that panics, hangs or is power-cycled returns to the
-  committed slot on the next boot.
+  committed slot on the next boot. If the clear cannot be saved, GRUB boots the
+  committed slot instead of the trial.
 - `lucia_a` and `lucia_b` record the GPT partition numbers. GRUB reads kernel,
   initrd and root `PARTUUID` from the chosen slot itself.
 
-The first OS update installs the running OS's `grubaa64.efi` on the ESP, writes
-`lucia.env` with the running slot committed and sets `L4TDefaultBootMode` to
-GRUB. It then sets `lucia_trial` to the new slot and reboots. GRUB on the ESP
-always comes from an OS that has already booted. The validator commits the
-trial slot only after health checks pass. If they fail, it clears the trial and
+Every OS update installs the running OS's `grubaa64.efi` on the ESP, commits
+the running slot in `lucia.env` and sets `L4TDefaultBootMode` to GRUB. It then
+sets `lucia_trial` to the new slot and reboots. GRUB on the ESP always comes
+from an OS that has already booted. The updater refuses a target image that
+lacks `lucia-boot-slot`, `grubaa64.efi` or the validation unit, because that OS
+could never commit its trial. The validator commits the trial slot only after
+health checks pass; if the commit cannot be saved, the operation stays pending
+and systemd retries the validator. If the checks fail, it clears the trial and
 reboots into the committed slot. If the device comes back on the committed slot
-instead of the trial, the new OS never finished starting, and the operation is
-reported as failed without another reboot.
+instead of the trial, the new OS never finished starting: the validator clears
+any trial still on disk and reports the operation as failed without another
+reboot. Rollback is available only after an OS update has been validated.
 
 `lucia-rootfs-ab-check --layout` keeps its name and output for the manager and
 installer. It requires the GRUB or extlinux boot mode, a mounted root that is

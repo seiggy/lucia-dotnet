@@ -112,7 +112,9 @@ if ! current_slot="$(bash "$helpers/lucia-rootfs-ab-check" --layout)"; then
 fi
 
 if [[ "$current_slot" != "$trial_slot" ]]; then
-    # GRUB consumed the trial and booted the committed slot, so the new OS never finished starting.
+    # The trial never finished starting (GRUB returned to the committed slot, or the launcher
+    # fell back to extlinux). Clear any trial still on disk so a later boot cannot select it.
+    bash "$helpers/lucia-boot-slot" cancel || exit 1
     if [[ "$action" == apply ]]; then
         finish rolled-back failed "The new OS did not finish starting; the previous OS is still running."
     else
@@ -147,9 +149,8 @@ if [[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
 fi
 
 if [[ "$healthy" == true ]]; then
-    bash "$helpers/lucia-boot-slot" commit "$trial_slot" \
-        || { finish "$([[ "$action" == apply ]] && printf failed || printf validated)" failed \
-            "The OS passed validation but its boot slot could not be committed."; exit 0; }
+    # Keep the operation pending until the commit is saved; systemd retries the validator.
+    bash "$helpers/lucia-boot-slot" commit "$trial_slot" || exit 1
     "$curl_path" --fail --silent \
         --max-time 30 \
         --header "X-Lucia-Update-Credential: $validation_credential" \
@@ -163,10 +164,14 @@ if [[ "$healthy" == true ]]; then
     exit 0
 fi
 
-bash "$helpers/lucia-boot-slot" cancel || true
+bash "$helpers/lucia-boot-slot" cancel || exit 1
 if [[ "$action" == apply ]]; then
     finish rolled-back failed "OS update failed boot validation; restarting into the previous OS."
 else
     finish validated failed "OS rollback failed boot validation; restarting into the current OS."
 fi
-"$systemctl_path" --no-block reboot
+if ! "$systemctl_path" --no-block reboot; then
+    # Stay non-terminal so the restarted validator requests the recovery reboot again.
+    set_status "$status"
+    exit 1
+fi

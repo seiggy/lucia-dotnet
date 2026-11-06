@@ -43,9 +43,11 @@ case "${1:-}:$#" in
         mv -f "$boot_dir/grubaa64.efi.tmp" "$boot_dir/grubaa64.efi"
         if [[ ! -f "$env_file" ]]; then
             "$editenv" "$env_file" create
-            "$editenv" "$env_file" set "lucia_slot=$committed" lucia_trial=
         fi
-        "$editenv" "$env_file" set "lucia_a=$(gpt_number APP)" "lucia_b=$(gpt_number APP_b)"
+        # The running OS booted and is about to write the other slot, so it is the fallback,
+        # even if an earlier commit pointed elsewhere (e.g. after an extlinux fallback).
+        "$editenv" "$env_file" set "lucia_slot=$committed" lucia_trial= \
+            "lucia_a=$(gpt_number APP)" "lucia_b=$(gpt_number APP_b)"
         sync -f "$env_file"
         # NVIDIA's L4TLauncher starts EFI/BOOT/grubaa64.efi in GRUB mode (0) and falls back to
         # extlinux if GRUB cannot load. The variable is unlocked and survives reboots.

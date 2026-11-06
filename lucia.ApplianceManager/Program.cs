@@ -121,7 +121,17 @@ if (args is ["--validate"])
 var exporterRestorer = app.Services.GetRequiredService<ApplianceUpdateCoordinator>();
 app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
 {
-    await ReconcileTelemetryUnitsAsync(app.Logger).ConfigureAwait(false);
+    // Same lock as /v1 mutations, so a concurrent telemetry disable cannot be undone.
+    await operationLock.WaitAsync().ConfigureAwait(false);
+    try
+    {
+        await ReconcileTelemetryUnitsAsync(app.Logger).ConfigureAwait(false);
+    }
+    finally
+    {
+        operationLock.Release();
+    }
+
     exporterRestorer.RestoreEnabledRedisExporter();
 }));
 await app.RunAsync().ConfigureAwait(false);

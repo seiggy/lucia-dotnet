@@ -22,7 +22,7 @@ class OsBootValidationTests(unittest.TestCase):
         self.state.mkdir()
         self.log = self.root / "commands"
         self.log.touch()
-        self.tool("systemctl", "exit 0")
+        self.tool("systemctl", 'case "$*" in *reboot*) test ! -e "$TEST_ROOT/reboot-fails" ;; esac')
         self.tool("curl", 'test ! -e "$TEST_ROOT/unhealthy"')
         self.tool("nm-online", "exit 0")
         self.tool(
@@ -38,6 +38,7 @@ class OsBootValidationTests(unittest.TestCase):
             "grub-editenv",
             """
 file="$1"; command="$2"; shift 2
+test ! -e "$TEST_ROOT/editenv-fails" || exit 1
 case "$command" in
   create) : > "$file" ;;
   set) for pair in "$@"; do grep -v "^${pair%%=*}=" "$file" > "$file.new" || true; echo "$pair" >> "$file.new"; mv "$file.new" "$file"; done ;;
@@ -153,8 +154,10 @@ esac
         )
         self.assertEqual((self.efivars / MODE).read_bytes()[4], 0)
         self.run_tool(BOOT_SLOT, "commit", "1")
+        self.run_tool(BOOT_SLOT, "trial", "1")
         self.run_tool(BOOT_SLOT, "install", str(self.grub), "0")
-        self.assertEqual(self.grub_env()["lucia_slot"], "b")
+        self.assertEqual(self.grub_env()["lucia_slot"], "a")
+        self.assertEqual(self.grub_env()["lucia_trial"], "")
 
     def test_layout_reports_the_mounted_slot(self):
         self.assertEqual(self.run_tool(CHECK, "--layout").stdout.strip(), "0")
@@ -233,11 +236,44 @@ esac
 
     def test_trial_that_never_started_reports_failure_without_rebooting(self):
         self.write_state("pending")
+        # The launcher fell back to extlinux, so GRUB never consumed the trial.
+        self.run_tool(BOOT_SLOT, "trial", "1")
         self.set_mounted_slot(0)
         self.run_tool(VALIDATOR)
         self.assertEqual(self.status(), "rolled-back")
         self.assertIn("did not finish starting", self.operation()["Message"])
+        self.assertEqual(self.grub_env()["lucia_trial"], "")
         self.assertEqual(self.reboots(), 0)
+
+    def test_failed_commit_keeps_the_trial_pending_for_a_retry(self):
+        self.write_state("pending")
+        self.run_tool(BOOT_SLOT, "trial", "1")
+        self.set_mounted_slot(1)
+        (self.root / "editenv-fails").touch()
+        result = self.run_tool(VALIDATOR, expect_success=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.status(), "pending")
+        self.assertTrue((self.state / "validation.key").exists())
+        self.assertEqual(self.reboots(), 0)
+        (self.root / "editenv-fails").unlink()
+        self.run_tool(VALIDATOR)
+        self.assertEqual(self.status(), "validated")
+        self.assertEqual(self.grub_env()["lucia_slot"], "b")
+
+    def test_failed_recovery_reboot_is_requested_again(self):
+        self.write_state("pending")
+        (self.root / "unhealthy").touch()
+        self.run_tool(BOOT_SLOT, "trial", "1")
+        self.set_mounted_slot(1)
+        (self.root / "reboot-fails").touch()
+        result = self.run_tool(VALIDATOR, expect_success=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.status(), "pending")
+        self.assertEqual(self.grub_env()["lucia_trial"], "")
+        (self.root / "reboot-fails").unlink()
+        self.run_tool(VALIDATOR)
+        self.assertEqual(self.status(), "rolled-back")
+        self.assertEqual(self.reboots(), 2)
 
     def test_requested_rollback_commits_the_previous_slot_only_when_healthy(self):
         self.run_tool(BOOT_SLOT, "commit", "1")

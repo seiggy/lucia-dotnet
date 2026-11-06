@@ -1261,6 +1261,13 @@ apply_os() {
     mount -o rw,nosuid,nodev,noexec \
         "$partlabel_dir/$app_label" "$slot_mount"
     slot_root_mounted=true
+    # Its validator must be able to commit the GRUB trial, or the device returns on the next reboot.
+    if [[ ! -f "$slot_mount/usr/libexec/lucia/lucia-boot-slot" \
+        || ! -s "$slot_mount/usr/share/lucia/boot/grubaa64.efi" \
+        || ! -f "$slot_mount/usr/lib/systemd/system/lucia-os-update-validation.service" ]]; then
+        printf 'Error: %s\n' "This OS image predates GRUB slot selection and cannot be activated." >&2
+        false
+    fi
     preserve_device_state "$slot_mount"
     python3 "$(dirname "${BASH_SOURCE[0]}")/lucia-rebind-rootfs.py" \
         "$slot_mount" "$target_uuid"
@@ -1303,7 +1310,8 @@ rollback_os() {
     local temporary="$state_dir/os.env.tmp"
     [[ -f "$state" ]] || die "no OS rollback is available"
     status="$(sed -n 's/^status=//p' "$state")"
-    [[ "$status" == "pending" || "$status" == "validated" ]] \
+    # An apply still awaiting validation is not committed yet; its own validator handles failure.
+    [[ "$status" == "validated" ]] \
         || die "OS rollback is not available in state: $status"
     previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
     [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] \

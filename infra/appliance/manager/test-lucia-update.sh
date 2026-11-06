@@ -592,6 +592,15 @@ chmod 0640 "$work/os-image-root/etc/shadow"
 printf 'factory-key\n' > "$work/os-image-root/etc/ssh/ssh_host_ed25519_key"
 chown 1000:1000 "$work/os-image-root/home/lucia-recovery"
 umount "$work/os-image-root"
+tar -I zstd -cf "$work/os-legacy.tar.zst" -C "$work/os-payload" system.img_b
+mount -o loop "$work/os-payload/system.img_b" "$work/os-image-root"
+mkdir -p "$work/os-image-root/usr/libexec/lucia" \
+    "$work/os-image-root/usr/share/lucia/boot" \
+    "$work/os-image-root/usr/lib/systemd/system"
+install -m 0755 /dev/null "$work/os-image-root/usr/libexec/lucia/lucia-boot-slot"
+printf 'grub-image\n' > "$work/os-image-root/usr/share/lucia/boot/grubaa64.efi"
+: > "$work/os-image-root/usr/lib/systemd/system/lucia-os-update-validation.service"
+umount "$work/os-image-root"
 mounted_path=""
 mkfs.ext4 -q -F "${loop_device}p1"
 mkdir "$work/current-root"
@@ -681,9 +690,24 @@ rm "$work/fail-dd"
 grep -qx 'status=failed' "$work/updates/state/os.env"
 [[ ! -e "$work/updates/state/validation.key" ]]
 [[ ! -e "$work/esp/EFI/BOOT/lucia.env" ]]
+write_manifest os v1.1.0 1.1.0 "$work/os-legacy.tar.zst"
+if output="$(run_update apply os v1.1.0 2>&1)"; then
+    echo "An OS image without GRUB slot helpers was activated" >&2
+    exit 1
+fi
+grep -q 'predates GRUB slot selection' <<< "$output"
+grep -qx 'status=failed' "$work/updates/state/os.env"
+[[ ! -e "$work/esp/EFI/BOOT/lucia.env" ]]
+echo "PASS: OS images without GRUB slot helpers are not activated"
 write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 
 run_update apply os v1.1.0
+if run_update rollback os; then
+    echo "OS rollback was accepted before the update was validated" >&2
+    exit 1
+fi
+grep -qx 'status=pending' "$work/updates/state/os.env"
+[[ "$(grub_env lucia_trial)" == b ]]
 [[ "$(stat --format '%a' "$work/updates/state/os.env")" == "600" ]]
 [[ "$(grub_env lucia_slot)" == a && "$(grub_env lucia_trial)" == b ]]
 [[ "$(grub_env lucia_a)" == gpt1 && "$(grub_env lucia_b)" == gpt2 ]]

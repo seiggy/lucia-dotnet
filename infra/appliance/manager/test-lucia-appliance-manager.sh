@@ -610,6 +610,16 @@ status="$(
         --data '{"tag":null}' \
         http://localhost/v1/updates/os/rollback
 )"
+[[ "$status" == "409" ]]
+printf 'status=validated\n' > "$work_dir/updates/state/os.env"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":null}' \
+        http://localhost/v1/updates/os/rollback
+)"
 [[ "$status" == "202" ]]
 for _ in {1..40}; do
     curl --silent --output "$work_dir/response.json" \
