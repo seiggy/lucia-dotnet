@@ -20,12 +20,13 @@ Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=1800s
 TimeoutStopSec=30s
-ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia
+ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia /boot/efi /sys/firmware/efi/efivars
 NoNewPrivileges=true
-CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_ADMIN CAP_SYS_BOOT
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_ADMIN CAP_SYS_BOOT CAP_LINUX_IMMUTABLE
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+# The OS updater reads the recovery account's authorized_keys to carry them to the new slot.
+ProtectHome=read-only
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

@@ -513,16 +513,16 @@ static async Task<string?> ReadOsUpdateBlockReasonAsync(CancellationToken cancel
         return result.ExitCode == 0 && result.StandardOutput.Trim() is "0" or "1"
             ? null
             : string.IsNullOrWhiteSpace(result.StandardError)
-                ? "RootFS A/B status is invalid. OS updates are blocked until boot configuration is repaired."
+                ? "OS slot status is invalid. OS updates are blocked until boot configuration is repaired."
                 : result.StandardError.Trim();
     }
     catch (Win32Exception exception)
     {
-        return $"RootFS A/B preflight could not start: {exception.Message}";
+        return $"OS slot preflight could not start: {exception.Message}";
     }
     catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
     {
-        return "RootFS A/B preflight timed out. OS updates are blocked; keep the device powered on.";
+        return "OS slot preflight timed out. OS updates are blocked; keep the device powered on.";
     }
 }
 

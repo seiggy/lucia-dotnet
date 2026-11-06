@@ -76,7 +76,7 @@ export default function AppliancePage() {
   const osBlockReason = updates?.osBlockReason
     ?? status?.os.updateBlockReason
     ?? (status && status.os.rootfsAbEnabled !== true
-      ? 'RootFS A/B has not been verified. Update the appliance recovery helpers before installing an OS update. Lucia updates remain available.'
+      ? 'OS slot readiness has not been verified. Update the appliance recovery helpers before installing an OS update. Lucia updates remain available.'
       : null)
   const isUpdateBusy = stagingUpdate !== null
     || submittingRollback !== null

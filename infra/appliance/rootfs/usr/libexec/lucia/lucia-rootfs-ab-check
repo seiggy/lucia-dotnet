@@ -1,51 +1,49 @@
 #!/usr/bin/env bash
+# OS update readiness. Lucia selects the APP/APP_b OS slot with GRUB (lucia-boot-slot), so
+# NVIDIA's firmware RootFS A/B setting is not required. Prints the running slot (0=APP, 1=APP_b).
 set -euo pipefail
 
-nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
 fail() {
     printf '%s\n' "$1" >&2
     exit 1
 }
-[[ -x "$nvbootctrl_path" ]] \
-    || fail "RootFS A/B cannot be checked: NVIDIA boot-control tools are unavailable."
-
-# NVIDIA uses exit status 1/2 for enabled A/B, not conventional success status 0.
-if timeout 10 "$nvbootctrl_path" -t rootfs is-rootfs-ab-enabled >/dev/null; then
-    fail "RootFS A/B is not enabled. Provision NVIDIA rootfs redundancy before installing an OS update. Lucia updates remain available."
-else
-    capability=$?
-fi
-[[ "$capability" == 1 || "$capability" == 2 ]] \
-    || fail "RootFS A/B could not be verified. Check NVIDIA boot-control configuration before retrying."
-slot="$(timeout 10 "$nvbootctrl_path" -t rootfs get-current-slot)" \
-    || fail "RootFS A/B current slot is unavailable."
-[[ "$slot" == "$((capability - 1))" ]] \
-    || fail "RootFS A/B capability and current slot disagree. Repair boot configuration before retrying."
+efivars="${LUCIA_EFIVARS_PATH:-/sys/firmware/efi/efivars}"
+mode_file="$efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
+[[ -r "$mode_file" ]] \
+    || fail "OS boot mode cannot be verified. Keep the appliance running and inspect UEFI configuration."
+mode="$(od -An -j4 -N4 -tu4 "$mode_file" | tr -d '[:space:]')"
+# 0 is GRUB (Lucia slot selection), 1 is extlinux (factory default before the first OS update).
+[[ "$mode" == 0 || "$mode" == 1 ]] \
+    || fail "OS updates require NVIDIA's GRUB or extlinux boot mode. Do not change firmware without a recovery plan."
+slot=0
 if [[ "${1:-}" == "--layout" ]]; then
-    bootloader_slot="$(timeout 10 "$nvbootctrl_path" get-current-slot)" \
-        || fail "The bootloader slot could not be verified."
-    [[ "$bootloader_slot" == "$slot" ]] \
-        || fail "Bootloader and RootFS A/B slots disagree. Repair the boot configuration before retrying."
     partitions="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
     root_mount="${LUCIA_ROOTFS_MOUNT:-/}"
-    efivars="${LUCIA_EFIVARS_PATH:-/sys/firmware/efi/efivars}"
-    mode_file="$efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
-    [[ -r "$mode_file" ]] \
-        || fail "OS boot mode cannot be verified. Keep the appliance running and inspect UEFI configuration."
-    mode="$(od -An -j4 -N4 -tu4 "$mode_file" | tr -d '[:space:]')"
-    [[ "$mode" == 1 ]] \
-        || fail "OS updates require the supported extlinux boot mode. Do not change firmware without a recovery plan."
-    current_label="$([[ "$slot" == 0 ]] && printf APP || printf APP_b)"
+    esp="${LUCIA_ESP_MOUNT:-/boot/efi}"
+    grub_image="${LUCIA_GRUB_IMAGE_PATH:-/usr/share/lucia/boot/grubaa64.efi}"
+    editenv="${LUCIA_GRUB_EDITENV_PATH:-/usr/bin/grub-editenv}"
     source="$(findmnt -n -o SOURCE --target "$root_mount")"
-    [[ -b "$source" && -b "$partitions/$current_label" \
-        && "$(stat -Lc '%t:%T' "$source")" == "$(stat -Lc '%t:%T' "$partitions/$current_label")" ]] \
-        || fail "Mounted root filesystem does not match NVIDIA's current RootFS A/B slot."
+    same_device() {
+        [[ -b "$1" && -b "$2" && "$(stat -Lc '%t:%T' "$1")" == "$(stat -Lc '%t:%T' "$2")" ]]
+    }
+    if same_device "$source" "$partitions/APP"; then
+        slot=0
+    elif same_device "$source" "$partitions/APP_b"; then
+        slot=1
+    else
+        fail "The running root filesystem is not an APP or APP_b OS slot."
+    fi
     disk="$(lsblk -dn -o PKNAME "$source")"
     [[ -n "$disk" ]] || fail "The root filesystem's disk could not be identified."
-    for label in APP APP_b A_kernel A_kernel-dtb B_kernel B_kernel-dtb; do
+    for label in APP APP_b; do
         [[ -b "$partitions/$label" && "$(lsblk -dn -o PKNAME "$partitions/$label")" == "$disk" ]] \
             || fail "OS slot partitions are missing or belong to different disks. Repair the partition layout before retrying."
     done
+    esp_source="$(findmnt -n -o SOURCE --mountpoint "$esp" || true)"
+    [[ -n "$esp_source" && "$(lsblk -dn -o PKNAME "$esp_source")" == "$disk" ]] \
+        || fail "The EFI system partition must be mounted at $esp on the OS disk."
+    [[ -s "$grub_image" && -x "$editenv" ]] \
+        || fail "This OS image predates GRUB slot selection. Install a newer OS image before OS updates."
     if ! uuid="$(blkid -s PARTUUID -o value "$source")" \
         || [[ ! "$uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
         fail "The running OS partition has no valid PARTUUID."
