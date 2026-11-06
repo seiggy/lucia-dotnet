@@ -7,6 +7,18 @@ die() {
     exit 1
 }
 
+# nvbootctrl exits 0 even when it cannot write the UEFI slot variable, so confirm the switch.
+set_active_rootfs_slot() {
+    local expected=A
+    [[ "$1" == 0 ]] || expected=B
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$1"
+    if "$nvbootctrl_path" -t rootfs dump-slots-info | grep -qx "Active rootfs slot: $expected"; then
+        return 0
+    fi
+    printf 'Error: %s\n' "NVIDIA did not record the OS slot switch. Check that the update service can write UEFI variables." >&2
+    return 1
+}
+
 [[ $# -ge 2 ]] \
     || die "usage: lucia-update <apply|rollback> <lucia|os> [tag] | <recover|finalize> lucia"
 
@@ -1301,8 +1313,8 @@ apply_os() {
     sync -f "$state_dir/os.env.tmp"
     mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
     sync -f "$state_dir"
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
     slot_changed=true
+    set_active_rootfs_slot "$target_slot"
     rm -rf "$update_root/staging/$selected_tag"
     rm -rf "$parts_list" "$input_dir"
     report_progress restarting
@@ -1437,7 +1449,7 @@ rollback_os() {
     sync -f "$temporary"
     mv -f "$temporary" "$state"
     sync -f "$state_dir"
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    set_active_rootfs_slot "$previous_slot"
     report_progress restarting
     "$systemctl_path" --no-block reboot
     trap - ERR

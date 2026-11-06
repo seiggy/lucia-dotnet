@@ -117,7 +117,11 @@ elif [[ "$*" == "-t rootfs get-current-slot" || "$*" == "get-current-slot" ]]; t
 elif [[ "$*" == "verify" ]]; then
     touch "$LUCIA_TEST_BOOT_SUCCESSFUL"
 elif [[ "$*" == "-t rootfs set-active-boot-slot "* ]]; then
-    printf '%s\n' "${*: -1}" > "$LUCIA_TEST_ACTIVE_SLOT"
+    [[ -e "${LUCIA_TEST_IGNORE_SLOT_SWITCH:-}" ]] \
+        || printf '%s\n' "${*: -1}" > "$LUCIA_TEST_ACTIVE_SLOT"
+elif [[ "$*" == "-t rootfs dump-slots-info" ]]; then
+    slot="$(cat "$LUCIA_TEST_ACTIVE_SLOT" 2>/dev/null || true)"
+    printf 'Active rootfs slot: %s\n' "$([[ "$slot" == 0 ]] && printf A || { [[ "$slot" == 1 ]] && printf B; })"
 else
     exit 2
 fi
@@ -225,6 +229,7 @@ run_update() {
     LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
     LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_TEST_FAIL_DD_FILE="$work/fail-dd" \
+    LUCIA_TEST_IGNORE_SLOT_SWITCH="$work/ignore-slot-switch" \
     LUCIA_TEST_FAIL_SERVICE_START_ONCE="$work/fail-service-start-once" \
     LUCIA_TEST_FAIL_REBOOT_ONCE="$work/fail-reboot-once" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
@@ -661,6 +666,19 @@ fi
 rm "$work/fail-dd"
 grep -qx 'status=failed' "$work/updates/state/os.env"
 [[ ! -e "$work/updates/state/validation.key" ]]
+write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
+
+touch "$work/ignore-slot-switch"
+reboots_before="$(grep -cx -- '--no-block reboot' "$work/systemctl.log" || true)"
+if output="$(run_update apply os v1.1.0 2>&1)"; then
+    echo "OS update accepted a slot switch that NVIDIA did not record" >&2
+    exit 1
+fi
+rm "$work/ignore-slot-switch"
+grep -q 'NVIDIA did not record the OS slot switch' <<< "$output"
+grep -qx 'status=failed' "$work/updates/state/os.env"
+[[ "$(grep -cx -- '--no-block reboot' "$work/systemctl.log" || true)" == "$reboots_before" ]]
+echo "PASS: an unrecorded slot switch fails the OS update without rebooting"
 write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 
 run_update apply os v1.1.0

@@ -229,6 +229,17 @@ device's partition IDs. Directory symlinks and missing boot files are rejected
 before activation. Partition-based kernel boot and GRUB are not accepted by this
 extlinux-specific updater.
 
+`nvbootctrl -t rootfs set-active-boot-slot` stores the switch in a UEFI
+variable under `/sys/firmware/efi/efivars`. The manager and OS validation units
+therefore list that path in `ReadWritePaths=` and keep `CAP_LINUX_IMMUTABLE`,
+because `ProtectKernelTunables=true` otherwise mounts it read-only. `nvbootctrl`
+exits 0 even when the write fails, so the updater and validator confirm the
+active slot with `dump-slots-info` before rebooting. Devices whose installed
+units lack these settings can receive root-owned systemd drop-ins with the same
+two lines for `lucia-appliance-manager.service` and
+`lucia-os-update-validation.service`; without them every slot switch is ignored
+and the device keeps booting its current slot.
+
 Post-boot validation repeats the full layout check before health checks or
 recovery reboots. A healthy application alone cannot prove that Linux mounted
 the requested OS slot. Boot validation uses the shipped `nvbootctrl verify`
