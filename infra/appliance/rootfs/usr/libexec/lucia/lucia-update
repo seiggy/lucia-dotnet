@@ -288,6 +288,16 @@ preserve_device_state() {
         && ! awk '$1 !~ /^#/ && $2 == "/boot/efi" { found = 1 } END { exit !found }' "$target_root/etc/fstab"; then
         printf '%s\n' "$esp_entry" >> "$target_root/etc/fstab"
     fi
+
+    # Telemetry settings live on the data partition, but systemd enablement lives in each slot's /etc.
+    local unit
+    local wants="etc/systemd/system/multi-user.target.wants"
+    for unit in lucia-otelcol.service lucia-redis-exporter.service; do
+        [[ -L "$host_etc/systemd/system/multi-user.target.wants/$unit" ]] || continue
+        [[ -d "$target_root/$wants" && ! -L "$target_root/$wants" ]] \
+            || die "inactive OS slot has no safe systemd wants directory"
+        ln -sfn "/usr/lib/systemd/system/$unit" "$target_root/$wants/$unit"
+    done
 }
 
 import_staged_file() {

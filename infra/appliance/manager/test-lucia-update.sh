@@ -576,6 +576,7 @@ mounted_path="$work/os-image-root"
 mkdir -p \
     "$work/os-image-root/etc/NetworkManager/system-connections" \
     "$work/os-image-root/etc/ssh" \
+    "$work/os-image-root/etc/systemd/system/multi-user.target.wants" \
     "$work/os-image-root/home/lucia-recovery" \
     "$work/os-image-root/boot/extlinux"
 printf 'DEFAULT primary\nLABEL primary\n LINUX /boot/Image\n APPEND root=PARTUUID=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa rw\n' \
@@ -612,7 +613,10 @@ printf '[connection]\nid=lucia-home\n\n[wifi]\nssid=HouseNet\n' \
     > "$work/host-etc/NetworkManager/system-connections/lucia-home.nmconnection"
 chmod 0600 \
     "$work/host-etc/NetworkManager/system-connections/lucia-home.nmconnection"
-mkdir -p "$work/host-etc/ssh" "$work/host-home/lucia-recovery/.ssh"
+mkdir -p "$work/host-etc/ssh" "$work/host-home/lucia-recovery/.ssh" \
+    "$work/host-etc/systemd/system/multi-user.target.wants"
+ln -s /usr/lib/systemd/system/lucia-otelcol.service \
+    "$work/host-etc/systemd/system/multi-user.target.wants/lucia-otelcol.service"
 printf 'device-key\n' > "$work/host-etc/ssh/ssh_host_ed25519_key"
 printf 'device-key.pub\n' > "$work/host-etc/ssh/ssh_host_ed25519_key.pub"
 printf 'ssh-ed25519 AAAA owner\n' > "$work/host-home/lucia-recovery/.ssh/authorized_keys"
@@ -704,6 +708,9 @@ grep -qx 'ssh-ed25519 AAAA owner' \
     "$work/updated-slot/home/lucia-recovery/.ssh/authorized_keys"
 [[ "$(stat --format '%u %a' "$work/updated-slot/home/lucia-recovery/.ssh/authorized_keys")" == "1000 600" ]]
 grep -qx 'UUID=2918-66A7 /boot/efi vfat defaults 0 1' "$work/updated-slot/etc/fstab"
+wants="$work/updated-slot/etc/systemd/system/multi-user.target.wants"
+[[ "$(readlink "$wants/lucia-otelcol.service")" == /usr/lib/systemd/system/lucia-otelcol.service ]]
+[[ ! -e "$wants/lucia-redis-exporter.service" && ! -L "$wants/lucia-redis-exporter.service" ]]
 target_uuid="$(blkid -s PARTUUID -o value "$work/by-partlabel/APP_b")"
 grep -q "root=PARTUUID=$target_uuid" "$work/updated-slot/boot/extlinux/extlinux.conf"
 grep -q "^PARTUUID=$target_uuid / " "$work/updated-slot/etc/fstab"

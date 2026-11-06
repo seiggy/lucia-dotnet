@@ -194,8 +194,9 @@ OS updates stream the selected root filesystem image directly to the inactive
 firmware RootFS A/B setting, so stock Jetson Orin Nano firmware works and no
 USB recovery flash or capsule is needed. Before switching slots, the updater
 restores the device hostname, machine ID, recovery password hash, provisioned
-Wi-Fi connection, SSH host keys, the recovery account's `authorized_keys`, and
-the `/boot/efi` mount in the new root filesystem.
+Wi-Fi connection, SSH host keys, the recovery account's `authorized_keys`,
+the `/boot/efi` mount, and whether the telemetry collector and Redis exporter
+are enabled in the new root filesystem.
 `lucia-os-update-validation.service` checks NetworkManager, Redis, AgentHost,
 and the local health endpoint after boot. Intentional rollback runs the same
 checks on the previous slot.
