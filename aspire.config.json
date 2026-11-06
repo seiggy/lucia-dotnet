@@ -2,7 +2,11 @@
   "appHost": {
     "path": "lucia.AppHost/lucia.AppHost.csproj"
   },
+  "sdk": {
+    "version": "17.0.0-preview.1.26553.5"
+  },
+  "channel": "daily",
   "features": {
-    "defaultWatchEnabled": "true"
+    "defaultWatchEnabled": true
   }
 }
