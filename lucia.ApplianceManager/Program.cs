@@ -119,8 +119,47 @@ if (args is ["--validate"])
 }
 
 var exporterRestorer = app.Services.GetRequiredService<ApplianceUpdateCoordinator>();
-app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(exporterRestorer.RestoreEnabledRedisExporter));
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    await ReconcileTelemetryUnitsAsync(app.Logger).ConfigureAwait(false);
+    exporterRestorer.RestoreEnabledRedisExporter();
+}));
 await app.RunAsync().ConfigureAwait(false);
+
+// telemetry.env on the data partition is shared by both OS slots, but systemd enablement is
+// written into each slot's /etc. Re-enable the units when a slot disagrees with the saved setting.
+static async Task ReconcileTelemetryUnitsAsync(ILogger logger)
+{
+    try
+    {
+        if (!IsTelemetryEnabled())
+        {
+            return;
+        }
+
+        foreach (var unit in new[] { "lucia-otelcol.service", "lucia-redis-exporter.service" })
+        {
+            var state = await RunSystemctlMutationAsync(["is-enabled", "--quiet", unit])
+                .ConfigureAwait(false);
+            if (state.ExitCode != 0)
+            {
+                var result = await ApplyTelemetrySystemdStateAsync(true).ConfigureAwait(false);
+                if (result.ExitCode != 0)
+                {
+                    logger.LogWarning(
+                        "Could not enable telemetry services for this OS slot: {Error}",
+                        result.StandardError.Trim());
+                }
+
+                return;
+            }
+        }
+    }
+    catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or OperationCanceledException)
+    {
+        logger.LogWarning(exception, "Could not reconcile telemetry services with telemetry.env.");
+    }
+}
 
 static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
 {
