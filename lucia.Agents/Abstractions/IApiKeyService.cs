@@ -18,6 +18,14 @@ public interface IApiKeyService
         string name,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Creates a key with only the <see cref="ApiKeyScopes.Member"/> scope. It authenticates
+    /// only when linked to an active family member.
+    /// </summary>
+    Task<ApiKeyCreateResponse> CreateMemberKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default);
+
     Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
         string name,
         CancellationToken cancellationToken = default);

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
+using lucia.Agents.Family;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
@@ -15,17 +16,20 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
 {
     private readonly IApiKeyService _apiKeyService;
     private readonly ISessionService _sessionService;
+    private readonly MemberPrincipalResolver _memberResolver;
 
     public ApiKeyAuthenticationHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
         IApiKeyService apiKeyService,
-        ISessionService sessionService)
+        ISessionService sessionService,
+        MemberPrincipalResolver memberResolver)
         : base(options, logger, encoder)
     {
         _apiKeyService = apiKeyService;
         _sessionService = sessionService;
+        _memberResolver = memberResolver;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -69,6 +73,23 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
             new Claim("auth_method", "api_key"),
             new Claim("key_prefix", entry.KeyPrefix),
         };
+        foreach (var scope in entry.Scopes)
+        {
+            claims.Add(new Claim(LuciaClaims.Scope, scope));
+        }
+
+        var member = await _memberResolver
+            .ResolveAsync(MemberIdentityKind.ApiKey, string.Empty, entry.Id, Context.RequestAborted)
+            .ConfigureAwait(false);
+        if (member is not null)
+        {
+            MemberPrincipalResolver.AddMemberClaims(claims, member);
+        }
+        else if (!ApiKeyScopes.HasFullAccess(entry.Scopes))
+        {
+            return AuthenticateResult.Fail("API key is not linked to an active family member.");
+        }
+
         if (entry.Scopes.Contains(
                 AuthOptions.AdministratorScope,
                 StringComparer.Ordinal))
@@ -95,6 +116,8 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
         }
 
         var claimList = claims.ToList();
+        // Portal login accepts only full-access keys, so a valid session carries full access.
+        claimList.Add(new Claim(LuciaClaims.Scope, ApiKeyScopes.Full));
         if (claimList.Any(claim =>
                 claim.Type == ClaimTypes.Role
                 && claim.Value == AuthOptions.AdministratorRole))

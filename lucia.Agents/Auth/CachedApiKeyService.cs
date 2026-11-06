@@ -101,6 +101,11 @@ public sealed class CachedApiKeyService : IApiKeyService
         return await _inner.CreateAdministratorKeyAsync(name, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<ApiKeyCreateResponse> CreateMemberKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default) =>
+        _inner.CreateMemberKeyAsync(name, cancellationToken);
+
     public async Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
         string name,
         CancellationToken cancellationToken = default)

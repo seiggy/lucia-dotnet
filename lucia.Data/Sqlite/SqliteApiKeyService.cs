@@ -30,16 +30,21 @@ public sealed class SqliteApiKeyService : IApiKeyService
     public Task<ApiKeyCreateResponse> CreateKeyAsync(
         string name,
         CancellationToken cancellationToken = default) =>
-        CreateKeyCoreAsync(name, isAdministrator: false, cancellationToken);
+        CreateKeyCoreAsync(name, ApiKeyScopes.Create(isAdministrator: false), cancellationToken);
 
     public Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
         string name,
         CancellationToken cancellationToken = default) =>
-        CreateKeyCoreAsync(name, isAdministrator: true, cancellationToken);
+        CreateKeyCoreAsync(name, ApiKeyScopes.Create(isAdministrator: true), cancellationToken);
+
+    public Task<ApiKeyCreateResponse> CreateMemberKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default) =>
+        CreateKeyCoreAsync(name, [ApiKeyScopes.Member], cancellationToken);
 
     private async Task<ApiKeyCreateResponse> CreateKeyCoreAsync(
         string name,
-        bool isAdministrator,
+        string[] scopes,
         CancellationToken cancellationToken)
     {
         var plaintextKey = GenerateKey();
@@ -61,7 +66,7 @@ public sealed class SqliteApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("@createdAt", createdAt.ToString("O"));
         cmd.Parameters.AddWithValue(
             "@scopes",
-            JsonSerializer.Serialize(ApiKeyScopes.Create(isAdministrator)));
+            JsonSerializer.Serialize(scopes));
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
@@ -338,14 +343,16 @@ public sealed class SqliteApiKeyService : IApiKeyService
             SELECT COUNT(*)
             FROM api_keys
             WHERE is_revoked = 0
-              AND (expires_at IS NULL OR expires_at > @now);
+              AND (expires_at IS NULL OR expires_at > @now)
+              AND EXISTS (SELECT 1 FROM json_each(api_keys.scopes) WHERE value = '*');
             """;
         activeCountCommand.Parameters.AddWithValue("@now", now.ToString("O"));
         var activeCount = (long)(await activeCountCommand
             .ExecuteScalarAsync(cancellationToken)
             .ConfigureAwait(false))!;
         var isActive = !expiresAt.HasValue || expiresAt > now;
-        if (isActive && activeCount <= 1)
+        // Member device keys cannot sign in to the portal, so only full-access keys prevent lockout.
+        if (isActive && ApiKeyScopes.HasFullAccess(scopes) && activeCount <= 1)
             throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
         if (isActive && scopes.Contains(
                 AuthOptions.AdministratorScope,

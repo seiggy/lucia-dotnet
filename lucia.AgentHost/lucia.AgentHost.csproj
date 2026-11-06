@@ -21,6 +21,7 @@
     <PackageReference Include="AgentMemory.Extraction.Llm" />
     <PackageReference Include="AgentMemory.Neo4j" />
     <PackageReference Include="Aspire.StackExchange.Redis" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
     <PackageReference Include="Microsoft.Extensions.Caching.Hybrid" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting" />

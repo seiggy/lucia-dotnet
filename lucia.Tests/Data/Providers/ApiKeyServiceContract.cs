@@ -24,6 +24,18 @@ public abstract class ApiKeyServiceContract
     }
 
     [Fact]
+    public async Task CreateMemberKeyAsync_HasOnlyTheMemberScope()
+    {
+        await using var scope = await CreateAsync();
+
+        var created = await scope.Store.CreateMemberKeyAsync("Alex's phone");
+        var entry = await scope.Store.ValidateKeyAsync(created.Key);
+
+        Assert.NotNull(entry);
+        Assert.Equal([ApiKeyScopes.Member], entry.Scopes);
+    }
+
+    [Fact]
     public async Task ValidateKeyAsync_ValidKey_ReturnsEntry()
     {
         await using var scope = await CreateAsync();
@@ -139,6 +151,29 @@ public abstract class ApiKeyServiceContract
         await Assert.ThrowsAsync<InvalidOperationException>(() => scope.Store.RevokeKeyAsync(only.Id));
 
         Assert.NotNull(await scope.Store.ValidateKeyAsync(only.Key));
+    }
+
+    [Fact]
+    public async Task RevokeKeyAsync_LastFullAccessKey_ThrowsEvenWhenMemberKeysExist()
+    {
+        await using var scope = await CreateAsync();
+        var portal = await scope.Store.CreateKeyAsync("portal");
+        await scope.Store.CreateMemberKeyAsync("phone");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.Store.RevokeKeyAsync(portal.Id));
+
+        Assert.NotNull(await scope.Store.ValidateKeyAsync(portal.Key));
+    }
+
+    [Fact]
+    public async Task RevokeKeyAsync_MemberKey_IsNotProtectedByTheLockoutGuard()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.CreateKeyAsync("portal");
+        var phone = await scope.Store.CreateMemberKeyAsync("phone");
+
+        Assert.True(await scope.Store.RevokeKeyAsync(phone.Id));
+        Assert.Null(await scope.Store.ValidateKeyAsync(phone.Key));
     }
 
     [Fact]

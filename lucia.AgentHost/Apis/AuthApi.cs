@@ -41,6 +41,14 @@ public static class AuthApi
             return Results.Unauthorized();
         }
 
+        // The portal is for administration; member device keys sign in to the member apps only.
+        if (!ApiKeyScopes.HasFullAccess(entry.Scopes))
+        {
+            return Results.Json(
+                new { error = "This key belongs to a family member's device and cannot sign in to the portal." },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
         var options = authOptions.Value;
         var cookieValue = sessionService.CreateSession(
             entry.Id,

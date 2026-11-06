@@ -102,6 +102,10 @@
 - **Method:** Long-lived access tokens
 - **Storage:** Secure configuration management
 
+### Lucia API authentication
+- **Portal and integrations:** Hashed `lk_` API keys (`X-API-Key`) and HMAC-signed session cookies. Portal sign-in accepts only full-access (`*`) keys.
+- **Family members:** Member-only (`member` scope) device keys issued through one-time QR pairing codes, plus optional OIDC bearer tokens via Microsoft.AspNetCore.Authentication.JwtBearer 10.0.12. Both resolve to a `FamilyMember` through an administrator-managed identity link, and reach only endpoints that use the `Member` policy.
+
 ## Development Tools
 
 ### Home Assistant Client Implementation

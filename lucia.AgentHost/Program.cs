@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Threading.RateLimiting;
+using lucia.AgentHost.Family;
 using lucia.AgentHost.Startup;
 
 using lucia.AgentHost;
@@ -37,6 +39,7 @@ using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.FeatureManagement;
@@ -280,7 +283,12 @@ builder.Services.AddSingleton<IAsyncInitializable>(sp => sp.GetRequiredService<H
 builder.Services.Configure<InternalTokenOptions>(
     builder.Configuration.GetSection(InternalTokenOptions.SectionName));
 
-builder.Services.AddAuthentication(options =>
+builder.Services.AddSingleton<MemberPrincipalResolver>();
+builder.Services.AddSingleton<DevicePairingService>();
+var oidcOptions = builder.Configuration.GetSection(OidcAuthOptions.SectionName).Get<OidcAuthOptions>()
+    ?? new OidcAuthOptions();
+
+var authenticationBuilder = builder.Services.AddAuthentication(options =>
     {
         options.DefaultScheme = "MultiScheme";
         options.DefaultChallengeScheme = "MultiScheme";
@@ -289,40 +297,42 @@ builder.Services.AddAuthentication(options =>
         AuthOptions.AuthenticationScheme, _ => { })
     .AddScheme<AuthenticationSchemeOptions, InternalTokenAuthenticationHandler>(
         InternalTokenDefaults.AuthenticationScheme, _ => { })
-    .AddPolicyScheme("MultiScheme", "API Key or Internal Token", options =>
+    .AddPolicyScheme("MultiScheme", "API Key, Internal Token or OIDC", options =>
     {
-        // Route to the correct handler based on the request
         options.ForwardDefaultSelector = context =>
+            LuciaAuthorization.SelectScheme(context, oidcOptions.IsConfigured);
+    });
+if (oidcOptions.IsConfigured)
+{
+    authenticationBuilder.AddJwtBearer(LuciaAuthorization.OidcScheme, options =>
+    {
+        options.Authority = oidcOptions.Authority;
+        options.Audience = oidcOptions.Audience;
+        options.RequireHttpsMetadata = oidcOptions.RequireHttpsMetadata;
+        options.MapInboundClaims = false;
+        options.Events = new JwtBearerEvents
         {
-            // Bearer token → internal token handler
-            var authHeader = context.Request.Headers.Authorization.ToString();
-            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            OnTokenValidated = async context =>
             {
-                return InternalTokenDefaults.AuthenticationScheme;
-            }
-
-            // Everything else → API key handler (which also checks session cookies)
-            return AuthOptions.AuthenticationScheme;
+                var resolver = context.HttpContext.RequestServices.GetRequiredService<MemberPrincipalResolver>();
+                if (!await OidcMemberMapper.MapAsync(context.Principal!, resolver, context.HttpContext.RequestAborted)
+                        .ConfigureAwait(false))
+                {
+                    context.Fail("OIDC identity is not linked to an active family member.");
+                }
+            },
         };
     });
+}
 
-builder.Services.AddAuthorization(options =>
+builder.Services.AddAuthorization(LuciaAuthorization.ConfigurePolicies);
+builder.Services.AddRateLimiter(options =>
 {
-    options.AddPolicy(
-        AuthOptions.AdministratorPolicy,
-        policy => policy.RequireRole(AuthOptions.AdministratorRole));
-
-    // Internal-only: only platform-injected token (agent → registry)
-    options.AddPolicy("InternalOnly", policy =>
-        policy.AddAuthenticationSchemes(InternalTokenDefaults.AuthenticationScheme)
-              .RequireAuthenticatedUser());
-
-    // External or internal: either API key/session OR internal token
-    options.AddPolicy("ExternalOrInternal", policy =>
-        policy.AddAuthenticationSchemes(
-                AuthOptions.AuthenticationScheme,
-                InternalTokenDefaults.AuthenticationScheme)
-              .RequireAuthenticatedUser());
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(PairingApi.RedeemRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
 });
 
 builder.Services.AddHttpClient("AgentProxy");
@@ -435,6 +445,7 @@ app.UseMiddleware<OnboardingMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -449,6 +460,8 @@ else
     app.UseDeveloperExceptionPage();
 }
 app.MapAuthApi();
+app.MapPairingApi(isInstalledAppliance);
+app.MapMeApi();
 app.MapSetupApi();
 app.MapApiKeyManagementApi(isInstalledAppliance);
 app.MapAgentRegistryApiV1();
