@@ -160,6 +160,12 @@ grep -q '"$OS_TARGET_REDIS_VERSION"' \
     "$script_dir/build-release-assets.sh"
 grep -q 'lucia-os-update-validation.service' \
     "$script_dir/build-release-assets.sh"
+[[ "$GRUB_EFI_ARM64_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$GRUB_EFI_ARM64_URL" == https://ports.ubuntu.com/ubuntu-ports/pool/main/g/grub2-unsigned/*_arm64.deb ]]
+grep -q 'build_grub_image "$root"' "$script_dir/build-release-assets.sh"
+grep -q 'grub-script-check grub.cfg' "$script_dir/build-release-assets.sh"
+grep -Fq '"$root/usr/share/lucia/boot/grubaa64.efi"' "$script_dir/build-release-assets.sh"
+grep -q 'if save_env -f "$cmdpath/lucia.env" lucia_trial; then' "$script_dir/../boot/grub.cfg"
 grep -q 'chown -R root:root' "$script_dir/build-release-assets.sh"
 grep -q 'verify_rootfs_helper' "$script_dir/build-release-assets.sh"
 grep -Fq "stat -c '%u:%g %a' \"\$helper\"" "$script_dir/build-release-assets.sh"

@@ -119,8 +119,57 @@ if (args is ["--validate"])
 }
 
 var exporterRestorer = app.Services.GetRequiredService<ApplianceUpdateCoordinator>();
-app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(exporterRestorer.RestoreEnabledRedisExporter));
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    // Same lock as /v1 mutations, so a concurrent telemetry disable cannot be undone.
+    await operationLock.WaitAsync().ConfigureAwait(false);
+    try
+    {
+        await ReconcileTelemetryUnitsAsync(app.Logger).ConfigureAwait(false);
+    }
+    finally
+    {
+        operationLock.Release();
+    }
+
+    exporterRestorer.RestoreEnabledRedisExporter();
+}));
 await app.RunAsync().ConfigureAwait(false);
+
+// telemetry.env on the data partition is shared by both OS slots, but systemd enablement is
+// written into each slot's /etc. Re-enable the units when a slot disagrees with the saved setting.
+static async Task ReconcileTelemetryUnitsAsync(ILogger logger)
+{
+    try
+    {
+        if (!IsTelemetryEnabled())
+        {
+            return;
+        }
+
+        foreach (var unit in new[] { "lucia-otelcol.service", "lucia-redis-exporter.service" })
+        {
+            var state = await RunSystemctlMutationAsync(["is-enabled", "--quiet", unit])
+                .ConfigureAwait(false);
+            if (state.ExitCode != 0)
+            {
+                var result = await ApplyTelemetrySystemdStateAsync(true).ConfigureAwait(false);
+                if (result.ExitCode != 0)
+                {
+                    logger.LogWarning(
+                        "Could not enable telemetry services for this OS slot: {Error}",
+                        result.StandardError.Trim());
+                }
+
+                return;
+            }
+        }
+    }
+    catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or OperationCanceledException)
+    {
+        logger.LogWarning(exception, "Could not reconcile telemetry services with telemetry.env.");
+    }
+}
 
 static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
 {
@@ -513,16 +562,16 @@ static async Task<string?> ReadOsUpdateBlockReasonAsync(CancellationToken cancel
         return result.ExitCode == 0 && result.StandardOutput.Trim() is "0" or "1"
             ? null
             : string.IsNullOrWhiteSpace(result.StandardError)
-                ? "RootFS A/B status is invalid. OS updates are blocked until boot configuration is repaired."
+                ? "OS slot status is invalid. OS updates are blocked until boot configuration is repaired."
                 : result.StandardError.Trim();
     }
     catch (Win32Exception exception)
     {
-        return $"RootFS A/B preflight could not start: {exception.Message}";
+        return $"OS slot preflight could not start: {exception.Message}";
     }
     catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
     {
-        return "RootFS A/B preflight timed out. OS updates are blocked; keep the device powered on.";
+        return "OS slot preflight timed out. OS updates are blocked; keep the device powered on.";
     }
 }
 

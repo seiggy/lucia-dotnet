@@ -361,7 +361,7 @@ public sealed partial class ApplianceUpdateService(
         os.RootfsAbEnabled == true
             ? null
             : os.UpdateBlockReason
-                ?? "RootFS A/B has not been verified. Update the appliance manager and verify boot configuration before installing an OS update.";
+                ?? "OS slot readiness has not been verified. Update the appliance manager and verify boot configuration before installing an OS update.";
 
     internal static async Task<JsonDocument> ReadManifestAsync(
         HttpContent content,

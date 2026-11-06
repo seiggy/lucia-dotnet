@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Owns GRUB slot selection on the ESP. grub.cfg boots lucia_slot, or lucia_trial once.
+#   lucia-boot-slot install GRUB_EFI COMMITTED_SLOT  (slot: 0=APP, 1=APP_b)
+#   lucia-boot-slot trial SLOT | commit SLOT | cancel
+set -euo pipefail
+umask 0022
+
+esp="${LUCIA_ESP_MOUNT:-/boot/efi}"
+efivars="${LUCIA_EFIVARS_PATH:-/sys/firmware/efi/efivars}"
+partitions="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
+editenv="${LUCIA_GRUB_EDITENV_PATH:-/usr/bin/grub-editenv}"
+boot_dir="$esp/EFI/BOOT"
+env_file="$boot_dir/lucia.env"
+mode_file="$efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
+
+die() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+letter() {
+    case "$1" in
+        0) printf a ;;
+        1) printf b ;;
+        *) die "invalid OS slot: $1" ;;
+    esac
+}
+
+gpt_number() {
+    local device
+    device="$(readlink -f "$partitions/$1")"
+    [[ -b "$device" ]] || die "partition is missing: $1"
+    printf 'gpt%s' "$(cat "${LUCIA_SYS_CLASS_BLOCK:-/sys/class/block}/$(basename "$device")/partition")"
+}
+
+[[ -d "$boot_dir" && ! -L "$boot_dir" ]] || die "EFI system partition is not mounted at $esp."
+case "${1:-}:$#" in
+    install:3)
+        [[ -s "$2" ]] || die "GRUB image is missing: $2"
+        committed="$(letter "$3")"
+        install -m 0644 "$2" "$boot_dir/grubaa64.efi.tmp"
+        sync -f "$boot_dir/grubaa64.efi.tmp"
+        mv -f "$boot_dir/grubaa64.efi.tmp" "$boot_dir/grubaa64.efi"
+        if [[ ! -f "$env_file" ]]; then
+            "$editenv" "$env_file" create
+        fi
+        # The running OS booted and is about to write the other slot, so it is the fallback,
+        # even if an earlier commit pointed elsewhere (e.g. after an extlinux fallback).
+        "$editenv" "$env_file" set "lucia_slot=$committed" lucia_trial= \
+            "lucia_a=$(gpt_number APP)" "lucia_b=$(gpt_number APP_b)"
+        sync -f "$env_file"
+        # NVIDIA's L4TLauncher starts EFI/BOOT/grubaa64.efi in GRUB mode (0) and falls back to
+        # extlinux if GRUB cannot load. The variable is unlocked and survives reboots.
+        if [[ "$(od -An -j4 -N4 -tu4 "$mode_file" | tr -d '[:space:]')" != 0 ]]; then
+            chattr -i "$mode_file" 2>/dev/null || true
+            printf '\x07\x00\x00\x00\x00\x00\x00\x00' > "$mode_file"
+        fi
+        ;;
+    trial:2)
+        "$editenv" "$env_file" set "lucia_trial=$(letter "$2")"
+        sync -f "$env_file"
+        ;;
+    commit:2)
+        "$editenv" "$env_file" set "lucia_slot=$(letter "$2")" lucia_trial=
+        sync -f "$env_file"
+        ;;
+    cancel:1)
+        "$editenv" "$env_file" set lucia_trial=
+        sync -f "$env_file"
+        ;;
+    *)
+        die "usage: lucia-boot-slot install GRUB_EFI SLOT | trial SLOT | commit SLOT | cancel"
+        ;;
+esac
