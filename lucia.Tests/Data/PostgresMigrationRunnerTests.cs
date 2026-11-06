@@ -16,7 +16,7 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
 
         await CreateRunner(databases).StartAsync(CancellationToken.None);
 
-        Assert.Equal(3, await VersionAsync(databases.Config));
+        Assert.Equal(4, await VersionAsync(databases.Config));
         Assert.Equal(2, await VersionAsync(databases.Traces));
         Assert.Equal(2, await VersionAsync(databases.Tasks));
         Assert.True(await IndexIsValidAsync(databases.Traces, "idx_command_traces_clean_text_trgm"));
@@ -59,7 +59,7 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
 
         await CreateRunner(databases).StartAsync(CancellationToken.None);
 
-        Assert.Equal(3, await VersionAsync(databases.Config));
+        Assert.Equal(4, await VersionAsync(databases.Config));
         Assert.Equal(
             """["*"]""",
             await ScalarAsync<string>(

@@ -140,6 +140,10 @@ public static class ServiceCollectionExtensions
         AddSpeakerProfileStore<SqliteSpeakerProfileStore>(builder.Services);
         builder.Services.AddSingleton<ITranscriptStore, SqliteTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, SqliteModelPreferenceStore>();
+        builder.Services.AddSingleton<IFamilyMemberStore, SqliteFamilyMemberStore>();
+        builder.Services.AddSingleton<IDevicePairingStore, SqliteDevicePairingStore>();
+        builder.Services.AddSingleton<ILlmUsageStore, SqliteLlmUsageStore>();
+        builder.Services.AddSingleton<IActionRecordStore, SqliteActionRecordStore>();
         builder.Services.AddSingleton<IMemoryStore, SqliteMemoryStore>();
 
         // luciatraces repositories
@@ -207,6 +211,10 @@ public static class ServiceCollectionExtensions
         AddSpeakerProfileStore<PostgresSpeakerProfileStore>(builder.Services);
         builder.Services.AddSingleton<ITranscriptStore, PostgresTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, PostgresModelPreferenceStore>();
+        builder.Services.AddSingleton<IFamilyMemberStore, PostgresFamilyMemberStore>();
+        builder.Services.AddSingleton<IDevicePairingStore, PostgresDevicePairingStore>();
+        builder.Services.AddSingleton<ILlmUsageStore, PostgresLlmUsageStore>();
+        builder.Services.AddSingleton<IActionRecordStore, PostgresActionRecordStore>();
         builder.Services.AddSingleton<IMemoryStore, PostgresMemoryStore>();
 
         // luciatraces repositories

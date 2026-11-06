@@ -13,7 +13,7 @@ public sealed partial class PostgresMigrationRunner : IHostedService
 {
     internal const long AdvisoryLockKey = 0x4C554349414D4947;
 
-    private const int ConfigSchemaVersion = 3;
+    private const int ConfigSchemaVersion = 4;
     private const int TracesSchemaVersion = 2;
     private const int TasksSchemaVersion = 2;
     private const string TraceSearchIndex = "idx_command_traces_clean_text_trgm";
@@ -90,7 +90,7 @@ public sealed partial class PostgresMigrationRunner : IHostedService
                 config,
                 "config",
                 ConfigSchemaVersion,
-                [ApplyConfigV1Async, ApplyConfigV2Async, ApplyConfigV3Async],
+                [ApplyConfigV1Async, ApplyConfigV2Async, ApplyConfigV3Async, ApplyConfigV4Async],
                 cancellationToken).ConfigureAwait(false);
             await MigrateDatabaseAsync(
                 traces,
@@ -691,6 +691,63 @@ public sealed partial class PostgresMigrationRunner : IHostedService
         CancellationToken cancellationToken)
         // Privileges cannot be inferred safely from legacy user-assigned labels.
         => Task.CompletedTask;
+
+    private static async Task ApplyConfigV4Async(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS public.family_members (
+                id TEXT PRIMARY KEY,
+                data JSONB NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS public.member_identities (
+                kind TEXT NOT NULL,
+                issuer TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                member_id TEXT NOT NULL,
+                data JSONB NOT NULL,
+                PRIMARY KEY (kind, issuer, subject)
+            );
+            CREATE INDEX IF NOT EXISTS idx_member_identities_member_id ON public.member_identities(member_id);
+
+            CREATE TABLE IF NOT EXISTS public.device_pairings (
+                id TEXT PRIMARY KEY,
+                member_id TEXT NOT NULL,
+                code_hash TEXT NOT NULL UNIQUE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                redeemed_at TIMESTAMPTZ,
+                data JSONB NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_device_pairings_member_id ON public.device_pairings(member_id);
+
+            CREATE TABLE IF NOT EXISTS public.llm_usage (
+                id TEXT PRIMARY KEY,
+                member_id TEXT NOT NULL,
+                timestamp TIMESTAMPTZ NOT NULL,
+                cost NUMERIC(18,8) NOT NULL,
+                input_tokens BIGINT NOT NULL,
+                output_tokens BIGINT NOT NULL,
+                data JSONB NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_llm_usage_member_timestamp ON public.llm_usage(member_id, timestamp DESC);
+
+            CREATE TABLE IF NOT EXISTS public.action_records (
+                id TEXT PRIMARY KEY,
+                requester_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                data JSONB NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_action_records_status_created_at ON public.action_records(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_action_records_requester_created_at ON public.action_records(requester_id, created_at DESC);
+            """;
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     // ── luciatraces database migrations ──────────────────────────────────────
 
