@@ -12,6 +12,7 @@ using lucia.Agents.Services;
 using lucia.Data.InMemory;
 using lucia.Tests.Wyoming;
 using lucia.Wyoming.CommandRouting;
+using lucia.Wyoming.Diarization;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Tests.Conversation;
@@ -55,8 +56,16 @@ public sealed class ConversationMemberMediationTests : IDisposable
 
         var services = A.Fake<IServiceProvider>();
         A.CallTo(() => services.GetService(A<Type>._)).Returns(null);
+        _services = services;
+        _processor = CreateProcessor(speakerFilter: null);
+    }
+
+    private readonly IServiceProvider _services;
+
+    private ConversationCommandProcessor CreateProcessor(SpeakerVerificationFilter? speakerFilter)
+    {
         var memories = new InMemoryMemoryStore();
-        _processor = new ConversationCommandProcessor(
+        return new ConversationCommandProcessor(
             _router,
             _executor,
             new ResponseTemplateRenderer(A.Fake<IResponseTemplateRepository>(), NullLogger<ResponseTemplateRenderer>.Instance),
@@ -64,12 +73,32 @@ public sealed class ConversationMemberMediationTests : IDisposable
             new ConversationTelemetry(_telemetry),
             new lucia.AgentHost.Conversation.Tracing.InMemoryCommandTraceRepository(),
             new CommandTraceChannel(),
-            services,
+            _services,
             NullLogger<ConversationCommandProcessor>.Instance,
             new OptionsMonitorStub<CommandRoutingOptions>(new CommandRoutingOptions()),
             new OptionsMonitorStub<PersonalityPromptOptions>(new PersonalityPromptOptions()),
+            speakerFilter: speakerFilter,
             familyMembers: _members,
             actionBroker: new ActionBroker(A.Fake<IActionRecordStore>(), _members, TimeProvider.System, NullLogger<ActionBroker>.Instance));
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task MemberAppRequests_AreNotTreatedAsUnrecognizedVoice(bool isMemberApp, bool expectIgnored)
+    {
+        var processor = CreateProcessor(new SpeakerVerificationFilter(
+            new OptionsMonitorStub<VoiceProfileOptions>(new VoiceProfileOptions { IgnoreUnknownVoices = true }),
+            NullLogger<SpeakerVerificationFilter>.Instance));
+        var request = new ConversationRequest
+        {
+            Text = "turn on the kitchen lights",
+            Context = new ConversationContext { ConversationId = "conv-1", DeviceId = "phone-1", MemberId = "parent", IsMemberApp = isMemberApp },
+        };
+
+        var result = await processor.ProcessAsync(request);
+
+        Assert.Equal(expectIgnored, result.Response?.Type == "ignored");
     }
 
     public void Dispose() => _telemetry.Dispose();

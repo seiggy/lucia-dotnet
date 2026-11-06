@@ -1,7 +1,4 @@
 using System.Security.Claims;
-using System.Threading.RateLimiting;
-using lucia.Agents.Family;
-using lucia.AgentHost.Family;
 using lucia.AgentHost.Startup;
 
 using lucia.AgentHost;
@@ -40,7 +37,6 @@ using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.FeatureManagement;
@@ -284,66 +280,9 @@ builder.Services.AddSingleton<IAsyncInitializable>(sp => sp.GetRequiredService<H
 builder.Services.Configure<InternalTokenOptions>(
     builder.Configuration.GetSection(InternalTokenOptions.SectionName));
 
-builder.Services.AddSingleton<MemberPrincipalResolver>();
-builder.Services.AddSingleton<ActionBroker>();
-builder.Services.AddSingleton<DevicePairingService>();
-builder.Services.AddSingleton(sp => new FamilyMemberService(
-    sp.GetRequiredService<IFamilyMemberStore>(),
-    sp.GetRequiredService<IApiKeyService>(),
-    sp.GetRequiredService<ILlmUsageStore>(),
-    sp.GetRequiredService<IModelProviderRepository>(),
-    sp.GetService<lucia.Wyoming.Diarization.ISpeakerProfileStore>(),
-    sp.GetRequiredService<TimeProvider>()));
 var oidcOptions = builder.Configuration.GetSection(OidcAuthOptions.SectionName).Get<OidcAuthOptions>()
     ?? new OidcAuthOptions();
-builder.Services.AddSingleton(oidcOptions);
-
-var authenticationBuilder = builder.Services.AddAuthentication(options =>
-    {
-        options.DefaultScheme = "MultiScheme";
-        options.DefaultChallengeScheme = "MultiScheme";
-    })
-    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
-        AuthOptions.AuthenticationScheme, _ => { })
-    .AddScheme<AuthenticationSchemeOptions, InternalTokenAuthenticationHandler>(
-        InternalTokenDefaults.AuthenticationScheme, _ => { })
-    .AddPolicyScheme("MultiScheme", "API Key, Internal Token or OIDC", options =>
-    {
-        options.ForwardDefaultSelector = context =>
-            LuciaAuthorization.SelectScheme(context, oidcOptions.IsConfigured);
-    });
-if (oidcOptions.IsConfigured)
-{
-    authenticationBuilder.AddJwtBearer(LuciaAuthorization.OidcScheme, options =>
-    {
-        options.Authority = oidcOptions.Authority;
-        options.Audience = oidcOptions.Audience;
-        options.RequireHttpsMetadata = oidcOptions.RequireHttpsMetadata;
-        options.MapInboundClaims = false;
-        options.Events = new JwtBearerEvents
-        {
-            OnTokenValidated = async context =>
-            {
-                var resolver = context.HttpContext.RequestServices.GetRequiredService<MemberPrincipalResolver>();
-                if (!await OidcMemberMapper.MapAsync(context.Principal!, resolver, context.HttpContext.RequestAborted)
-                        .ConfigureAwait(false))
-                {
-                    context.Fail("OIDC identity is not linked to an active family member.");
-                }
-            },
-        };
-    });
-}
-
-builder.Services.AddAuthorization(LuciaAuthorization.ConfigurePolicies);
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy(PairingApi.RedeemRateLimitPolicy, context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1) }));
-});
+builder.Services.AddLuciaFamilyAccess(oidcOptions);
 
 builder.Services.AddHttpClient("AgentProxy");
 builder.Services.AddHttpClient("OllamaModels", client =>

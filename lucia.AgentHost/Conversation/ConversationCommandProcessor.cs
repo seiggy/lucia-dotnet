@@ -123,7 +123,8 @@ public sealed partial class ConversationCommandProcessor
             SpeakerId = speakerId ?? request.Context.SpeakerId,
             EnrolledProfileId = null,
             IsVoiceRequest = voiceToken is not null || speakerId is not null
-                || (!request.Context.IsDashboardSession && !string.IsNullOrWhiteSpace(request.Context.DeviceId)),
+                || (!request.Context.IsDashboardSession && !request.Context.IsMemberApp
+                    && !string.IsNullOrWhiteSpace(request.Context.DeviceId)),
         };
 
         // Ensure a stable conversationId for multi-turn continuity

@@ -44,6 +44,13 @@ public sealed record ConversationContext
     [JsonIgnore]
     public string? MemberId { get; init; }
 
+    /// <summary>
+    /// Set server-side for requests from a family member's app, which are typed or dictated by
+    /// an authenticated member rather than heard by a shared voice satellite.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsMemberApp { get; init; }
+
     [JsonIgnore]
     public bool IsVoiceRequest { get; init; }
 

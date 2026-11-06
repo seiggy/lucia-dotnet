@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
+using lucia.AgentHost.Auth;
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Conversation.Models;
 using lucia.Agents.Auth;
@@ -30,17 +31,25 @@ public static class ConversationApi
         var group = endpoints.MapGroup("/api/conversation")
             .WithTags("Conversation");
 
-        group.MapPost("/", HandleConversationAsync).RequireAuthorization();
+        group.MapPost("/", (HttpContext httpContext, [FromBody] ConversationRequest request, [FromServices] ConversationCommandProcessor processor, [FromServices] IServiceProvider serviceProvider, CancellationToken ct) =>
+            HandleConversationAsync(httpContext, request, processor, serviceProvider, isMemberApp: false, ct))
+            .RequireAuthorization();
         group.MapGet("/patterns", GetCommandPatternsAsync).RequireAuthorization();
+
+        endpoints.MapPost("/api/me/conversation", (HttpContext httpContext, [FromBody] ConversationRequest request, [FromServices] ConversationCommandProcessor processor, [FromServices] IServiceProvider serviceProvider, CancellationToken ct) =>
+                HandleConversationAsync(httpContext, request, processor, serviceProvider, isMemberApp: true, ct))
+            .RequireAuthorization(LuciaAuthorization.MemberPolicy)
+            .WithTags("Family Member");
 
         return endpoints;
     }
 
     private static async Task HandleConversationAsync(
         HttpContext httpContext,
-        [FromBody] ConversationRequest request,
-        [FromServices] ConversationCommandProcessor processor,
-        [FromServices] IServiceProvider serviceProvider,
+        ConversationRequest request,
+        ConversationCommandProcessor processor,
+        IServiceProvider serviceProvider,
+        bool isMemberApp,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.Text))
@@ -57,6 +66,7 @@ public static class ConversationApi
             {
                 IsDashboardSession = httpContext.User.FindFirst("auth_method")?.Value == "session",
                 MemberId = httpContext.User.FindFirst(LuciaClaims.MemberId)?.Value,
+                IsMemberApp = isMemberApp,
             },
         };
         var result = await processor.ProcessAsync(request, ct).ConfigureAwait(false);

@@ -115,7 +115,7 @@
 ### Testing
 - **Framework:** xUnit
 - **Mocking:** FakeItEasy
-- **Integration:** Aspire.Hosting.Testing; Testcontainers 4.11 (PostgreSQL and Redis), with SSH.NET pinned to 2026.0
+- **Integration:** Aspire.Hosting.Testing; Microsoft.AspNetCore.TestHost for in-process HTTP tests of authentication and family endpoints; Testcontainers 4.11 (PostgreSQL and Redis), with SSH.NET pinned to 2026.0
 - **Evaluation backends:** Ollama, local/remote OpenAI-compatible servers, Foundry Responses deployments, and OpenRouter. Per-test token usage and estimated USD costs are reported separately from quality; lower known cost breaks quality ties. OpenRouter rates come from its catalog, while Foundry rates are configured per deployment.
 
 ### CI/CD Pipeline
