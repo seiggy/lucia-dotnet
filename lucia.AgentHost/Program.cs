@@ -285,8 +285,16 @@ builder.Services.Configure<InternalTokenOptions>(
 
 builder.Services.AddSingleton<MemberPrincipalResolver>();
 builder.Services.AddSingleton<DevicePairingService>();
+builder.Services.AddSingleton(sp => new FamilyMemberService(
+    sp.GetRequiredService<IFamilyMemberStore>(),
+    sp.GetRequiredService<IApiKeyService>(),
+    sp.GetRequiredService<ILlmUsageStore>(),
+    sp.GetRequiredService<IModelProviderRepository>(),
+    sp.GetService<lucia.Wyoming.Diarization.ISpeakerProfileStore>(),
+    sp.GetRequiredService<TimeProvider>()));
 var oidcOptions = builder.Configuration.GetSection(OidcAuthOptions.SectionName).Get<OidcAuthOptions>()
     ?? new OidcAuthOptions();
+builder.Services.AddSingleton(oidcOptions);
 
 var authenticationBuilder = builder.Services.AddAuthentication(options =>
     {
@@ -461,6 +469,8 @@ else
 }
 app.MapAuthApi();
 app.MapPairingApi(isInstalledAppliance);
+app.MapFamilyApi(isInstalledAppliance);
+app.MapOidcSettingsApi(isInstalledAppliance);
 app.MapMeApi();
 app.MapSetupApi();
 app.MapApiKeyManagementApi(isInstalledAppliance);
