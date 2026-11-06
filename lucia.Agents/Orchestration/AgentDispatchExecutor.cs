@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Family;
 using lucia.Agents.Orchestration.Models;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
@@ -308,6 +309,21 @@ public sealed class AgentDispatchExecutor : Executor
             _logger.LogWarning("No invoker registered for agent {AgentId}.", agentId);
             activity?.SetTag("agent.result", "no_invoker");
             return CreateFailureResponse(agentId, $"Agent '{agentId}' is not available.");
+        }
+
+        // Remote agents run their tools out of process, where the broker cannot mediate them.
+        if (MemberActionScope.Current is { } scope
+            && (scope.Broker.Evaluate(scope.Member, CapabilityKind.Agent, agentId) == ActionRule.Deny
+                || (invoker is RemoteAgentInvoker && ActionBroker.RequiresMediation(scope.Member))))
+        {
+            activity?.SetTag("agent.result", "member_denied");
+            ActionBrokerTelemetry.Decisions.Add(1, new KeyValuePair<string, object?>("outcome", "AgentDenied"));
+            return new OrchestratorAgentResponse
+            {
+                AgentId = agentId,
+                Content = $"Sorry, {scope.Member.DisplayName} isn't allowed to use that.",
+                Success = true,
+            };
         }
 
         try

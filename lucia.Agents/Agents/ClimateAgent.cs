@@ -1,3 +1,4 @@
+using lucia.Agents.Family;
 using A2A;
 using AgentSkill = A2A.AgentSkill;
 
@@ -253,6 +254,7 @@ public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
                 _aiAgent = copilotAgent ?? BuildAgent(
                     await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
                     .AsBuilder()
+                    .UseLuciaActionBroker()
                     .UseOpenTelemetry()
                     .Build();
                 _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");

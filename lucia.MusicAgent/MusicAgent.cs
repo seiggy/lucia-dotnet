@@ -1,3 +1,4 @@
+using lucia.Agents.Family;
 using System.Diagnostics;
 using A2A;
 using AgentSkill = A2A.AgentSkill;
@@ -276,6 +277,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
 
         return new ChatClientAgent(traced, agentOptions, _loggerFactory)
             .AsBuilder()
+            .UseLuciaActionBroker()
             .UseOpenTelemetry()
             .Build();
     }

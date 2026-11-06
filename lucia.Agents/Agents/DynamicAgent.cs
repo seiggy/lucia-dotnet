@@ -1,3 +1,4 @@
+using lucia.Agents.Family;
 using System.Diagnostics;
 using A2A;
 using AgentSkill = A2A.AgentSkill;
@@ -117,7 +118,7 @@ public sealed class DynamicAgent : ILuciaAgent
         var copilotAgent = await _clientResolver.ResolveAIAgentAsync(definition.ModelConnectionName, cancellationToken).ConfigureAwait(false);
         if (copilotAgent is not null)
         {
-            _cachedAgent = copilotAgent;
+            _cachedAgent = copilotAgent.AsBuilder().UseLuciaActionBroker().Build();
         }
         else
         {
@@ -183,6 +184,7 @@ public sealed class DynamicAgent : ILuciaAgent
 
         return new ChatClientAgent(traced, agentOptions, _loggerFactory)
             .AsBuilder()
+            .UseLuciaActionBroker()
             .UseOpenTelemetry()
             .Build();
     }

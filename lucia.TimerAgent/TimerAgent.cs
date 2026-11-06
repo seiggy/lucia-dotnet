@@ -1,3 +1,4 @@
+using lucia.Agents.Family;
 using System.Diagnostics;
 using A2A;
 using AgentSkill = A2A.AgentSkill;
@@ -277,6 +278,7 @@ public sealed class TimerAgent : ILuciaAgent
         };
         return new ChatClientAgent(traced, agentOptions, _loggerFactory)
             .AsBuilder()
+            .UseLuciaActionBroker()
             .UseOpenTelemetry()
             .Build();
     }

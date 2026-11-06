@@ -38,6 +38,12 @@ public sealed record ConversationContext
     [JsonIgnore]
     public string? EnrolledProfileId { get; init; }
 
+    /// <summary>
+    /// Family member ID from the authenticated principal. Set server-side only.
+    /// </summary>
+    [JsonIgnore]
+    public string? MemberId { get; init; }
+
     [JsonIgnore]
     public bool IsVoiceRequest { get; init; }
 

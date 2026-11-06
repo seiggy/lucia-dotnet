@@ -1,11 +1,14 @@
 using System.Diagnostics;
 using System.Text.Json;
 
+using lucia.AgentHost.Auth;
 using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Templates;
 using lucia.AgentHost.Conversation.Tracing;
+using lucia.Agents.Abstractions;
 using lucia.Agents.CommandTracing;
+using lucia.Agents.Family;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Services;
@@ -42,6 +45,8 @@ public sealed partial class ConversationCommandProcessor
     private readonly SpeakerVerificationFilter? _speakerFilter;
     private readonly StickySpeakerStore? _stickySpeakers;
     private readonly IOptionsMonitor<VoiceProfileOptions>? _voiceProfileOptions;
+    private readonly IFamilyMemberStore? _familyMembers;
+    private readonly ActionBroker? _actionBroker;
 
     public ConversationCommandProcessor(
         ICommandRouter commandRouter,
@@ -62,7 +67,9 @@ public sealed partial class ConversationCommandProcessor
         VoiceOnboardingWorkflow? onboarding = null,
         SpeakerVerificationFilter? speakerFilter = null,
         StickySpeakerStore? stickySpeakers = null,
-        IOptionsMonitor<VoiceProfileOptions>? voiceProfileOptions = null)
+        IOptionsMonitor<VoiceProfileOptions>? voiceProfileOptions = null,
+        IFamilyMemberStore? familyMembers = null,
+        ActionBroker? actionBroker = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
@@ -83,6 +90,8 @@ public sealed partial class ConversationCommandProcessor
         _speakerFilter = speakerFilter;
         _stickySpeakers = stickySpeakers;
         _voiceProfileOptions = voiceProfileOptions;
+        _familyMembers = familyMembers;
+        _actionBroker = actionBroker;
     }
 
     /// <summary>
@@ -160,6 +169,15 @@ public sealed partial class ConversationCommandProcessor
             }
         }
         var cleanRequest = request with { Text = cleanText, Context = context with { ConversationId = conversationId } };
+        // Everything below, including agent and tool calls, runs for the resolved family member.
+        var member = await ResolveMemberAsync(context, ct).ConfigureAwait(false);
+        using var memberScope = member is not null && _actionBroker is not null
+            ? MemberActionScope.Begin(member, _actionBroker)
+            : null;
+        if (member is not null)
+        {
+            activity?.SetTag("conversation.member_role", member.Role.ToString());
+        }
         var onboardingResponse = _onboarding is null
             ? null
             : await _onboarding.TryProcessAsync(conversationId, context.DeviceId, cleanText, voiceTurn, ct).ConfigureAwait(false);
@@ -210,7 +228,8 @@ public sealed partial class ConversationCommandProcessor
         // Step 1: Try command pattern matching (on clean text, without speaker tag)
         var routeResult = await _commandRouter.RouteAsync(cleanText, ct).ConfigureAwait(false);
 
-        if (routeResult.IsMatch && routeResult.MatchedPattern is not null)
+        if (routeResult.IsMatch && routeResult.MatchedPattern is not null
+            && !(member is not null && ActionBroker.RequiresMediation(member)))
         {
             return await HandleCommandMatchAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
                 .ConfigureAwait(false);
@@ -219,6 +238,23 @@ public sealed partial class ConversationCommandProcessor
         // Step 2: No match — fall back to LLM (with clean text + speaker in context)
         return await HandleLlmFallbackAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
             .ConfigureAwait(false);
+    }
+
+    private async Task<FamilyMember?> ResolveMemberAsync(ConversationContext context, CancellationToken ct)
+    {
+        if (_familyMembers is null)
+        {
+            return null;
+        }
+
+        var member = context.MemberId is { } memberId
+            ? await _familyMembers.GetAsync(memberId, ct).ConfigureAwait(false)
+            : context.EnrolledProfileId is { } profileId
+                ? await _familyMembers
+                    .FindByIdentityAsync(MemberIdentityKind.SpeakerProfile, string.Empty, profileId, ct)
+                    .ConfigureAwait(false)
+                : null;
+        return member is not null && MemberPrincipalResolver.CanAuthenticate(member, DateTime.UtcNow) ? member : null;
     }
 
     private async Task<SpeakerProfile?> ResolveStickySpeakerAsync(string conversationId, CancellationToken ct)
@@ -342,10 +378,13 @@ public sealed partial class ConversationCommandProcessor
         LogLlmFallback(request.Text);
 
         var prompt = await _contextReconstructor.ReconstructAsync(request, ct).ConfigureAwait(false);
-        // A shared satellite conversation must not replay another speaker's personal context.
-        var engineSessionId = request.Context.IsVoiceRequest
-            ? $"voice:{conversationId}:{request.Context.EnrolledProfileId ?? "anonymous"}"
-            : conversationId;
+        // A shared satellite conversation must not replay another speaker's personal context,
+        // and a member cannot continue another member's conversation by reusing its ID.
+        var engineSessionId = MemberActionScope.Current is { } scope
+            ? $"member:{scope.Member.Id}:{conversationId}"
+            : request.Context.IsVoiceRequest
+                ? $"voice:{conversationId}:{request.Context.EnrolledProfileId ?? "anonymous"}"
+                : conversationId;
         var speakerContext = new SpeakerContext
         {
             SpeakerId = request.Context.SpeakerId,

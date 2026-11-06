@@ -1,3 +1,4 @@
+using lucia.Agents.Family;
 using A2A;
 using AgentSkill = A2A.AgentSkill;
 using lucia.Agents.Abstractions;
@@ -177,6 +178,7 @@ public sealed class SecurityAgent : ILuciaAgent, ISkillConfigProvider
                 _aiAgent = copilotAgent ?? BuildAgent(
                     await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
                     .AsBuilder()
+                    .UseLuciaActionBroker()
                     .UseOpenTelemetry()
                     .Build();
                 _logger.LogInformation("SecurityAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");

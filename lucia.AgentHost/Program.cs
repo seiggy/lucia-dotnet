@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Threading.RateLimiting;
+using lucia.Agents.Family;
 using lucia.AgentHost.Family;
 using lucia.AgentHost.Startup;
 
@@ -284,6 +285,7 @@ builder.Services.Configure<InternalTokenOptions>(
     builder.Configuration.GetSection(InternalTokenOptions.SectionName));
 
 builder.Services.AddSingleton<MemberPrincipalResolver>();
+builder.Services.AddSingleton<ActionBroker>();
 builder.Services.AddSingleton<DevicePairingService>();
 builder.Services.AddSingleton(sp => new FamilyMemberService(
     sp.GetRequiredService<IFamilyMemberStore>(),

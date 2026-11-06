@@ -1,3 +1,4 @@
+using lucia.Agents.Family;
 using System.Diagnostics;
 using A2A;
 using AgentSkill = A2A.AgentSkill;
@@ -181,6 +182,7 @@ public sealed class GeneralAgent : ILuciaAgent
                 _aiAgent = copilotAgent ?? BuildAgent(
                         await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
                     .AsBuilder()
+                    .UseLuciaActionBroker()
                     .UseOpenTelemetry()
                     .Build();
                 _logger.LogInformation("GeneralAgent: using model provider '{Provider}'",

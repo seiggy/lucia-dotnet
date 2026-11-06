@@ -111,6 +111,7 @@ public static class Extensions
                     // Data store health gauges (SQLite and PostgreSQL) and Npgsql's built-in pool and
                     // command metrics. Microsoft.Data.Sqlite has no built-in instrumentation.
                     .AddMeter("lucia.DataStore")
+                    .AddMeter("lucia.ActionBroker")
                     .AddMeter("Npgsql");
 
                 if (useOtlpExporter)
@@ -185,6 +186,7 @@ public static class Extensions
                     .AddSource("lucia.Services.PromptCache")
                     .AddSource("lucia.AgentInvoker")
                     .AddSource("lucia.AgentDispatch")
+                    .AddSource("lucia.ActionBroker")
                     .AddSource("lucia.Agents.General")
                     .AddSource("lucia.Agents.Music")
                     .AddSource("lucia.Skills.*")

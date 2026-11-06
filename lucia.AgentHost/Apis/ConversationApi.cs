@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Conversation.Models;
+using lucia.Agents.Auth;
 using lucia.Agents.Orchestration;
 using lucia.Wyoming.CommandRouting;
 
@@ -55,6 +56,7 @@ public static class ConversationApi
             Context = request.Context with
             {
                 IsDashboardSession = httpContext.User.FindFirst("auth_method")?.Value == "session",
+                MemberId = httpContext.User.FindFirst(LuciaClaims.MemberId)?.Value,
             },
         };
         var result = await processor.ProcessAsync(request, ct).ConfigureAwait(false);
