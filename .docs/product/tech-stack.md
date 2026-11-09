@@ -28,6 +28,7 @@
 - **Online:** Azure OpenAI, OpenAI, Google Gemini, Anthropic Claude
 - **GitHub Copilot:** GitHub.Copilot.SDK 1.0.14 for GitHub authentication, model discovery, context tiers, and reasoning effort. The evaluation harness can use Copilot as its judge while keeping models under test on local backends.
 - **Copilot Agent Framework adapter:** Microsoft.Agents.AI.GitHub.Copilot 1.25.0 preserves the existing `AIAgent` integration, on the same release line as the core and workflow packages.
+- **V2 assistant harness:** Microsoft.Agents.AI.Harness 1.25.0, on the same release line, provides the `HarnessAgent` coordinator. It is off unless the `AssistantHarness` feature flag is on and a family member opts in. File memory, web search, skills, todo, agent mode, compaction, and automatic tool approval are disabled; its only tools are Lucia's local and dynamic agents, and the action broker governs every call.
 - **Evaluation:** AgentEval 0.43.0-beta on Microsoft.Extensions.AI.Evaluation 10.11.0. `lucia.Agents` also uses its runtime guardrail gates (`KeywordOracleGate`, `TokenInjectionGate`, `RegexPiiGate`) for family members' blocked topics, prompt-injection checks, and personal-data redaction.
 - **Evaluation judge:** Azure OpenAI v1 Responses API through the existing OpenAI and Microsoft.Extensions.AI packages, with an explicit legacy Chat Completions opt-out.
 - **Offline:** OLLaMa and llama.CPP

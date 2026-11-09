@@ -30,6 +30,12 @@ public sealed class FamilyMember
 
     public MemberLlmControls LlmControls { get; set; } = new();
 
+    /// <summary>
+    /// Route this member's model conversations to the V2 assistant harness when the
+    /// <c>AssistantHarness</c> feature flag is on.
+    /// </summary>
+    public bool UseAssistantHarness { get; set; }
+
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

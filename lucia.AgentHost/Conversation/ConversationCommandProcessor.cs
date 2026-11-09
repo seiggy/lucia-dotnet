@@ -6,6 +6,7 @@ using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Templates;
 using lucia.AgentHost.Conversation.Tracing;
+using lucia.AgentHost.Harness;
 using lucia.Agents.Abstractions;
 using lucia.Agents.CommandTracing;
 using lucia.Agents.Family;
@@ -48,6 +49,7 @@ public sealed partial class ConversationCommandProcessor
     private readonly IFamilyMemberStore? _familyMembers;
     private readonly ActionBroker? _actionBroker;
     private readonly MemberConversationPolicy? _memberPolicy;
+    private readonly AssistantHarnessRunner? _harness;
 
     public ConversationCommandProcessor(
         ICommandRouter commandRouter,
@@ -71,7 +73,8 @@ public sealed partial class ConversationCommandProcessor
         IOptionsMonitor<VoiceProfileOptions>? voiceProfileOptions = null,
         IFamilyMemberStore? familyMembers = null,
         ActionBroker? actionBroker = null,
-        MemberConversationPolicy? memberPolicy = null)
+        MemberConversationPolicy? memberPolicy = null,
+        AssistantHarnessRunner? harness = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
@@ -95,6 +98,7 @@ public sealed partial class ConversationCommandProcessor
         _familyMembers = familyMembers;
         _actionBroker = actionBroker;
         _memberPolicy = memberPolicy;
+        _harness = harness;
     }
 
     /// <summary>
@@ -418,6 +422,14 @@ public sealed partial class ConversationCommandProcessor
             DeviceArea = request.Context.DeviceArea,
             Location = request.Context.Location,
         };
+        if (_harness is not null
+            && MemberActionScope.Current?.Member is { } harnessMember
+            && await _harness.IsEnabledForAsync(harnessMember).ConfigureAwait(false))
+        {
+            return await HandleHarnessAsync(originalText, request, routeResult, conversationId, prompt, activity, sw, failedExecution, ct)
+                .ConfigureAwait(false);
+        }
+
         var engine = _serviceProvider.GetService(typeof(LuciaEngine)) as LuciaEngine;
         if (engine is null)
         {
@@ -457,6 +469,40 @@ public sealed partial class ConversationCommandProcessor
 
         return ProcessingResult.LlmCompleted(
             ConversationResponse.FromLlm(result.Text, conversationId, result.NeedsInput));
+    }
+
+    private async Task<ProcessingResult> HandleHarnessAsync(
+        string originalText,
+        ConversationRequest request,
+        CommandRouteResult routeResult,
+        string conversationId,
+        string prompt,
+        Activity? activity,
+        Stopwatch sw,
+        SkillExecutionResult? failedExecution,
+        CancellationToken ct)
+    {
+        activity?.SetTag("conversation.harness", "v2");
+        string text;
+        try
+        {
+            using var memoryScope = UserMemoryScope.Begin(request.Context.EnrolledProfileId, request.Text);
+            var response = await _harness!.RunAsync(prompt, ct).ConfigureAwait(false);
+            text = response.Text;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Never replay a failed V2 run through V1: actions it started must not run twice.
+            _logger.LogError(exception, "Assistant harness run failed for conversation {ConversationId}", conversationId);
+            text = "Sorry, something went wrong and I couldn't finish that. Please check before asking again.";
+        }
+
+        sw.Stop();
+        _telemetry.RecordLlmFallback(sw.Elapsed.TotalMilliseconds);
+        await SaveLlmFallbackTraceAsync(originalText, request, routeResult, sw, prompt, CommandTraceOutcome.LlmCompleted, failedExecution)
+            .ConfigureAwait(false);
+        await AppendConversationHistoryAsync(request, text, ct).ConfigureAwait(false);
+        return ProcessingResult.LlmCompleted(ConversationResponse.FromLlm(text, conversationId, needsInput: false));
     }
 
     private async Task AppendConversationHistoryAsync(

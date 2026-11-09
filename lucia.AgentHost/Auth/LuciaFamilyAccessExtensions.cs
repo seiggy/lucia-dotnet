@@ -21,6 +21,7 @@ public static class LuciaFamilyAccessExtensions
         services.AddSingleton<MemberPrincipalResolver>();
         services.AddSingleton<ActionBroker>();
         services.AddSingleton<MemberConversationPolicy>();
+        services.AddSingleton<lucia.AgentHost.Harness.AssistantHarnessRunner>();
         services.AddSingleton<DevicePairingService>();
         services.AddSingleton(sp => new FamilyMemberService(
             sp.GetRequiredService<IFamilyMemberStore>(),

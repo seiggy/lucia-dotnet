@@ -11,4 +11,5 @@ public sealed record FamilyMemberRequest(
     List<string>? GuardianIds,
     int? BirthYear,
     bool? IsActive,
-    DateTime? AccessExpiresAt);
+    DateTime? AccessExpiresAt,
+    bool? UseAssistantHarness = null);

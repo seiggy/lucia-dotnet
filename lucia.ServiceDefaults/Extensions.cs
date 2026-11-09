@@ -187,6 +187,7 @@ public static class Extensions
                     .AddSource("lucia.AgentInvoker")
                     .AddSource("lucia.AgentDispatch")
                     .AddSource("lucia.ActionBroker")
+                    .AddSource("lucia.Harness")
                     .AddSource("lucia.Agents.General")
                     .AddSource("lucia.Agents.Music")
                     .AddSource("lucia.Skills.*")

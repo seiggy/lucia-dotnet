@@ -408,6 +408,7 @@ public sealed class FamilyMemberService(
         member.GuardianIds = guardianIds;
         member.BirthYear = request.BirthYear;
         member.IsActive = request.IsActive ?? member.IsActive;
+        member.UseAssistantHarness = request.UseAssistantHarness ?? member.UseAssistantHarness;
         member.AccessExpiresAt = request.AccessExpiresAt?.ToUniversalTime();
         member.UpdatedAt = now;
         return null;

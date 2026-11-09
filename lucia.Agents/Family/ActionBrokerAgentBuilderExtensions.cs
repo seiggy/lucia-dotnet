@@ -10,6 +10,12 @@ namespace lucia.Agents.Family;
 /// </summary>
 public static class ActionBrokerAgentBuilderExtensions
 {
+    /// <summary>
+    /// A function carrying this property delegates to a Lucia agent, which applies the member's
+    /// agent and tool rules itself, so the delegation is not evaluated as a tool call.
+    /// </summary>
+    public const string DelegatedAgentProperty = "lucia.delegated_agent";
+
     public static AIAgentBuilder UseLuciaActionBroker(this AIAgentBuilder builder) =>
         builder.Use((inner, _) =>
         {
@@ -33,7 +39,8 @@ public static class ActionBrokerAgentBuilderExtensions
         Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>> next,
         CancellationToken cancellationToken)
     {
-        if (MemberActionScope.Current is not { } scope)
+        if (MemberActionScope.Current is not { } scope
+            || context.Function.AdditionalProperties.ContainsKey(DelegatedAgentProperty))
         {
             return await next(context, cancellationToken).ConfigureAwait(false);
         }
