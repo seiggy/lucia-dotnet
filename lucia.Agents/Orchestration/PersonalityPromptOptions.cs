@@ -8,6 +8,21 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class PersonalityPromptOptions
 {
+    /// <summary>Fallback output ceiling, not an input-context limit or a target response length.</summary>
+    public const int DefaultMaxOutputTokens = 4096;
+
+    /// <summary>Optional positive output-token ceiling shared by fast-path and orchestrated rewrites.</summary>
+    public int? MaxOutputTokens { get; set; }
+
+    public int EffectiveMaxOutputTokens => ResolveMaxOutputTokens(MaxOutputTokens);
+
+    internal static int ResolveMaxOutputTokens(int? configured) => configured switch
+    {
+        null => DefaultMaxOutputTokens,
+        > 0 => configured.Value,
+        _ => throw new ArgumentOutOfRangeException(nameof(configured), "Personality output-token limit must be positive.")
+    };
+
     /// <summary>
     /// Master switch for the personality response engine.
     /// When <c>false</c> (default), fast-path command responses use canned templates.

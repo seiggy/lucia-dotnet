@@ -131,6 +131,10 @@ if [[ "$release_mode" == "full" ]]; then
         "$JETSON_ROOTFS_URL" \
         "$JETSON_ROOTFS_SHA256" \
         "$downloads/Tegra_Linux_Sample-Root-Filesystem_R${JETSON_LINUX_VERSION}_aarch64.tbz2"
+    download_sha256 \
+        "$GRUB_EFI_ARM64_URL" \
+        "$GRUB_EFI_ARM64_SHA256" \
+        "$downloads/${GRUB_EFI_ARM64_URL##*/}"
 fi
 download_sha256 \
     "$OTELCOL_URL" \
@@ -442,6 +446,30 @@ install_runtime_packages() (
     sudo rm -rf "$root/tmp/lucia-runtime"
 )
 
+# OS slots are selected by GRUB (lucia-boot-slot), which NVIDIA's L4TLauncher starts from the ESP.
+build_grub_image() (
+    local root="$1"
+    local work="$root/tmp/lucia-grub"
+
+    cleanup_grub() {
+        sudo rm -rf "$work" "$root/usr/bin/qemu-aarch64-static"
+    }
+    trap cleanup_grub EXIT
+    sudo mkdir -p "$work"
+    sudo cp "$downloads/${GRUB_EFI_ARM64_URL##*/}" "$work/grub.deb"
+    sudo cp "$repo_root/infra/appliance/boot/grub.cfg" "$work/grub.cfg"
+    sudo cp /usr/bin/qemu-aarch64-static "$root/usr/bin/"
+    sudo chroot "$root" /bin/sh -ec '
+        cd /tmp/lucia-grub
+        dpkg-deb -x grub.deb modules
+        grub-script-check grub.cfg
+        grub-mkstandalone -O arm64-efi -d modules/usr/lib/grub/arm64-efi -o grubaa64.efi \
+            --modules="part_gpt ext2 fat regexp loadenv probe test linux normal configfile" \
+            "boot/grub/grub.cfg=grub.cfg"'
+    sudo install -D -o root -g root -m 0644 \
+        "$work/grubaa64.efi" "$root/usr/share/lucia/boot/grubaa64.efi"
+)
+
 configure_recovery_account() {
     local root="$1"
     local shell_path="/bin/bash"
@@ -457,6 +485,7 @@ if [[ "$release_mode" == "full" ]]; then
     prepare_bsp "$bsp_dir"
     root="$bsp_dir/Linux_for_Tegra/rootfs"
     install_runtime_packages "$root"
+    build_grub_image "$root"
     sudo cp -a --no-preserve=ownership "$repo_root/infra/appliance/rootfs/." "$root/"
     sudo chmod 0755 "$root/usr/libexec/lucia/"*
     verify_rootfs_helper "$root"

@@ -116,11 +116,21 @@ test.describe.serial('Setup Wizard', () => {
       await page.waitForTimeout(5000);
     }
 
-    // 2e: Advance to AI Providers step
+    // 2e: Advance to the model telemetry step
     const nextBtn = page.locator('button', { hasText: /^Next$/i });
     await expect(nextBtn).toBeVisible();
     await nextBtn.click();
     await page.waitForTimeout(2000);
+
+    // 2f: Model telemetry explains the choice and keeps content capture on by default
+    await expect(page.getByRole('heading', { name: 'Model telemetry' })).toBeVisible();
+    const contentSwitch = page.getByRole('switch', { name: /Record prompts and responses/i });
+    await expect(contentSwitch).toHaveAttribute('aria-checked', 'true');
+    await page.locator('button', { hasText: /^Next$/i }).click();
+    await page.waitForTimeout(2000);
+
+    const setupStatus = await page.request.get('/api/setup/status');
+    expect((await setupStatus.json()).includeModelContent).toBe(true);
 
     // Should be on AI Provider step
     await expect(page.locator('text=Configure AI Provider')).toBeVisible();
@@ -268,7 +278,7 @@ test.describe.serial('Setup Wizard', () => {
 
   // ── Helpers ──────────────────────────────────────────────────────
 
-  /** Walk through Welcome → Configure HA → arrive at AI Providers step */
+  /** Walk through Welcome → Configure HA → Model telemetry → arrive at AI Providers step */
   async function navigateToAiProviders(page: Page): Promise<void> {
     if (dashboardKey) {
       await page.request.post('/api/auth/login', {
@@ -328,10 +338,14 @@ test.describe.serial('Setup Wizard', () => {
       }
     }
 
-    // Advance to AI Providers
+    // Advance through model telemetry to AI Providers
     const nextBtn = page.locator('button', { hasText: /^Next$/i });
     await expect(nextBtn).toBeVisible({ timeout: 5000 });
     await nextBtn.click();
+    await page.waitForTimeout(2000);
+
+    await expect(page.getByRole('heading', { name: 'Model telemetry' })).toBeVisible({ timeout: 5000 });
+    await page.locator('button', { hasText: /^Next$/i }).click();
     await page.waitForTimeout(2000);
   }
 

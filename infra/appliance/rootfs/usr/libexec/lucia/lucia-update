@@ -24,7 +24,6 @@ gh_path="${LUCIA_GH_PATH:-$current_link/tools/gh}"
 trusted_root="${LUCIA_TRUSTED_ROOT_PATH:-$current_link/tools/trusted-root.jsonl}"
 systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
 curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
-nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
 dd_path="${LUCIA_DD_PATH:-/usr/bin/dd}"
 partlabel_dir="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
 os_version_path="${LUCIA_OS_VERSION_PATH:-/etc/lucia/os-version}"
@@ -35,6 +34,9 @@ runtime_info_path="${LUCIA_RUNTIME_INFO_PATH:-/etc/lucia/appliance-runtime.json}
 device_tree_path="${LUCIA_DEVICE_TREE_PATH:-/proc/device-tree/compatible}"
 jetson_release_path="${LUCIA_JETSON_RELEASE_PATH:-/etc/nv_tegra_release}"
 host_etc="${LUCIA_HOST_ETC:-/etc}"
+host_home="${LUCIA_HOST_HOME:-/home}"
+grub_image="${LUCIA_GRUB_IMAGE_PATH:-/usr/share/lucia/boot/grubaa64.efi}"
+boot_slot="$(dirname "${BASH_SOURCE[0]}")/lucia-boot-slot"
 validation_group="${LUCIA_VALIDATION_GROUP:-lucia}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
@@ -259,6 +261,43 @@ preserve_device_state() {
             || die "inactive OS slot Wi-Fi destination is a symlink"
         install -o root -g root -m 0600 "$wifi_source" "$wifi_target"
     fi
+
+    # Keep the device's SSH identity and recovery login, and the ESP mount GRUB slot commits need.
+    local key
+    for key in "$host_etc"/ssh/ssh_host_*_key; do
+        [[ -f "$key" && ! -L "$key" && -f "$key.pub" && ! -L "$key.pub" ]] || continue
+        [[ -d "$target_root/etc/ssh" && ! -L "$target_root/etc/ssh" ]] \
+            || die "inactive OS slot has no safe /etc/ssh directory"
+        install -o root -g root -m 0600 "$key" "$target_root/etc/ssh/${key##*/}"
+        install -o root -g root -m 0644 "$key.pub" "$target_root/etc/ssh/${key##*/}.pub"
+    done
+    local keys_source="$host_home/lucia-recovery/.ssh/authorized_keys"
+    local target_home="$target_root/home/lucia-recovery"
+    if [[ -f "$keys_source" && ! -L "$keys_source" && -d "$target_home" && ! -L "$target_home" ]]; then
+        [[ ! -L "$target_home/.ssh" && ! -L "$target_home/.ssh/authorized_keys" ]] \
+            || die "inactive OS slot recovery SSH directory is a symlink"
+        local owner
+        owner="$(stat -c '%u:%g' "$target_home")"
+        install -d -o "${owner%:*}" -g "${owner#*:}" -m 0700 "$target_home/.ssh"
+        install -o "${owner%:*}" -g "${owner#*:}" -m 0600 "$keys_source" "$target_home/.ssh/authorized_keys"
+    fi
+    local esp_entry=""
+    [[ ! -f "$host_etc/fstab" ]] \
+        || esp_entry="$(awk '$1 !~ /^#/ && $2 == "/boot/efi" { print; exit }' "$host_etc/fstab")"
+    if [[ -n "$esp_entry" ]] \
+        && ! awk '$1 !~ /^#/ && $2 == "/boot/efi" { found = 1 } END { exit !found }' "$target_root/etc/fstab"; then
+        printf '%s\n' "$esp_entry" >> "$target_root/etc/fstab"
+    fi
+
+    # Telemetry settings live on the data partition, but systemd enablement lives in each slot's /etc.
+    local unit
+    local wants="etc/systemd/system/multi-user.target.wants"
+    for unit in lucia-otelcol.service lucia-redis-exporter.service; do
+        [[ -L "$host_etc/systemd/system/multi-user.target.wants/$unit" ]] || continue
+        [[ -d "$target_root/$wants" && ! -L "$target_root/$wants" ]] \
+            || die "inactive OS slot has no safe systemd wants directory"
+        ln -sfn "/usr/lib/systemd/system/$unit" "$target_root/$wants/$unit"
+    done
 }
 
 import_staged_file() {
@@ -1057,15 +1096,13 @@ recover_lucia() {
     local old_root="$work_dir/replaced-data"
     local manager_pending=false
     rm -rf "$work_dir"/input-* "$work_dir"/*.parts
-    if [[ ! -f "$state" ]]; then
-        rm -f "$validation_credential_path"
+    # The OS validator on the next boot shares this credential; keep it while an OS operation waits.
+    if [[ ! -f "$state" || "$(sed -n 's/^phase=//p' "$state")" == "committed" ]]; then
+        grep -Eqx 'status=(pending|rollback-pending)' "$state_dir/os.env" 2>/dev/null \
+            || rm -f "$validation_credential_path"
         exit 0
     fi
     phase="$(sed -n 's/^phase=//p' "$state")"
-    if [[ "$phase" == "committed" ]]; then
-        rm -f "$validation_credential_path"
-        exit 0
-    fi
     [[ "$phase" == "manager-pending" ]] && manager_pending=true
     previous="$(sed -n 's/^previous=//p' "$state")"
     current="$(sed -n 's/^current=//p' "$state")"
@@ -1125,34 +1162,22 @@ apply_os() {
     local verified_output
     local version
     local parts_list
+    local input_dir
     local current_slot
     local target_slot
-    local suffix
     local app_label
-    local kernel_label
-    local dtb_label
     local system_image
-    local boot_image
-    local dtb_image
     local system_bytes
-    local input_dir
-    local image_size
-    local image_and_label
-    local slot_changed=false
+    local target_uuid
+    local trial_set=false
     local validation_token
     local validation_credential
     local slot_mount="$work_dir/os-slot"
     local slot_root_mounted=false
-    local current_label
-    local current_device
-    local target_uuid
-    local write_bytes
-    local written_bytes
-    local -a writes=()
 
     report_progress verifying
     current_slot="$(bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout)" \
-        || die "RootFS A/B preflight failed; no OS partitions were written."
+        || die "OS slot preflight failed; no OS partitions were written."
     verified_output="$(verify_and_assemble os "$selected_tag")" \
         || die "OS update verification failed"
     mapfile -t verified <<< "$verified_output"
@@ -1160,43 +1185,19 @@ apply_os() {
     parts_list="${verified[1]}"
     input_dir="${verified[2]}"
     trap "rm -rf '$input_dir' '$parts_list'" EXIT
-    current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
-    [[ "$current_slot" == "0" || "$current_slot" == "1" ]] \
-        || die "nvbootctrl returned an invalid current slot"
     if [[ "$current_slot" == "0" ]]; then
         target_slot=1
-        suffix="_b"
         app_label=APP_b
-        kernel_label=B_kernel
-        dtb_label=B_kernel-dtb
+        system_image=system.img_b
     else
         target_slot=0
-        suffix=""
         app_label=APP
-        kernel_label=A_kernel
-        dtb_label=A_kernel-dtb
+        system_image=system.img
     fi
-    current_label="$([[ "$current_slot" == 0 ]] && printf APP || printf APP_b)"
-    current_device="$(findmnt -n -o SOURCE --target "${LUCIA_ROOTFS_MOUNT:-/}")"
-    [[ -b "$current_device" && -b "$partlabel_dir/$current_label" \
-        && "$(stat -Lc '%t:%T' "$current_device")" == "$(stat -Lc '%t:%T' "$partlabel_dir/$current_label")" ]] \
-        || die "Mounted root filesystem does not match NVIDIA's current RootFS A/B slot."
-    [[ "$(lsblk -dn -o PKNAME "$current_device")" == "$(lsblk -dn -o PKNAME "$partlabel_dir/$app_label")" ]] \
-        || die "Inactive OS partition is not on the current root filesystem's disk."
     if ! target_uuid="$(blkid -s PARTUUID -o value "$partlabel_dir/$app_label")" \
         || [[ ! "$target_uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
         die "Inactive OS partition has no valid PARTUUID."
     fi
-    system_image="system.img${suffix}"
-    boot_image="boot.img${suffix}"
-    dtb_image="$(
-        xargs -d '\n' cat < "$parts_list" \
-            | tar -I zstd -tf - \
-            | grep -E '^(\./)?kernel_[A-Za-z0-9._+-]+\.dtb$' \
-            | head -1
-    )"
-    dtb_image="${dtb_image#./}"
-    [[ -n "$dtb_image" ]] || die "OS payload is missing the board DTB"
     validation_token="$(cat /proc/sys/kernel/random/uuid)"
     validation_credential="$(issue_validation_credential)"
     trap 'rm -f "$validation_credential_path"' ERR
@@ -1206,19 +1207,15 @@ apply_os() {
         --request POST \
         "http://127.0.0.1:8098/internal/appliance/update-validation/prepare/$validation_token" \
         >/dev/null
-    for image in "$system_image" "$boot_image" "$dtb_image"; do
-        xargs -d '\n' cat < "$parts_list" \
-            | tar -I zstd -tf - "$image" \
-            | grep -Fqx "$image" \
-            || die "OS payload is missing slot image: $image"
-    done
-    for label in "$app_label" "$kernel_label" "$dtb_label"; do
-        [[ -b "$partlabel_dir/$label" ]] \
-            || die "partition is missing: $label"
-        if findmnt -rn "$partlabel_dir/$label" >/dev/null; then
-            die "refusing to write mounted partition: $label"
-        fi
-    done
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -tf - "$system_image" \
+        | grep -Fqx "$system_image" \
+        || die "OS payload is missing slot image: $system_image"
+    [[ -b "$partlabel_dir/$app_label" ]] \
+        || die "partition is missing: $app_label"
+    if findmnt -rn "$partlabel_dir/$app_label" >/dev/null; then
+        die "refusing to write mounted partition: $app_label"
+    fi
     system_bytes="$(
         xargs -d '\n' cat < "$parts_list" \
             | tar -I zstd -tvf - "$system_image" \
@@ -1227,23 +1224,6 @@ apply_os() {
     [[ "$system_bytes" =~ ^[0-9]+$ \
         && "$system_bytes" -le "$(blockdev --getsize64 "$partlabel_dir/$app_label")" ]] \
         || die "OS rootfs image exceeds inactive partition"
-    write_bytes="$system_bytes"
-    writes=("$system_image $app_label $system_bytes")
-    for image_and_label in \
-        "$boot_image $kernel_label" \
-        "$dtb_image $dtb_label"; do
-        read -r image label <<< "$image_and_label"
-        image_size="$(
-            xargs -d '\n' cat < "$parts_list" \
-                | tar -I zstd -tvf - "$image" \
-                | awk '{ print $3 }'
-        )"
-        [[ "$image_size" =~ ^[0-9]+$ \
-            && "$image_size" -le "$(blockdev --getsize64 "$partlabel_dir/$label")" ]] \
-            || die "OS image exceeds inactive partition: $label"
-        write_bytes="$((write_bytes + image_size))"
-        writes+=("$image $label $image_size")
-    done
     restore_failed_slot_change() {
         local exit_code=$?
         trap - ERR
@@ -1252,9 +1232,8 @@ apply_os() {
             umount "$slot_mount" || true
             slot_root_mounted=false
         fi
-        if [[ "$slot_changed" == true ]]; then
-            "$nvbootctrl_path" -t rootfs set-active-boot-slot "$current_slot" \
-                || true
+        if [[ "$trial_set" == true ]]; then
+            bash "$boot_slot" cancel || true
         fi
         sed -i -E 's/^status=(writing|pending)$/status=failed/' \
             "$state_dir/os.env"
@@ -1269,15 +1248,10 @@ apply_os() {
     sync -f "$state_dir/os.env.tmp"
     mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
     sync -f "$state_dir"
-    written_bytes=0
-    for image_and_label in "${writes[@]}"; do
-        read -r image label image_size <<< "$image_and_label"
-        xargs -d '\n' cat < "$parts_list" \
-            | tar -I zstd -xOf - "$image" \
-            | python3 "$progress_helper" dd "$written_bytes" "$write_bytes" -- \
-                "$dd_path" of="$partlabel_dir/$label" bs=4M conv=fsync status=progress
-        written_bytes="$((written_bytes + image_size))"
-    done
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xOf - "$system_image" \
+        | python3 "$progress_helper" dd 0 "$system_bytes" -- \
+            "$dd_path" of="$partlabel_dir/$app_label" bs=4M conv=fsync status=progress
     report_progress validating
     e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
     findmnt -rn "$slot_mount" >/dev/null \
@@ -1287,6 +1261,13 @@ apply_os() {
     mount -o rw,nosuid,nodev,noexec \
         "$partlabel_dir/$app_label" "$slot_mount"
     slot_root_mounted=true
+    # Its validator must be able to commit the GRUB trial, or the device returns on the next reboot.
+    if [[ ! -f "$slot_mount/usr/libexec/lucia/lucia-boot-slot" \
+        || ! -s "$slot_mount/usr/share/lucia/boot/grubaa64.efi" \
+        || ! -f "$slot_mount/usr/lib/systemd/system/lucia-os-update-validation.service" ]]; then
+        printf 'Error: %s\n' "This OS image predates GRUB slot selection and cannot be activated." >&2
+        false
+    fi
     preserve_device_state "$slot_mount"
     python3 "$(dirname "${BASH_SOURCE[0]}")/lucia-rebind-rootfs.py" \
         "$slot_mount" "$target_uuid"
@@ -1295,14 +1276,16 @@ apply_os() {
     slot_root_mounted=false
     rmdir "$slot_mount"
     e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
+    # GRUB on the ESP comes from the running OS, which has already booted through it.
+    bash "$boot_slot" install "$grub_image" "$current_slot"
     printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\noperation_id=%s\nstatus=pending\nvalidation_token=%s\n' \
         "$current_slot" "$target_slot" "$version" "$selected_tag" "$operation_id" "$validation_token" \
         > "$state_dir/os.env.tmp"
     sync -f "$state_dir/os.env.tmp"
     mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
     sync -f "$state_dir"
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
-    slot_changed=true
+    trial_set=true
+    bash "$boot_slot" trial "$target_slot"
     rm -rf "$update_root/staging/$selected_tag"
     rm -rf "$parts_list" "$input_dir"
     report_progress restarting
@@ -1314,53 +1297,41 @@ apply_os() {
 rollback_os() {
     report_progress verifying
     bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout >/dev/null \
-        || die "RootFS A/B preflight failed; no rollback or reboot was requested."
+        || die "OS slot preflight failed; no rollback or reboot was requested."
     local state="$state_dir/os.env"
     local previous_slot
-    local target_slot
     local status
     local previous_operation_id
     local previous_validation_token
-    local previous_rollback_reason
     local had_operation_id=false
-    local had_rollback_reason=false
     local rollback_operation_id
     local rollback_validation_token
     local validation_credential
     local temporary="$state_dir/os.env.tmp"
     [[ -f "$state" ]] || die "no OS rollback is available"
     status="$(sed -n 's/^status=//p' "$state")"
-    [[ "$status" == "pending" || "$status" == "validated" ]] \
+    # An apply still awaiting validation is not committed yet; its own validator handles failure.
+    [[ "$status" == "validated" ]] \
         || die "OS rollback is not available in state: $status"
     previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
-    target_slot="$(sed -n 's/^target_slot=//p' "$state")"
     [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] \
         || die "OS rollback state is invalid"
-    [[ "$target_slot" == "0" || "$target_slot" == "1" ]] \
-        || die "OS rollback target state is invalid"
     if grep -q '^operation_id=' "$state"; then
         had_operation_id=true
     fi
     previous_operation_id="$(sed -n 's/^operation_id=//p' "$state")"
     previous_validation_token="$(sed -n 's/^validation_token=//p' "$state")"
-    if grep -q '^rollback_reason=' "$state"; then
-        had_rollback_reason=true
-    fi
-    previous_rollback_reason="$(sed -n 's/^rollback_reason=//p' "$state")"
     rollback_operation_id="${operation_id:-$previous_operation_id}"
     rollback_validation_token="$(cat /proc/sys/kernel/random/uuid)"
     rollback_failed() {
         local exit_code=$?
         trap - ERR
-        "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot" \
-            || true
+        bash "$boot_slot" cancel || true
         awk \
             -v restored_status="$status" \
             -v restored_operation_id="$previous_operation_id" \
             -v restored_validation_token="$previous_validation_token" \
-            -v restored_rollback_reason="$previous_rollback_reason" \
-            -v restore_operation_id="$had_operation_id" \
-            -v restore_rollback_reason="$had_rollback_reason" '
+            -v restore_operation_id="$had_operation_id" '
             /^status=rollback-pending$/ {
                 print "status=" restored_status
                 next
@@ -1373,12 +1344,6 @@ rollback_os() {
             }
             /^validation_token=/ {
                 print "validation_token=" restored_validation_token
-                next
-            }
-            /^rollback_reason=/ {
-                if (restore_rollback_reason == "true") {
-                    print "rollback_reason=" restored_rollback_reason
-                }
                 next
             }
             { print }
@@ -1400,10 +1365,7 @@ rollback_os() {
     awk \
         -v rollback_operation_id="$rollback_operation_id" \
         -v rollback_validation_token="$rollback_validation_token" '
-        BEGIN {
-            operation_id_written = 0
-            rollback_reason_written = 0
-        }
+        BEGIN { operation_id_written = 0 }
         /^status=(pending|validated)$/ {
             print "status=rollback-pending"
             next
@@ -1417,27 +1379,17 @@ rollback_os() {
             print "validation_token=" rollback_validation_token
             next
         }
-        /^rollback_reason=/ {
-            print "rollback_reason=requested"
-            rollback_reason_written = 1
-            next
-        }
-        /^reboot_attempts=/ { next }
         { print }
         END {
-            print "reboot_attempts=0"
             if (!operation_id_written && rollback_operation_id != "") {
                 print "operation_id=" rollback_operation_id
-            }
-            if (!rollback_reason_written) {
-                print "rollback_reason=requested"
             }
         }
     ' "$state" > "$temporary"
     sync -f "$temporary"
     mv -f "$temporary" "$state"
     sync -f "$state_dir"
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    bash "$boot_slot" trial "$previous_slot"
     report_progress restarting
     "$systemctl_path" --no-block reboot
     trap - ERR

@@ -279,6 +279,8 @@ export interface SetupStatus {
   hasHaApiKey?: boolean;
   haUrl: string | null;
   hasChatProvider: boolean;
+  /** Whether model telemetry records prompts and responses (ModelTelemetry:IncludeModelContent). */
+  includeModelContent: boolean;
   pluginValidated: boolean;
   setupComplete: boolean;
 }
@@ -327,6 +329,18 @@ export async function configureHomeAssistant(baseUrl: string, accessToken: strin
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Failed to configure HA: ${res.statusText}`);
+  }
+}
+
+export async function configureModelTelemetry(includeModelContent: boolean): Promise<void> {
+  const res = await fetch(`${BASE}/setup/configure-model-telemetry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ includeModelContent }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to save telemetry setting: ${res.statusText}`);
   }
 }
 

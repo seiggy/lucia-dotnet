@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import CustomSelect from '../components/CustomSelect'
+import ToggleSwitch from '../components/ToggleSwitch'
 import {
   fetchSetupStatus,
   generateDashboardKey,
   configureHomeAssistant,
+  configureModelTelemetry,
   testHaConnection,
   generateHaKey,
   fetchHaStatus,
@@ -21,9 +23,9 @@ import {
 import type { SetupStatus, GenerateKeyResponse, TestHaConnectionResponse, AgentStatusResponse } from '../api'
 import type { ProviderType, ModelPurpose, ModelAuthConfig, ModelProvider } from '../types'
 import { copyTextToClipboard } from '../utils/copy-text'
-import { Sparkles, ArrowRight, Key, Plug, CheckCircle2, Copy, Check, Loader2, Radio, Brain, Cpu, Trash2, FlaskConical } from 'lucide-react'
+import { Sparkles, ArrowRight, Key, Plug, CheckCircle2, Copy, Check, Loader2, Radio, Brain, Cpu, Trash2, FlaskConical, Activity } from 'lucide-react'
 
-type WizardStep = 'welcome' | 'lucia-ha' | 'ai-providers' | 'agent-status' | 'ha-plugin' | 'done'
+type WizardStep = 'welcome' | 'lucia-ha' | 'model-telemetry' | 'ai-providers' | 'agent-status' | 'ha-plugin' | 'done'
 
 export default function SetupPage() {
   const { refresh, login, authenticated: authFromContext } = useAuth()
@@ -66,8 +68,14 @@ export default function SetupPage() {
               authFromContext={authFromContext}
               onComplete={(s) => {
                 setStatus(s)
-                setStep('ai-providers')
+                setStep('model-telemetry')
               }}
+            />
+          )}
+          {step === 'model-telemetry' && (
+            <ModelTelemetryStep
+              initialIncludeContent={status?.includeModelContent ?? true}
+              onComplete={() => setStep('ai-providers')}
             />
           )}
           {step === 'ai-providers' && (
@@ -103,6 +111,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
   const steps: { key: WizardStep; label: string; icon: typeof Sparkles }[] = [
     { key: 'welcome', label: 'Welcome', icon: Sparkles },
     { key: 'lucia-ha', label: 'Configure', icon: Key },
+    { key: 'model-telemetry', label: 'Telemetry', icon: Activity },
     { key: 'ai-providers', label: 'AI Provider', icon: Brain },
     { key: 'agent-status', label: 'Agents', icon: Cpu },
     { key: 'ha-plugin', label: 'Connect', icon: Plug },
@@ -129,7 +138,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
                 {s.label}
               </span>
             </div>
-            {i < steps.length - 1 && <div className={`mx-1 h-px flex-1 self-start mt-3.5 sm:mt-4 min-w-3 sm:mx-2 ${active ? 'bg-amber/30' : 'bg-stone'}`} />}
+            {i < steps.length - 1 && <div className={`mx-0.5 h-px flex-1 self-start mt-3.5 sm:mt-4 min-w-2 sm:min-w-3 sm:mx-2 ${active ? 'bg-amber/30' : 'bg-stone'}`} />}
           </div>
         )
       })}
@@ -164,6 +173,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         <ol className="list-inside list-decimal space-y-2 text-fog">
           <li>Generate an API key for the Lucia dashboard</li>
           <li>Connect Lucia to your Home Assistant instance</li>
+          <li>Choose what model telemetry records</li>
           <li>Configure an AI model provider for your agents</li>
           <li>Set up the Home Assistant plugin to talk back to Lucia</li>
         </ol>
@@ -474,6 +484,105 @@ function LuciaHaStep({
         >
           Next
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── Step 2b: Model telemetry ────────────────────────── */
+
+function ModelTelemetryStep({
+  initialIncludeContent,
+  onComplete,
+}: {
+  initialIncludeContent: boolean
+  onComplete: () => void
+}) {
+  const [includeContent, setIncludeContent] = useState(initialIncludeContent)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  async function handleNext() {
+    setBusy(true)
+    setError('')
+    try {
+      await configureModelTelemetry(includeContent)
+      onComplete()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save the telemetry setting')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-display text-xl font-semibold text-light">Model telemetry</h2>
+        <p className="mt-2 text-sm text-fog">
+          Lucia traces every call it makes to an AI model. Decide whether those traces also record
+          what was said. You can change this later.
+        </p>
+      </div>
+
+      <section className="rounded-xl border border-stone bg-basalt/50 p-5">
+        <div className="flex items-center justify-between gap-4">
+          <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-light">
+            <Activity className="h-4 w-4 shrink-0 text-amber" aria-hidden="true" /> Record prompts and responses
+          </h3>
+          <ToggleSwitch
+            checked={includeContent}
+            onChange={setIncludeContent}
+            disabled={busy}
+            label="Record prompts and responses"
+          />
+        </div>
+        <p className="mt-1 text-sm text-fog">
+          Adds the messages Lucia sends to the model, its replies and tool-call arguments to
+          OpenTelemetry traces and Trace-level logs.
+        </p>
+
+        <dl className="mt-5 grid gap-4 border-t border-stone pt-4 text-sm sm:grid-cols-2">
+          <div>
+            <dt className={`font-medium transition-colors ${includeContent ? 'text-amber' : 'text-dust'}`}>
+              When on
+            </dt>
+            <dd className={`mt-1 transition-colors ${includeContent ? 'text-fog' : 'text-dust'}`}>
+              Open a trace and read the exact conversation the model saw. Use it to troubleshoot an
+              agent or to collect training data.
+            </dd>
+          </div>
+          <div>
+            <dt className={`font-medium transition-colors ${includeContent ? 'text-dust' : 'text-amber'}`}>
+              When off
+            </dt>
+            <dd className={`mt-1 transition-colors ${includeContent ? 'text-dust' : 'text-fog'}`}>
+              Traces keep timing, model name, token usage and errors. Message content is left out.
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <p className="text-xs text-dust">
+        Prompts can include names, what is happening at home and anything said to Lucia. Traces go
+        to the telemetry collector you run, so anyone who can open it can read them. To change this
+        after setup, edit the ModelTelemetry section on the Configuration page and restart Lucia.
+      </p>
+
+      {error && (
+        <div className="rounded-xl border border-ember/30 bg-ember/10 px-4 py-2.5 text-sm text-rose">
+          {error}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={handleNext}
+          disabled={busy}
+          className={`group inline-flex items-center gap-2 ${btnPrimary}`}
+        >
+          {busy ? 'Saving...' : 'Next'}
+          {!busy && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
         </button>
       </div>
     </div>

@@ -37,6 +37,9 @@ RUNTIME_PACKAGES=(
     "b53e8b99a788183e41419fcb835b38b1e1a8755fa031f67bd7abfe074d6080c2 https://ports.ubuntu.com/ubuntu-ports/pool/main/c/curl/libcurl4_7.81.0-1ubuntu1.30_arm64.deb"
     "03b395f721ec4965385a4d8c4e5b7b21207b416bd2de36a6081fe152f650fceb https://ports.ubuntu.com/ubuntu-ports/pool/main/c/curl/curl_7.81.0-1ubuntu1.30_arm64.deb"
 )
+# GRUB modules for the OS slot selector; grub-mkstandalone comes from the image's grub-common.
+GRUB_EFI_ARM64_URL=https://ports.ubuntu.com/ubuntu-ports/pool/main/g/grub2-unsigned/grub-efi-arm64-bin_2.06-2ubuntu14.8_arm64.deb
+GRUB_EFI_ARM64_SHA256=b07844c4fee026737ce87d0ebf735868073656d3b78989bc5e9f2ed378af9185
 GH_CLI_VERSION=2.99.0
 GH_CLI_URL=https://github.com/cli/cli/releases/download/v2.99.0/gh_2.99.0_linux_arm64.tar.gz
 GH_CLI_SHA256=564eff56a61e8caf193efde16937fba879eb62a3a479c9dd6be2001e7647680b

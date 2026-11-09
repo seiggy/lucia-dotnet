@@ -282,7 +282,8 @@ public sealed class WorkflowFactory
         var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
         var router = new RouterExecutor(chatClient, _agentRegistry, routerLogger, _telemetrySource, _routerOptions, _promptCache);
         var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, chatClient, _observer);
-        var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions, personalityChatClient, personalityInstructions, speakerContext);
+        var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions, personalityChatClient,
+            personalityInstructions, speakerContext, personalityOpts.EffectiveMaxOutputTokens);
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
         if (!string.IsNullOrWhiteSpace(originalUserText))

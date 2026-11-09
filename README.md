@@ -935,10 +935,10 @@ Lucia can run natively on a Jetson Orin Nano Super without Docker. The
 experimental microSD installer provisions A/B Jetson Linux 36.5.2 slots, a
 versioned Lucia partition, persistent Redis and SQLite data, captive setup, and
 appliance management.
-The disk image creates both OS partitions but does not enable RootFS A/B in the
-Jetson's boot firmware. The installer warns when firmware readiness is unverified.
-OS updates require verified redundancy and a consistent boot layout; Lucia-only
-updates remain available.
+The installer writes both OS partitions. OS updates write the inactive partition
+and Lucia boots it once through GRUB, which NVIDIA's UEFI launcher supports on
+stock firmware; the new OS is committed only after it passes health checks, and
+any failed boot returns to the previous OS. No firmware flash is needed.
 
 The recovery password chosen during setup signs in as `lucia-recovery` over
 SSH or at the local console and authorizes sudo. Direct root SSH login is
@@ -1021,6 +1021,19 @@ Lucia includes OpenTelemetry instrumentation out of the box via the `lucia.Servi
 - **Logs** — Structured logging with correlation IDs and agent-specific filtering
 
 The Aspire Dashboard provides built-in log aggregation, trace visualization, and metrics during development. Lucia's own Activity Dashboard shows a live agent mesh graph and real-time event stream. For production, export to Prometheus, Grafana, Jaeger, or any OTLP-compatible backend.
+
+Model-provider telemetry records prompts and responses by default, as earlier
+releases did, which helps with troubleshooting and collecting training data. The
+setup wizard explains this and lets you turn it off. Upgraded installs keep it on.
+To change it later, set `ModelTelemetry:IncludeModelContent` on the Configuration
+page and restart Lucia. With it off, traces keep model metadata, timing, token
+usage and errors without message content.
+
+Personality rewrites share a configurable `PersonalityPrompt:MaxOutputTokens`
+output ceiling. Missing or blank values fall back to 4096 tokens. A rewrite that
+reaches its output limit returns the original response instead of partial text.
+See [model telemetry privacy and personality limits](docs/MODEL_PRIVACY_AND_PERSONALITY.md)
+for configuration, scope and tests.
 
 ## 🗺️ Roadmap
 

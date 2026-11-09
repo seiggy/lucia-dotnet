@@ -48,6 +48,10 @@ if [[ "$*" == "is-enabled --quiet lucia-redis-exporter.service" ]]; then
     [[ -e "${LUCIA_TEST_EXPORTER_ENABLED:-}" ]]
     exit $?
 fi
+if [[ "$*" == "is-enabled --quiet lucia-otelcol.service" ]]; then
+    [[ -e "${LUCIA_TEST_COLLECTOR_ENABLED:-}" ]]
+    exit $?
+fi
 if [[ "$*" == "start lucia-redis-exporter.service" \
         && -e "${LUCIA_TEST_HANG_EXPORTER_START:-}" ]]; then
     printf '%s\n' "$$" > "$LUCIA_TEST_HANG_EXPORTER_START"
@@ -606,6 +610,16 @@ status="$(
         --data '{"tag":null}' \
         http://localhost/v1/updates/os/rollback
 )"
+[[ "$status" == "409" ]]
+printf 'status=validated\n' > "$work_dir/updates/state/os.env"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":null}' \
+        http://localhost/v1/updates/os/rollback
+)"
 [[ "$status" == "202" ]]
 for _ in {1..40}; do
     curl --silent --output "$work_dir/response.json" \
@@ -876,6 +890,8 @@ start_restarted_manager() {
         LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
         LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
         LUCIA_TEST_EXPORTER_ENABLED="$work_dir/exporter-enabled" \
+        LUCIA_TEST_COLLECTOR_ENABLED="$work_dir/collector-enabled" \
+        LUCIA_TELEMETRY_ENV_PATH="$work_dir/restarted-telemetry.env" \
         "$fault_variable=$fault_file" \
         "${manager_command[@]}" > "$work_dir/restarted.log" 2>&1 &
     manager_pid=$!
@@ -942,3 +958,34 @@ if kill -0 "$hung_systemctl" 2>/dev/null; then
 fi
 rm "$work_dir/hang-exporter-start"
 echo "PASS: a stalled exporter start does not block the manager socket and times out"
+
+# telemetry.env is shared by both OS slots; systemd enablement is per slot.
+wait_for_telemetry_enable() {
+    for _ in {1..80}; do
+        if [[ "$(grep -c '^enable --now lucia-redis-exporter.service lucia-otelcol.service$' "$systemctl_log")" -gt "$1" ]]; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    return 1
+}
+kill "$manager_pid"
+wait "$manager_pid" 2>/dev/null || true
+printf 'LUCIA_TELEMETRY_ENABLED=true\n' > "$work_dir/restarted-telemetry.env"
+touch "$work_dir/exporter-enabled"
+enables="$(grep -c '^enable --now lucia-redis-exporter.service lucia-otelcol.service$' "$systemctl_log" || true)"
+start_restarted_manager LUCIA_TEST_UNUSED "$work_dir/unused"
+if ! wait_for_telemetry_enable "$enables"; then
+    cat "$work_dir/restarted.log" >&2
+    echo "Manager startup did not enable telemetry services missing from this OS slot" >&2
+    exit 1
+fi
+kill "$manager_pid"
+wait "$manager_pid" 2>/dev/null || true
+touch "$work_dir/collector-enabled"
+enables="$(grep -c '^enable --now lucia-redis-exporter.service lucia-otelcol.service$' "$systemctl_log")"
+start_restarted_manager LUCIA_TEST_UNUSED "$work_dir/unused"
+sleep 2
+[[ "$(grep -c '^enable --now lucia-redis-exporter.service lucia-otelcol.service$' "$systemctl_log")" == "$enables" ]]
+rm "$work_dir/collector-enabled" "$work_dir/exporter-enabled" "$work_dir/restarted-telemetry.env"
+echo "PASS: manager startup re-enables telemetry services only when the slot disagrees with telemetry.env"

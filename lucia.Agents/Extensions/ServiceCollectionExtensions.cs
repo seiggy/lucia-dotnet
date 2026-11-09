@@ -100,9 +100,14 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection("ResultAggregator")
         );
 
-        builder.Services.Configure<PersonalityPromptOptions>(
-            builder.Configuration.GetSection("PersonalityPrompt")
-        );
+        builder.Services.AddOptions<PersonalityPromptOptions>()
+            .Bind(builder.Configuration.GetSection("PersonalityPrompt"))
+            .Validate(options => options.MaxOutputTokens is null or > 0,
+                "PersonalityPrompt:MaxOutputTokens must be positive when configured.")
+            .ValidateOnStart();
+
+        builder.Services.Configure<ModelTelemetryOptions>(
+            builder.Configuration.GetSection(ModelTelemetryOptions.SectionName));
 
         builder.Services.Configure<HomeAssistantOptions>(
             builder.Configuration.GetSection("HomeAssistant"));

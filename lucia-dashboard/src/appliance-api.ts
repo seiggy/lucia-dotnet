@@ -127,7 +127,7 @@ function parseStatus(value: unknown): ApplianceStatus {
   const os = requireRecord(status.os, 'OS status')
   const network = requireRecord(status.network, 'network status')
   if (os.rootfsAbEnabled != null && typeof os.rootfsAbEnabled !== 'boolean') {
-    throw new Error('The appliance returned invalid RootFS A/B status.')
+    throw new Error('The appliance returned invalid OS slot status.')
   }
   if (os.updateBlockReason != null && typeof os.updateBlockReason !== 'string') {
     throw new Error('The appliance returned an invalid OS update prerequisite.')

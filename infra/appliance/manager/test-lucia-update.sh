@@ -15,6 +15,9 @@ cleanup() {
     if mountpoint -q "$work/current-root"; then
         umount "$work/current-root"
     fi
+    if mountpoint -q "$work/esp"; then
+        umount "$work/esp"
+    fi
     [[ -z "$loop_device" ]] || losetup --detach "$loop_device" 2>/dev/null || true
     rm -rf "$work"
 }
@@ -107,22 +110,28 @@ set -euo pipefail
 EOF
 chmod +x "$work/bin/nm-online"
 
-cat > "$work/bin/nvbootctrl" <<'EOF'
+cat > "$work/bin/grub-editenv" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$*" == "-t rootfs is-rootfs-ab-enabled" ]]; then
-    exit "$(( $(cat "$LUCIA_TEST_CURRENT_SLOT") + 1 ))"
-elif [[ "$*" == "-t rootfs get-current-slot" || "$*" == "get-current-slot" ]]; then
-    cat "$LUCIA_TEST_CURRENT_SLOT"
-elif [[ "$*" == "verify" ]]; then
-    touch "$LUCIA_TEST_BOOT_SUCCESSFUL"
-elif [[ "$*" == "-t rootfs set-active-boot-slot "* ]]; then
-    printf '%s\n' "${*: -1}" > "$LUCIA_TEST_ACTIVE_SLOT"
-else
-    exit 2
-fi
+file="$1"
+command="$2"
+shift 2
+case "$command" in
+    create) : > "$file" ;;
+    set)
+        for pair in "$@"; do
+            grep -v "^${pair%%=*}=" "$file" > "$file.new" || true
+            printf '%s\n' "$pair" >> "$file.new"
+            mv "$file.new" "$file"
+        done
+        ;;
+    *) exit 2 ;;
+esac
 EOF
-chmod +x "$work/bin/nvbootctrl"
+chmod +x "$work/bin/grub-editenv"
+grub_env() {
+    sed -n "s/^$1=//p" "$work/esp/EFI/BOOT/lucia.env"
+}
 cat > "$work/bin/dd" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -196,7 +205,6 @@ run_update() {
     LUCIA_TRUSTED_ROOT_PATH="$work/trusted-root.jsonl" \
     LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
     LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
     LUCIA_DD_PATH="$work/bin/dd" \
     LUCIA_PARTLABEL_DIR="$work/by-partlabel" \
     LUCIA_ROOTFS_MOUNT="$work/current-root" \
@@ -219,9 +227,6 @@ run_update() {
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
     LUCIA_TEST_CURL_LOG="$work/curl.log" \
     LUCIA_TEST_REJECT_ATTESTATION="$work/reject-attestation" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
     LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_TEST_FAIL_DD_FILE="$work/fail-dd" \
@@ -536,27 +541,33 @@ truncate --size 384M "$work/disk.img"
 sgdisk \
     --new=1:2048:+96M --change-name=1:APP \
     --new=2:0:+96M --change-name=2:APP_b \
-    --new=3:0:+16M --change-name=3:A_kernel \
-    --new=4:0:+16M --change-name=4:B_kernel \
-    --new=5:0:+4M --change-name=5:A_kernel-dtb \
-    --new=6:0:+4M --change-name=6:B_kernel-dtb \
+    --new=3:0:+16M --change-name=3:esp \
     "$work/disk.img" >/dev/null
 loop_device="$(losetup --find --show --partscan "$work/disk.img")"
 udevadm settle
-mkdir -p "$work/by-partlabel" "$work/os-payload"
+mkdir -p "$work/by-partlabel" "$work/os-payload" "$work/sysblock"
 for entry in \
-    "APP ${loop_device}p1" \
-    "APP_b ${loop_device}p2" \
-    "A_kernel ${loop_device}p3" \
-    "B_kernel ${loop_device}p4" \
-    "A_kernel-dtb ${loop_device}p5" \
-    "B_kernel-dtb ${loop_device}p6"; do
-    read -r label device <<< "$entry"
+    "APP ${loop_device}p1 1" \
+    "APP_b ${loop_device}p2 2" \
+    "esp ${loop_device}p3 3"; do
+    read -r label device number <<< "$entry"
     read -r major minor < <(
         tr ':' ' ' < "/sys/class/block/${device#/dev/}/dev"
     )
     mknod "$work/by-partlabel/$label" b "$major" "$minor"
+    mkdir -p "$work/sysblock/$label"
+    printf '%s\n' "$number" > "$work/sysblock/$label/partition"
 done
+mkfs.ext4 -q -F "${loop_device}p3"
+mkdir "$work/esp"
+mount "${loop_device}p3" "$work/esp"
+mkdir -p "$work/esp/EFI/BOOT"
+printf 'grub-test\n' > "$work/grubaa64.efi"
+export LUCIA_ESP_MOUNT="$work/esp"
+export LUCIA_GRUB_IMAGE_PATH="$work/grubaa64.efi"
+export LUCIA_GRUB_EDITENV_PATH="$work/bin/grub-editenv"
+export LUCIA_SYS_CLASS_BLOCK="$work/sysblock"
+export LUCIA_HOST_HOME="$work/host-home"
 truncate --size 64M "$work/os-payload/system.img_b"
 mkfs.ext4 -q -F "$work/os-payload/system.img_b"
 mkdir -p "$work/os-image-root"
@@ -564,6 +575,9 @@ mount -o loop "$work/os-payload/system.img_b" "$work/os-image-root"
 mounted_path="$work/os-image-root"
 mkdir -p \
     "$work/os-image-root/etc/NetworkManager/system-connections" \
+    "$work/os-image-root/etc/ssh" \
+    "$work/os-image-root/etc/systemd/system/multi-user.target.wants" \
+    "$work/os-image-root/home/lucia-recovery" \
     "$work/os-image-root/boot/extlinux"
 printf 'DEFAULT primary\nLABEL primary\n LINUX /boot/Image\n APPEND root=PARTUUID=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa rw\n' \
     > "$work/os-image-root/boot/extlinux/extlinux.conf"
@@ -575,14 +589,25 @@ printf '127.0.0.1 localhost\n127.0.1.1 factory\n' \
 printf 'root:*:20000:0:99999:7:::\nlucia-recovery:!:20000:0:99999:7:::\n' \
     > "$work/os-image-root/etc/shadow"
 chmod 0640 "$work/os-image-root/etc/shadow"
+printf 'factory-key\n' > "$work/os-image-root/etc/ssh/ssh_host_ed25519_key"
+chown 1000:1000 "$work/os-image-root/home/lucia-recovery"
+umount "$work/os-image-root"
+tar -I zstd -cf "$work/os-legacy.tar.zst" -C "$work/os-payload" system.img_b
+mount -o loop "$work/os-payload/system.img_b" "$work/os-image-root"
+mkdir -p "$work/os-image-root/usr/libexec/lucia" \
+    "$work/os-image-root/usr/share/lucia/boot" \
+    "$work/os-image-root/usr/lib/systemd/system"
+install -m 0755 /dev/null "$work/os-image-root/usr/libexec/lucia/lucia-boot-slot"
+printf 'grub-image\n' > "$work/os-image-root/usr/share/lucia/boot/grubaa64.efi"
+: > "$work/os-image-root/usr/lib/systemd/system/lucia-os-update-validation.service"
 umount "$work/os-image-root"
 mounted_path=""
 mkfs.ext4 -q -F "${loop_device}p1"
 mkdir "$work/current-root"
 mount "${loop_device}p1" "$work/current-root"
 mkdir "$work/efivars"
-printf '\x07\x00\x00\x00\x01\x00\x00\x00' \
-    > "$work/efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
+mode_file="$work/efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
+printf '\x07\x00\x00\x00\x01\x00\x00\x00' > "$mode_file"
 printf 'root=PARTUUID=%s rw\n' "$(blkid -s PARTUUID -o value "${loop_device}p1")" > "$work/cmdline"
 printf 'lucia-kitchen\n' > "$work/host-etc/hostname"
 printf '0123456789abcdef0123456789abcdef\n' \
@@ -591,14 +616,20 @@ printf '127.0.0.1 localhost\n127.0.1.1 lucia-kitchen\n' \
     > "$work/host-etc/hosts"
 printf 'root:*:20000:0:99999:7:::\nlucia-recovery:$6$device$hash:20000:0:99999:7:::\n' \
     > "$work/host-etc/shadow"
+printf 'PARTUUID=old / ext4 defaults 0 1\nUUID=2918-66A7 /boot/efi vfat defaults 0 1\n' \
+    > "$work/host-etc/fstab"
 printf '[connection]\nid=lucia-home\n\n[wifi]\nssid=HouseNet\n' \
     > "$work/host-etc/NetworkManager/system-connections/lucia-home.nmconnection"
 chmod 0600 \
     "$work/host-etc/NetworkManager/system-connections/lucia-home.nmconnection"
-printf 'boot-b\n' > "$work/os-payload/boot.img_b"
-printf 'dtb-b\n' > "$work/os-payload/kernel_test.dtb"
-tar -I zstd -cf "$work/os.tar.zst" -C "$work/os-payload" \
-    system.img_b boot.img_b kernel_test.dtb
+mkdir -p "$work/host-etc/ssh" "$work/host-home/lucia-recovery/.ssh" \
+    "$work/host-etc/systemd/system/multi-user.target.wants"
+ln -s /usr/lib/systemd/system/lucia-otelcol.service \
+    "$work/host-etc/systemd/system/multi-user.target.wants/lucia-otelcol.service"
+printf 'device-key\n' > "$work/host-etc/ssh/ssh_host_ed25519_key"
+printf 'device-key.pub\n' > "$work/host-etc/ssh/ssh_host_ed25519_key.pub"
+printf 'ssh-ed25519 AAAA owner\n' > "$work/host-home/lucia-recovery/.ssh/authorized_keys"
+tar -I zstd -cf "$work/os.tar.zst" -C "$work/os-payload" system.img_b
 write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 printf '0\n' > "$work/current-slot"
 run_rootfs_check() {
@@ -606,15 +637,12 @@ run_rootfs_check() {
     LUCIA_EFIVARS_PATH="$work/efivars" \
     LUCIA_CMDLINE_PATH="$work/cmdline" \
     LUCIA_PARTLABEL_DIR="$work/by-partlabel" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
         bash "$(dirname "$updater")/lucia-rootfs-ab-check" --layout
 }
 [[ "$(run_rootfs_check)" == 0 ]]
-mode_file="$work/efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
 printf '\x07\x00\x00\x00\x02\x00\x00\x00' > "$mode_file"
 if run_rootfs_check; then
-    echo "Partition-based boot was accepted by an extlinux updater" >&2
+    echo "Partition-based boot was accepted by the GRUB slot updater" >&2
     exit 1
 fi
 printf '\x07\x00\x00\x00\x01\x00\x00\x00' > "$mode_file"
@@ -625,13 +653,13 @@ if run_rootfs_check; then
     exit 1
 fi
 mv "$work/cmdline.good" "$work/cmdline"
-printf '1\n' > "$work/current-slot"
+umount "$work/esp"
 if run_rootfs_check; then
-    echo "A mismatched mounted root slot was accepted" >&2
+    echo "OS updates were allowed without a mounted EFI system partition" >&2
     exit 1
 fi
-printf '0\n' > "$work/current-slot"
-echo "PASS: rootfs preflight rejects inconsistent roots and unsupported boot modes"
+mount "${loop_device}p3" "$work/esp"
+echo "PASS: OS slot preflight rejects inconsistent roots, boot modes and missing ESPs"
 printf 'previous_slot=1\ntarget_slot=0\nversion=1.0.0\ntag=v1.0.0\nstatus=validated\nvalidation_token=00000000-0000-0000-0000-000000000000\n' \
     > "$work/updates/state/os.env"
 cat > "$work/bin/blkid" <<'EOF'
@@ -661,11 +689,30 @@ fi
 rm "$work/fail-dd"
 grep -qx 'status=failed' "$work/updates/state/os.env"
 [[ ! -e "$work/updates/state/validation.key" ]]
+[[ ! -e "$work/esp/EFI/BOOT/lucia.env" ]]
+write_manifest os v1.1.0 1.1.0 "$work/os-legacy.tar.zst"
+if output="$(run_update apply os v1.1.0 2>&1)"; then
+    echo "An OS image without GRUB slot helpers was activated" >&2
+    exit 1
+fi
+grep -q 'predates GRUB slot selection' <<< "$output"
+grep -qx 'status=failed' "$work/updates/state/os.env"
+[[ ! -e "$work/esp/EFI/BOOT/lucia.env" ]]
+echo "PASS: OS images without GRUB slot helpers are not activated"
 write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 
 run_update apply os v1.1.0
+if run_update rollback os; then
+    echo "OS rollback was accepted before the update was validated" >&2
+    exit 1
+fi
+grep -qx 'status=pending' "$work/updates/state/os.env"
+[[ "$(grub_env lucia_trial)" == b ]]
 [[ "$(stat --format '%a' "$work/updates/state/os.env")" == "600" ]]
-[[ "$(cat "$work/active-slot")" == "1" ]]
+[[ "$(grub_env lucia_slot)" == a && "$(grub_env lucia_trial)" == b ]]
+[[ "$(grub_env lucia_a)" == gpt1 && "$(grub_env lucia_b)" == gpt2 ]]
+grep -qx 'grub-test' "$work/esp/EFI/BOOT/grubaa64.efi"
+[[ "$(od -An -j4 -N4 -tu4 "$mode_file" | tr -d '[:space:]')" == 0 ]]
 e2fsck -fn "$work/by-partlabel/APP_b" >/dev/null
 mkdir -p "$work/updated-slot"
 mount "$work/by-partlabel/APP_b" "$work/updated-slot"
@@ -678,6 +725,16 @@ grep -q '^lucia-recovery:\$6\$device\$hash:' \
     "$work/updated-slot/etc/shadow"
 grep -qx 'ssid=HouseNet' \
     "$work/updated-slot/etc/NetworkManager/system-connections/lucia-home.nmconnection"
+grep -qx 'device-key' "$work/updated-slot/etc/ssh/ssh_host_ed25519_key"
+[[ "$(stat --format '%a' "$work/updated-slot/etc/ssh/ssh_host_ed25519_key")" == "600" ]]
+grep -qx 'device-key.pub' "$work/updated-slot/etc/ssh/ssh_host_ed25519_key.pub"
+grep -qx 'ssh-ed25519 AAAA owner' \
+    "$work/updated-slot/home/lucia-recovery/.ssh/authorized_keys"
+[[ "$(stat --format '%u %a' "$work/updated-slot/home/lucia-recovery/.ssh/authorized_keys")" == "1000 600" ]]
+grep -qx 'UUID=2918-66A7 /boot/efi vfat defaults 0 1' "$work/updated-slot/etc/fstab"
+wants="$work/updated-slot/etc/systemd/system/multi-user.target.wants"
+[[ "$(readlink "$wants/lucia-otelcol.service")" == /usr/lib/systemd/system/lucia-otelcol.service ]]
+[[ ! -e "$wants/lucia-redis-exporter.service" && ! -L "$wants/lucia-redis-exporter.service" ]]
 target_uuid="$(blkid -s PARTUUID -o value "$work/by-partlabel/APP_b")"
 grep -q "root=PARTUUID=$target_uuid" "$work/updated-slot/boot/extlinux/extlinux.conf"
 grep -q "^PARTUUID=$target_uuid / " "$work/updated-slot/etc/fstab"
@@ -686,45 +743,37 @@ grep -q "^PARTUUID=$target_uuid / " "$work/updated-slot/etc/fstab"
     == "600" ]]
 umount "$work/updated-slot"
 mounted_path=""
-[[ "$(dd if="$work/by-partlabel/B_kernel" bs=7 count=1 status=none)" == "boot-b" ]]
-[[ "$(dd if="$work/by-partlabel/B_kernel-dtb" bs=6 count=1 status=none)" == "dtb-b" ]]
 grep -qx -- '--no-block reboot' "$work/systemctl.log"
+# Boot recovery runs before OS validation on the new slot and must keep its credential.
+run_update recover lucia
+[[ -r "$work/updates/state/validation.key" ]]
+
+validate_os() {
+    LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+    LUCIA_UPDATE_HEALTH_ATTEMPTS="${LUCIA_TEST_HEALTH_ATTEMPTS:-1}" \
+    LUCIA_UPDATE_HEALTH_DELAY_SECONDS="${LUCIA_TEST_HEALTH_DELAY:-0}" \
+        run_os_validator
+}
+reboot_count() {
+    grep -cx -- '--no-block reboot' "$work/systemctl.log" || true
+}
 printf '1\n' > "$work/current-slot"
-if LUCIA_UPDATE_ROOT="$work/updates" \
-        LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-        LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-        LUCIA_CURL_PATH="$work/bin/curl" \
-        LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-        LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-        LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-        LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-        LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-        LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-        LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-        LUCIA_UPDATE_HEALTH_ATTEMPTS=30 \
-        LUCIA_UPDATE_HEALTH_DELAY_SECONDS=2 \
-        run_os_validator; then
+if LUCIA_TEST_HEALTH_ATTEMPTS=30 LUCIA_TEST_HEALTH_DELAY=2 validate_os; then
     echo "OS validation accepted a retry budget beyond its service timeout" >&2
     exit 1
 fi
 grep -qx 'status=pending' "$work/updates/state/os.env"
-LUCIA_UPDATE_ROOT="$work/updates" \
-LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-LUCIA_CURL_PATH="$work/bin/curl" \
-LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
-LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-    run_os_validator
+validate_os
 grep -qx 'status=validated' "$work/updates/state/os.env"
 grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
-[[ -e "$work/boot-successful" ]]
+[[ "$(grub_env lucia_slot)" == b && -z "$(grub_env lucia_trial)" ]]
 
 apply_operation_id="11111111-1111-1111-1111-111111111111"
 rollback_operation_id="22222222-2222-2222-2222-222222222222"
@@ -744,12 +793,11 @@ grep -qx "operation_id=$apply_operation_id" "$work/updates/state/os.env"
 grep -qx "validation_token=$apply_validation_token" \
     "$work/updates/state/os.env"
 [[ ! -e "$work/updates/state/validation.key" ]]
-[[ "$(cat "$work/active-slot")" == "1" ]]
+[[ "$(grub_env lucia_slot)" == b && -z "$(grub_env lucia_trial)" ]]
 LUCIA_TEST_OPERATION_ID="$rollback_operation_id" run_update rollback os
-[[ "$(cat "$work/active-slot")" == "0" ]]
+[[ "$(grub_env lucia_trial)" == a ]]
 grep -qx 'stop lucia-os-update-validation.service' "$work/systemctl.log"
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
-grep -qx 'rollback_reason=requested' "$work/updates/state/os.env"
 grep -qx "operation_id=$rollback_operation_id" \
     "$work/updates/state/os.env"
 rollback_validation_token="$(
@@ -757,175 +805,58 @@ rollback_validation_token="$(
 )"
 [[ "$rollback_validation_token" != "$apply_validation_token" ]]
 [[ -r "$work/updates/state/validation.key" ]]
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-        run_os_validator
-grep -q '"Status":"running"' "$work/updates/state/operation.json"
 printf '0\n' > "$work/current-slot"
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-        run_os_validator
+validate_os
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q "\"OperationId\":\"$rollback_operation_id\"" \
     "$work/updates/state/operation.json"
+[[ "$(grub_env lucia_slot)" == a && -z "$(grub_env lucia_trial)" ]]
 
-echo "PASS: OS update writes only the inactive slot and reverses boot selection"
+echo "PASS: OS update writes only the inactive slot and boots it once through GRUB"
 
 write_manifest os v1.2.0 1.2.0 "$work/os.tar.zst"
-printf '0\n' > "$work/current-slot"
 run_update apply os v1.2.0
+[[ "$(grub_env lucia_trial)" == b ]]
+reboots_before="$(reboot_count)"
 printf '1\n' > "$work/current-slot"
 touch "$work/fail-network"
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
-    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        run_os_validator
+validate_os
 rm "$work/fail-network"
-[[ "$(cat "$work/active-slot")" == "0" ]]
-grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
-grep -qx 'rollback_reason=apply-failure' "$work/updates/state/os.env"
-grep -q '"Status":"running"' "$work/updates/state/operation.json"
-printf '0\n' > "$work/current-slot"
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-        run_os_validator
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q '"Action":"apply".*"Status":"failed"' \
     "$work/updates/state/operation.json"
+[[ "$(grub_env lucia_slot)" == a && -z "$(grub_env lucia_trial)" ]]
+[[ "$(reboot_count)" == "$((reboots_before + 1))" ]]
+validate_os
+[[ "$(reboot_count)" == "$((reboots_before + 1))" ]]
 if run_update rollback os; then
     echo "Completed OS rollback was accepted again" >&2
     exit 1
 fi
 
-echo "PASS: unhealthy OS slot selects its predecessor before reboot"
+echo "PASS: unhealthy OS slot reboots into its committed predecessor"
 
 printf 'previous_slot=0\ntarget_slot=1\nversion=1.2.0\ntag=v1.2.0\noperation_id=33333333-3333-3333-3333-333333333333\nstatus=pending\nvalidation_token=44444444-4444-4444-4444-444444444444\n' \
     > "$work/updates/state/os.env"
 rm -f "$work/updates/state/validation.key"
+reboots_before="$(reboot_count)"
 printf '1\n' > "$work/current-slot"
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
-    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        run_os_validator
-grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
-[[ "$(cat "$work/active-slot")" == "0" ]]
+validate_os
+grep -qx 'status=rolled-back' "$work/updates/state/os.env"
+[[ "$(reboot_count)" == "$((reboots_before + 1))" ]]
 
-echo "PASS: missing OS validation credentials schedule rollback"
-
-printf 'previous_slot=0\ntarget_slot=1\nversion=1.2.0\ntag=v1.2.0\noperation_id=55555555-5555-5555-5555-555555555555\nstatus=rollback-pending\nvalidation_token=66666666-6666-6666-6666-666666666666\n' \
-    > "$work/updates/state/os.env"
-printf '77777777-7777-7777-7777-777777777777\n' \
-    > "$work/updates/state/validation.key"
-touch "$work/fail-health"
-printf '0\n' > "$work/current-slot"
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
-    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        run_os_validator
-rm "$work/fail-health"
-grep -qx 'status=rollback-recovery-pending' \
-    "$work/updates/state/os.env"
-[[ "$(cat "$work/active-slot")" == "1" ]]
-printf '1\n' > "$work/current-slot"
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
-    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        run_os_validator
-grep -qx 'status=validated' "$work/updates/state/os.env"
-grep -q '"Action":"rollback".*"Status":"failed"' \
-    "$work/updates/state/operation.json"
-
-echo "PASS: unhealthy OS rollback restores the validated current slot"
+echo "PASS: missing OS validation credentials return to the committed slot"
 
 printf 'previous_slot=0\ntarget_slot=1\nversion=1.2.0\ntag=v1.2.0\noperation_id=88888888-8888-8888-8888-888888888888\nstatus=pending\nvalidation_token=99999999-9999-9999-9999-999999999999\n' \
     > "$work/updates/state/os.env"
 printf 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\n' \
     > "$work/updates/state/validation.key"
+reboots_before="$(reboot_count)"
 printf '0\n' > "$work/current-slot"
-LUCIA_UPDATE_ROOT="$work/updates" \
-    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
-    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
-    LUCIA_CURL_PATH="$work/bin/curl" \
-    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
-    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
-    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
-    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
-    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
-    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
-    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
-    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
-        run_os_validator
+validate_os
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q '"Action":"apply".*"Status":"failed"' \
     "$work/updates/state/operation.json"
+[[ "$(reboot_count)" == "$reboots_before" ]]
 
-echo "PASS: firmware fallback reports the original OS apply as failed"
+echo "PASS: a GRUB trial that never started reports the OS apply as failed"
