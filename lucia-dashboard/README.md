@@ -163,7 +163,8 @@ web dashboard stays an administration portal; family members use their own apps.
 - **App sign-in:** OpenID Connect settings for the family apps. Saved changes
   take effect after Lucia restarts.
 
-Guardians approve requests from the apps, not from this portal.
+Guardians approve requests from the apps, not from this portal. The API the
+apps use is described in the [family member app API](../docs/member-app-api.md).
 
 ## User memories
 

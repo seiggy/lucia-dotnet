@@ -60,15 +60,17 @@ public static class ConversationApi
             return;
         }
 
-        request = request with
-        {
-            Context = request.Context with
+        var memberId = httpContext.User.FindFirst(LuciaClaims.MemberId)?.Value;
+        request = isMemberApp && memberId is not null
+            ? MemberAppRequest.ForMember(request, memberId)
+            : request with
             {
-                IsDashboardSession = httpContext.User.FindFirst("auth_method")?.Value == "session",
-                MemberId = httpContext.User.FindFirst(LuciaClaims.MemberId)?.Value,
-                IsMemberApp = isMemberApp,
-            },
-        };
+                Context = request.Context with
+                {
+                    IsDashboardSession = httpContext.User.FindFirst("auth_method")?.Value == "session",
+                    MemberId = memberId,
+                },
+            };
         var result = await processor.ProcessAsync(request, ct).ConfigureAwait(false);
 
         switch (result.Kind)

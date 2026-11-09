@@ -82,6 +82,11 @@ The dashboard's **User memories** page shows the personal facts stored for each
 enrolled voice profile. Administrators can search, edit values, and delete
 individual memories without deleting the voice profile or its recordings.
 
+The dashboard's **Family** page (experimental) manages the people who use the
+Lucia apps: roles, guardians, per-agent and per-tool permissions, model and
+spending controls, and QR device pairing. App developers should read the
+[family member app API](docs/member-app-api.md).
+
 Optionally, set `AgentMemory:Enabled` and a Neo4j connection to replace the
 built-in memory provider with a Neo4j knowledge graph that extracts facts and
 preferences automatically. See

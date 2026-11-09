@@ -9,8 +9,9 @@ namespace lucia.AgentHost.Conversation.Models;
 public sealed record ConversationResponse
 {
     /// <summary>
-    /// "command", "onboarding", "error", "ignored", or "llm". "ignored" carries empty text
-    /// and means the client should end the turn without speaking.
+    /// "command", "onboarding", "error", "ignored", "refused", or "llm". "ignored" carries empty
+    /// text and means the client should end the turn without speaking. "refused" is a family
+    /// member's quiet-hours, budget, or content-policy refusal, meant to be shown or spoken.
     /// </summary>
     [JsonPropertyName("type")]
     public required string Type { get; init; }
