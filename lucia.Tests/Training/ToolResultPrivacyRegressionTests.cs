@@ -34,6 +34,25 @@ public sealed class ToolResultPrivacyRegressionTests
     }
 
     [Fact]
+    public async Task FinalResponse_KeepsMultiPartAssistantTextIntact()
+    {
+        var repository = new InMemoryTraceRepository();
+        using var inner = new StubChatClient([
+            _ => new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                [new TextContent("https://"), new TextContent("example.com")]))
+        ]);
+        using var client = new AgentTracingChatClient(inner, "sensor-agent", repository,
+            NullLogger<AgentTracingChatClient>.Instance);
+        var session = Guid.NewGuid().ToString("N");
+        AgentTracingChatClient.SetSessionId(session);
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "Where is it?")]);
+
+        var trace = Assert.Single(await repository.GetTracesBySessionIdAsync(session));
+        Assert.Equal("https://example.com", trace.FinalResponse);
+        Assert.Equal("https://example.com", Assert.Single(trace.AgentExecutions).ResponseContent);
+    }
+
+    [Fact]
     public void DefaultExport_DoesNotIncludeLegacyToolResults()
     {
         var trace = new ConversationTrace

@@ -104,6 +104,16 @@ public sealed class ToolResultCapturePolicyTests
     }
 
     [Fact]
+    public void EscapedJsonStringRoots_AreRedactedAfterDecoding()
+    {
+        var policy = new ToolResultCapturePolicy(new() { RedactionPatterns = ["PRIVATE"] });
+        var result = policy.Sanitize("\"PRIV\\u0041TE\"", out _);
+        Assert.NotNull(result);
+        Assert.Contains("[REDACTED]", result);
+        Assert.DoesNotContain("PRIV\\u0041TE", result);
+    }
+
+    [Fact]
     public void RegexTimeout_SuppressesPreview()
     {
         var policy = new ToolResultCapturePolicy(new() { RedactionPatterns = ["(a+)+$"] });

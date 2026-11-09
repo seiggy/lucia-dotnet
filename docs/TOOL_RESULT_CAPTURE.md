@@ -47,9 +47,11 @@ underscores and hyphens. The keys are `apikey`, `token`, `accesstoken`,
 `setcookie` and `privatekey`.
 
 Configured `RedactionPatterns` apply to text and decoded JSON strings before
-truncation. Each regex operation has a 100 ms timeout. Invalid patterns, a timeout,
-malformed JSON-shaped input or JSON deeper than 32 levels suppress the preview
-instead of falling back to raw content.
+truncation. Input that starts with `{`, `[` or `"` is parsed as JSON first, so a
+bare JSON string such as `"PRIV\u0041TE"` is matched as `PRIVATE`. Each regex
+operation has a 100 ms timeout. Invalid patterns, a timeout, malformed JSON-shaped
+input or JSON deeper than 32 levels suppress the preview instead of falling back
+to raw content.
 
 Input above 64 KiB is omitted rather than processing only a prefix that might
 contain half a credential. `MaxToolResultBytes` accepts 1 through 65536 bytes and

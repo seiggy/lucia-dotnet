@@ -164,8 +164,9 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
 
             if (hasPendingToolCalls) return response;
             // ChatResponse.Text can include text from tool-role messages as well.
+            // Use each message's own Text so separate text parts are not joined with spaces.
             var finalResponse = string.Join(Environment.NewLine, response.Messages
-                .Where(message => message.Role == ChatRole.Assistant).Select(ExtractTextContent));
+                .Where(message => message.Role == ChatRole.Assistant).Select(message => message.Text));
             var trace = new ConversationTrace
             {
                 SystemPrompt = requestMessages.FirstOrDefault(c => c.Role == ChatRole.System)?.Text,

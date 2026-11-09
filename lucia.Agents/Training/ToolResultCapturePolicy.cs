@@ -55,7 +55,8 @@ public sealed class ToolResultCapturePolicy
                 return null;
 
             var trimmed = text.AsSpan().TrimStart();
-            if (!trimmed.IsEmpty && trimmed[0] is '{' or '[')
+            // Decode JSON roots, including bare strings, so escaped text is redacted as decoded text.
+            if (!trimmed.IsEmpty && trimmed[0] is '{' or '[' or '"')
             {
                 var node = JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { MaxDepth = 32 });
                 text = RedactSecretProperties(node)!.ToJsonString();
