@@ -33,6 +33,16 @@ Unit tests verify individual classes in isolation using [FakeItEasy](https://fak
 
 ### Writing Unit Tests
 
+Tool-result capture and export privacy checks run offline:
+
+```powershell
+dotnet test lucia.Tests --filter "FullyQualifiedName~Training"
+```
+
+See [safe tool-result capture](TOOL_RESULT_CAPTURE.md) for the policy and scope.
+The tests use in-memory traces and stub chat clients. Export-handler tests create
+and remove their own temporary JSONL file. No Ollama or Home Assistant is used.
+
 Model telemetry privacy and personality output-budget checks run without external
 services:
 
@@ -43,6 +53,11 @@ dotnet test lucia.Tests --filter "FullyQualifiedName~ModelTelemetry|FullyQualifi
 See [model telemetry privacy and personality limits](MODEL_PRIVACY_AND_PERSONALITY.md)
 for policy scope and the in-memory payload checks. These tests do not start Ollama
 or call a live model.
+
+Agent visibility tests run the timer and alarm skills against the production
+location service, with no live model or Home Assistant. The service contract
+also runs against a disposable Redis container. See [agent-scoped entity discovery](AGENT_ENTITY_VISIBILITY.md)
+for the commands and the allow-list matrix.
 
 ```csharp
 public class MyServiceTests

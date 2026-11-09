@@ -421,6 +421,12 @@ Track active and archived tasks with status counters (Active, Completed, Failed,
 
 Manage the Home Assistant entity hierarchy — floors, areas, and entities — with visibility controls. Toggle entity visibility to control which devices Lucia agents can see. Pull the HA exposed-entity list over WebSocket for pre-filtered entity management. Search and filter entities by area, domain, or name.
 
+Visibility applies to the timer agent too. Timers and alarms resolve a location
+through the agent-scoped hierarchy search as `timer-agent`, including the
+presence lookup when an alarm fires. The dashboard's own entity search stays
+unfiltered. Visibility controls discovery, not Home Assistant authorization, so
+a full entity ID still passes through. See [agent-scoped entity discovery](docs/AGENT_ENTITY_VISIBILITY.md).
+
 ### Matcher Debug
 
 Interactive testing page for the HybridEntityMatcher. Enter a search query and see scored results with per-signal breakdowns (Levenshtein, Jaro-Winkler, phonetic, embedding similarity, alias match). Useful for tuning match weights and diagnosing entity resolution issues.
@@ -590,6 +596,14 @@ See `infra/docker/.env.lucia.example` for a full template. ComfyUI, Whisper, Pip
 | **Agents** | Agent definitions and registration |
 | **ModelProviders** | LLM backend configurations (per-agent model assignment) |
 | **PromptCache** | Routing and chat cache thresholds (hot-reloadable) |
+
+Tool-result previews are off by default. Set `TraceCapture:CaptureToolResults` to
+`true` to store sanitized, bounded previews. `TraceCapture:MaxToolResultBytes`
+defaults to 4096 UTF-8 bytes per result. Newly generated training exports exclude
+results unless `TraceCapture:IncludeToolResultsInTrainingExport` is also enabled.
+`TraceCapture:Enabled=false` disables both orchestrator and per-agent trace
+persistence. See [safe tool-result capture](docs/TOOL_RESULT_CAPTURE.md) for scope,
+limits and migration notes.
 
 ### Home Assistant Integration Setup
 

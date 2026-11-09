@@ -5,6 +5,7 @@ using lucia.Agents.Training;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Integration;
 
@@ -17,6 +18,7 @@ public sealed class TracingChatClientFactory
     private readonly ITraceRepository _repository;
     private readonly ILoggerFactory _loggerFactory;
     private readonly LiveActivityChannel? _liveChannel;
+    private readonly IOptions<TraceCaptureOptions>? _traceOptions;
 
     public TracingChatClientFactory(
         ITraceRepository repository,
@@ -37,11 +39,13 @@ public sealed class TracingChatClientFactory
         ITraceRepository repository,
         ILoggerFactory loggerFactory,
         LiveActivityChannel? liveChannel = null,
-        AIContextProvider? userContextProvider = null)
+        AIContextProvider? userContextProvider = null,
+        IOptions<TraceCaptureOptions>? traceOptions = null)
     {
         _repository = repository;
         _loggerFactory = loggerFactory;
         _liveChannel = liveChannel;
+        _traceOptions = traceOptions;
         AIContextProviders = userContextProvider is null ? [] : [userContextProvider];
         if (userContextProvider is not null)
         {
@@ -65,6 +69,6 @@ public sealed class TracingChatClientFactory
     public IChatClient Wrap(IChatClient inner, string agentId)
     {
         var logger = _loggerFactory.CreateLogger<AgentTracingChatClient>();
-        return new AgentTracingChatClient(new MemberGuidanceChatClient(inner), agentId, _repository, logger, _liveChannel);
+        return new AgentTracingChatClient(new MemberGuidanceChatClient(inner), agentId, _repository, logger, _liveChannel, _traceOptions);
     }
 }

@@ -189,7 +189,8 @@ public sealed class JsonlExportTests
     {
         var trace = CreateMultiAgentTrace();
 
-        var line = JsonlConverter.ConvertTraceToJsonl(trace, includeCorrections: false, agentFilter: "light-agent");
+        var line = JsonlConverter.ConvertTraceToJsonl(trace, includeCorrections: false, agentFilter: "light-agent",
+            traceCaptureOptions: new TraceCaptureOptions { IncludeToolResultsInTrainingExport = true });
         var doc = JsonDocument.Parse(line);
         var messages = doc.RootElement.GetProperty("messages");
 

@@ -13,5 +13,11 @@ public sealed class TracedToolCall
 
     public string? Result { get; set; }
 
+    /// <summary>Whether the sanitized preview was shortened to the configured UTF-8 byte limit.</summary>
+    public bool ResultTruncated { get; set; }
+
+    /// <summary>True when the SDK supplies an exception. Null means the outcome is unknown.</summary>
+    public bool? ResultIsError { get; set; }
+
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
