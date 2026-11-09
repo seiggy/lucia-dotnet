@@ -47,6 +47,7 @@ public sealed partial class ConversationCommandProcessor
     private readonly IOptionsMonitor<VoiceProfileOptions>? _voiceProfileOptions;
     private readonly IFamilyMemberStore? _familyMembers;
     private readonly ActionBroker? _actionBroker;
+    private readonly MemberConversationPolicy? _memberPolicy;
 
     public ConversationCommandProcessor(
         ICommandRouter commandRouter,
@@ -69,7 +70,8 @@ public sealed partial class ConversationCommandProcessor
         StickySpeakerStore? stickySpeakers = null,
         IOptionsMonitor<VoiceProfileOptions>? voiceProfileOptions = null,
         IFamilyMemberStore? familyMembers = null,
-        ActionBroker? actionBroker = null)
+        ActionBroker? actionBroker = null,
+        MemberConversationPolicy? memberPolicy = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
@@ -92,6 +94,7 @@ public sealed partial class ConversationCommandProcessor
         _voiceProfileOptions = voiceProfileOptions;
         _familyMembers = familyMembers;
         _actionBroker = actionBroker;
+        _memberPolicy = memberPolicy;
     }
 
     /// <summary>
@@ -226,19 +229,41 @@ public sealed partial class ConversationCommandProcessor
             });
         }
 
+        if (member is not null && _memberPolicy is not null
+            && await _memberPolicy.CheckRequestAsync(member, cleanText, ct).ConfigureAwait(false) is { } refusal)
+        {
+            activity?.SetTag("conversation.routing_path", "member_policy");
+            sw.Stop();
+            return ProcessingResult.CommandHandled(new ConversationResponse
+            {
+                Type = "refused",
+                Text = refusal,
+                ConversationId = conversationId,
+                NeedsInput = false,
+            });
+        }
+
         // Step 1: Try command pattern matching (on clean text, without speaker tag)
         var routeResult = await _commandRouter.RouteAsync(cleanText, ct).ConfigureAwait(false);
 
-        if (routeResult.IsMatch && routeResult.MatchedPattern is not null
-            && !(member is not null && ActionBroker.RequiresMediation(member)))
-        {
-            return await HandleCommandMatchAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
+        var result = routeResult.IsMatch && routeResult.MatchedPattern is not null
+            && !(member is not null && ActionBroker.RequiresMediation(member))
+            ? await HandleCommandMatchAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
+                .ConfigureAwait(false)
+            // Step 2: No match — fall back to LLM (with clean text + speaker in context)
+            : await HandleLlmFallbackAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
                 .ConfigureAwait(false);
+
+        if (member is not null && _memberPolicy is not null && result.Response is { } finalResponse)
+        {
+            var filtered = await _memberPolicy.FilterResponseAsync(member, finalResponse.Text, ct).ConfigureAwait(false);
+            if (!string.Equals(filtered, finalResponse.Text, StringComparison.Ordinal))
+            {
+                result = result with { Response = finalResponse with { Text = filtered } };
+            }
         }
 
-        // Step 2: No match — fall back to LLM (with clean text + speaker in context)
-        return await HandleLlmFallbackAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
-            .ConfigureAwait(false);
+        return result;
     }
 
     private async Task<FamilyMember?> ResolveMemberAsync(ConversationContext context, CancellationToken ct)

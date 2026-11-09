@@ -108,7 +108,8 @@ public static class ActionBrokerAgentBuilderExtensions
             return $"Sorry, {scope.Member.DisplayName} isn't allowed to use that.";
         }
 
-        if (!canMediateTools && ActionBroker.RequiresMediation(scope.Member))
+        if (!canMediateTools
+            && (ActionBroker.RequiresMediation(scope.Member) || MemberModelPolicy.RequiresManagedModels(scope.Member.LlmControls)))
         {
             ActionBrokerTelemetry.Decisions.Add(1, new KeyValuePair<string, object?>("outcome", "Unmediated"));
             return $"Sorry, that isn't available for {scope.Member.DisplayName}.";

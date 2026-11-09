@@ -62,6 +62,17 @@ public sealed class ModelProvider
     /// </summary>
     public bool IsBuiltIn { get; set; }
 
+    /// <summary>
+    /// Price per million input tokens, used to estimate family members' spending. Null is free
+    /// (for example, a local model).
+    /// </summary>
+    public decimal? InputCostPerMillionTokensUsd { get; set; }
+
+    /// <summary>
+    /// Price per million output tokens. Null is free.
+    /// </summary>
+    public decimal? OutputCostPerMillionTokensUsd { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

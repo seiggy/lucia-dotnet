@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Collections.Concurrent;
 using Anthropic;
 using Azure;
 using Azure.AI.Inference;
@@ -7,12 +8,14 @@ using GitHub.Copilot;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Family;
 using lucia.Agents.GitHubCopilot;
 using lucia.Agents.Models;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using OllamaSharp;
 using OpenAI;
@@ -78,7 +81,40 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             builder.UseLogging();
         }
 
-        return builder.Build(_serviceProvider);
+        return new MemberModelChatClient(
+            builder.Build(_serviceProvider),
+            provider,
+            ResolveMemberProviderAsync,
+            _serviceProvider.GetService<ILlmUsageStore>(),
+            _serviceProvider.GetService<TimeProvider>() ?? TimeProvider.System,
+            _serviceProvider.GetService<ILogger<MemberModelChatClient>>() ?? NullLogger<MemberModelChatClient>.Instance);
+    }
+
+    private readonly ConcurrentDictionary<string, (DateTime UpdatedAt, IChatClient Client)> _memberProviderClients = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Client for a provider a family member's calls are routed to. Null when it is missing,
+    /// disabled, or cannot serve chat, so the call fails rather than using another model.
+    /// </summary>
+    private async Task<IChatClient?> ResolveMemberProviderAsync(string providerId, CancellationToken cancellationToken)
+    {
+        var repository = _serviceProvider.GetService<IModelProviderRepository>();
+        var provider = repository is null
+            ? null
+            : await repository.GetProviderAsync(providerId, cancellationToken).ConfigureAwait(false);
+        if (provider is not { Enabled: true, Purpose: ModelPurpose.Chat } || provider.ProviderType == ProviderType.GitHubCopilot)
+        {
+            return null;
+        }
+
+        if (_memberProviderClients.TryGetValue(providerId, out var cached) && cached.UpdatedAt == provider.UpdatedAt)
+        {
+            return cached.Client;
+        }
+
+        var client = CreateClient(provider);
+        _memberProviderClients[providerId] = (provider.UpdatedAt, client);
+        return client;
     }
 
     public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(ModelProvider provider)

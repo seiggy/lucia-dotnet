@@ -237,6 +237,7 @@ public sealed class FamilyMemberService(
             SystemPrompt = systemPrompt,
             BlockedTopics = topics,
             QuietHours = controls.QuietHours,
+            Guardrails = controls.Guardrails ?? new MemberGuardrails(),
         };
         member.UpdatedAt = timeProvider.GetUtcNow().UtcDateTime;
         await members.UpsertAsync(member, cancellationToken).ConfigureAwait(false);

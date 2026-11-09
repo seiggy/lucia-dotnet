@@ -138,7 +138,9 @@ public static class ModelProviderApi
         provider.ProviderType == ProviderType.LlamaCpp
             && !LlamaCppEndpoint.TryNormalize(provider.Endpoint, out _)
                 ? "llama.cpp provider requires a valid HTTP or HTTPS endpoint URL"
-                : null;
+                : provider.InputCostPerMillionTokensUsd < 0 || provider.OutputCostPerMillionTokensUsd < 0
+                    ? "Token prices cannot be negative"
+                    : null;
 
     private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> DeleteProviderAsync(
         string id,

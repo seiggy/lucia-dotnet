@@ -311,10 +311,12 @@ public sealed class AgentDispatchExecutor : Executor
             return CreateFailureResponse(agentId, $"Agent '{agentId}' is not available.");
         }
 
-        // Remote agents run their tools out of process, where the broker cannot mediate them.
+        // Remote agents run their tools and models out of process, where Lucia cannot mediate or meter them.
         if (MemberActionScope.Current is { } scope
             && (scope.Broker.Evaluate(scope.Member, CapabilityKind.Agent, agentId) == ActionRule.Deny
-                || (invoker is RemoteAgentInvoker && ActionBroker.RequiresMediation(scope.Member))))
+                || (invoker is RemoteAgentInvoker
+                    && (ActionBroker.RequiresMediation(scope.Member)
+                        || MemberModelPolicy.RequiresManagedModels(scope.Member.LlmControls)))))
         {
             activity?.SetTag("agent.result", "member_denied");
             ActionBrokerTelemetry.Decisions.Add(1, new KeyValuePair<string, object?>("outcome", "AgentDenied"));

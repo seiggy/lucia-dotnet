@@ -1,3 +1,4 @@
+using lucia.Agents.Family;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Services;
 using lucia.Agents.Training;
@@ -64,6 +65,6 @@ public sealed class TracingChatClientFactory
     public IChatClient Wrap(IChatClient inner, string agentId)
     {
         var logger = _loggerFactory.CreateLogger<AgentTracingChatClient>();
-        return new AgentTracingChatClient(inner, agentId, _repository, logger, _liveChannel);
+        return new AgentTracingChatClient(new MemberGuidanceChatClient(inner), agentId, _repository, logger, _liveChannel);
     }
 }

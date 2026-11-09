@@ -27,4 +27,6 @@ public sealed class MemberLlmControls
     public List<string> BlockedTopics { get; init; } = [];
 
     public QuietHoursWindow? QuietHours { get; init; }
+
+    public MemberGuardrails Guardrails { get; init; } = new();
 }

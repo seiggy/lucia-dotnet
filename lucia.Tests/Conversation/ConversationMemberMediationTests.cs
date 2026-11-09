@@ -79,7 +79,26 @@ public sealed class ConversationMemberMediationTests : IDisposable
             new OptionsMonitorStub<PersonalityPromptOptions>(new PersonalityPromptOptions()),
             speakerFilter: speakerFilter,
             familyMembers: _members,
-            actionBroker: new ActionBroker(A.Fake<IActionRecordStore>(), _members, TimeProvider.System, NullLogger<ActionBroker>.Instance));
+            actionBroker: new ActionBroker(A.Fake<IActionRecordStore>(), _members, TimeProvider.System, NullLogger<ActionBroker>.Instance),
+            memberPolicy: new MemberConversationPolicy(A.Fake<ILlmUsageStore>(), TimeProvider.System, NullLogger<MemberConversationPolicy>.Instance));
+    }
+
+    [Fact]
+    public async Task MemberPolicyRefusal_StopsTheRequestBeforeAnyRouting()
+    {
+        A.CallTo(() => _members.GetAsync("teen", A<CancellationToken>._))
+            .Returns(new FamilyMember
+            {
+                Id = "teen",
+                DisplayName = "Jo",
+                Role = FamilyRole.Adult,
+                LlmControls = new MemberLlmControls { BlockedTopics = ["kitchen"] },
+            });
+
+        var result = await _processor.ProcessAsync(Request("teen"));
+
+        Assert.Equal("refused", result.Response?.Type);
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
     }
 
     [Theory]
