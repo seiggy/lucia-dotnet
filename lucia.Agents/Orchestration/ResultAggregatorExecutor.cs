@@ -30,13 +30,15 @@ public sealed class ResultAggregatorExecutor : Executor
     private readonly IChatClient? _personalityChatClient;
     private readonly string? _personalityInstructions;
     private readonly SpeakerContext? _speakerContext;
+    private readonly int _personalityMaxOutputTokens;
 
     public ResultAggregatorExecutor(
         ILogger<ResultAggregatorExecutor> logger,
         IOptions<ResultAggregatorOptions> options,
         IChatClient? personalityChatClient = null,
         string? personalityInstructions = null,
-        SpeakerContext? speakerContext = null)
+        SpeakerContext? speakerContext = null,
+        int? personalityMaxOutputTokens = null)
         : base(ExecutorId)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -44,6 +46,7 @@ public sealed class ResultAggregatorExecutor : Executor
         _personalityChatClient = personalityChatClient;
         _personalityInstructions = personalityInstructions;
         _speakerContext = speakerContext;
+        _personalityMaxOutputTokens = PersonalityPromptOptions.ResolveMaxOutputTokens(personalityMaxOutputTokens);
     }
 
     protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder)
@@ -153,7 +156,14 @@ public sealed class ResultAggregatorExecutor : Executor
                     $"Response to rephrase:\n{composedMessage}")
             };
 
-            var response = await _personalityChatClient!.GetResponseAsync(messages, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var response = await _personalityChatClient!.GetResponseAsync(messages,
+                new ChatOptions { MaxOutputTokens = _personalityMaxOutputTokens }, cancellationToken).ConfigureAwait(false);
+            if (response.FinishReason == ChatFinishReason.Length)
+            {
+                _logger.LogWarning("Personality rewrite reached its output limit, falling back to raw message");
+                return composedMessage;
+            }
+
             var rewritten = response.Text;
 
             if (!string.IsNullOrWhiteSpace(rewritten))

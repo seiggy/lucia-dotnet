@@ -139,7 +139,7 @@ var modelsByBackend = new Dictionary<string, IReadOnlyList<string>>(StringCompar
 foreach (var backend in selectedBackends)
 {
     modelsByBackend[backend.Name] = ModelSelector.Select(discoveredByBackend[backend.Name], backend.Name);
-    if (backend.Type is InferenceBackendType.AzureFoundry or InferenceBackendType.OpenRouter)
+    if (!backend.NoProviderCharge)
     {
         foreach (var model in modelsByBackend[backend.Name])
         {

@@ -10,6 +10,46 @@ namespace lucia.EvalHarness.Tests.Providers;
 
 public sealed class BackendModelDiscoveryTests
 {
+    [Theory]
+    [InlineData("[\"embedding\"]", false)]
+    [InlineData("[\"embedding\",\"chat\"]", true)]
+    [InlineData("[\"embedding\",\"responses\"]", true)]
+    [InlineData("[\"chat\",\"responses\"]", true)]
+    [InlineData("[]", true)]
+    [InlineData("null", true)]
+    [InlineData("\"unknown\"", true)]
+    [InlineData("[null,7,\"embedding\"]", false)]
+    public async Task CapabilityMetadata_ExcludesEmbeddingOnlyModelsWithoutDroppingChatOrUnknownModels(
+        string capabilities, bool expectedChat)
+    {
+        using var handler = new CapturingHttpMessageHandler(
+            "{\"data\":[{\"id\":\"test-model\",\"capabilities\":" + capabilities + "}]}");
+        using var http = new HttpClient(handler);
+        var models = await new BackendModelDiscovery(http).ListModelsAsync(new InferenceBackend
+        {
+            Name = "Capability metadata", Endpoint = "https://inference.invalid", Type = InferenceBackendType.OpenAICompat
+        });
+
+        Assert.Equal(expectedChat ? ["test-model"] : Array.Empty<string>(), models.Select(model => model.Name));
+    }
+
+    [Theory]
+    [InlineData("--embedding")]
+    [InlineData("--embeddings")]
+    [InlineData("--embd")]
+    public async Task LegacyEmbeddingArguments_RemainExcludedWhenCapabilityMetadataIsAbsent(string argument)
+    {
+        using var handler = new CapturingHttpMessageHandler(
+            "{\"data\":[{\"id\":\"vector-model\",\"status\":{\"args\":[\"" + argument + "\"]}}]}");
+        using var http = new HttpClient(handler);
+        var models = await new BackendModelDiscovery(http).ListModelsAsync(new InferenceBackend
+        {
+            Name = "Legacy arguments", Endpoint = "https://inference.invalid", Type = InferenceBackendType.OpenAICompat
+        });
+
+        Assert.Empty(models);
+    }
+
     [Fact]
     public async Task OpenRouter_ConvertsTokenPricesAndContextThresholdsWithoutListingImageOnlyModels()
     {

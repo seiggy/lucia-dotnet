@@ -80,8 +80,14 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
             LogPersonalityCallStart(skillId, action);
 
             var response = await chatClient
-                .GetResponseAsync(messages, cancellationToken: ct)
+                .GetResponseAsync(messages, new ChatOptions { MaxOutputTokens = opts.EffectiveMaxOutputTokens }, ct)
                 .ConfigureAwait(false);
+
+            if (response.FinishReason == ChatFinishReason.Length)
+            {
+                LogPersonalityOutputLimit(skillId, action);
+                return cannedResponse;
+            }
 
             var rewritten = response.Text;
 
@@ -172,6 +178,10 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Personality LLM returned empty response for {SkillId}/{Action}, falling back to canned response")]
     private partial void LogPersonalityEmptyResponse(string skillId, string action);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Personality rewrite for {SkillId}/{Action} reached its output limit, falling back to canned response")]
+    private partial void LogPersonalityOutputLimit(string skillId, string action);
 
     [LoggerMessage(Level = LogLevel.Warning,
         Message = "Personality LLM call failed for {SkillId}/{Action}, falling back to canned response")]

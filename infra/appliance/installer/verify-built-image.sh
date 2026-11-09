@@ -88,16 +88,7 @@ cat > "$work_dir/iptables" <<'EOF'
 [[ "$1" != "-C" ]]
 EOF
 chmod +x "$work_dir/nmcli" "$work_dir/iptables"
-cat > "$work_dir/nvbootctrl" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-case "$*" in
-    "-t rootfs is-rootfs-ab-enabled") exit "$LUCIA_VERIFY_AB_RESULT" ;;
-    "-t rootfs get-current-slot") printf '%s\n' "$((LUCIA_VERIFY_AB_RESULT - 1))" ;;
-    *) exit 64 ;;
-esac
-EOF
-chmod +x "$work_dir/nvbootctrl"
+mkdir "$work_dir/efivars"
 
 LUCIA_BOOTSTRAP_ENV="$root/etc/lucia-installer/bootstrap.env" \
 LUCIA_CONNECTION_PATH="$work_dir/lucia-setup.nmconnection" \
@@ -108,24 +99,28 @@ LUCIA_IPTABLES_PATH="$work_dir/iptables" \
 grep -Fqx 'ssid=Lucia-Setup' "$work_dir/lucia-setup.nmconnection"
 
 mkdir "$work_dir/state"
-for capability in 0 1 2 64; do
+# Boot modes: 0 GRUB and 1 extlinux allow OS updates; others and a missing variable warn.
+for mode in 0 1 2 missing; do
+    rm -f "$work_dir/efivars/"*
+    [[ "$mode" == missing ]] \
+        || printf "\\x07\\x00\\x00\\x00\\x0$mode\\x00\\x00\\x00" \
+            > "$work_dir/efivars/L4TDefaultBootMode-781e084c-a330-417c-b678-38e696380cb9"
     status="$(
         LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
         LUCIA_ROOTFS_AB_CHECK_PATH="$root/usr/libexec/lucia/lucia-rootfs-ab-check" \
-        LUCIA_NVBOOTCTRL_PATH="$work_dir/nvbootctrl" \
-        LUCIA_VERIFY_AB_RESULT="$capability" \
+        LUCIA_EFIVARS_PATH="$work_dir/efivars" \
             python3 "$root/usr/libexec/lucia/lucia-installer-control" status
     )"
-    python3 - "$status" "$capability" <<'PY'
+    python3 - "$status" "$mode" <<'PY'
 import json
 import sys
 
 status = json.loads(sys.argv[1])
 assert status["phase"] == "waiting-for-configuration"
-if sys.argv[2] in {"1", "2"}:
+if sys.argv[2] in {"0", "1"}:
     assert "osUpdateWarning" not in status
 else:
-    assert "RootFS A/B" in status["osUpdateWarning"]
+    assert "boot mode" in status["osUpdateWarning"]
 PY
 done
 

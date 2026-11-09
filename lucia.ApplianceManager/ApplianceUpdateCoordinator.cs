@@ -552,7 +552,8 @@ public sealed partial class ApplianceUpdateCoordinator
 
     private bool IsOsRollbackAvailable()
     {
-        return ReadOsStatus() is "pending" or "validated";
+        // An apply awaiting boot validation is not committed; only a validated OS can roll back.
+        return ReadOsStatus() is "validated";
     }
 
     private bool IsOsTransitionInProgress()

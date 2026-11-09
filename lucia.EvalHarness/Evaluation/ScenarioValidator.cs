@@ -1,4 +1,7 @@
 using System.Text;
+using AgentEval.Assertions;
+using AgentEval.Models;
+using AgentEval.Output;
 using lucia.Agents.Abstractions;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
@@ -54,13 +57,14 @@ public static class ScenarioValidator
     public static async Task<ScenarioValidationResult> ValidateAsync(
         TestScenario scenario,
         IReadOnlyList<ConversationTurn> conversation,
-        IHomeAssistantClient haClient)
+        IHomeAssistantClient haClient,
+        IReadOnlyCollection<string>? availableToolNames = null)
     {
         var issues = new List<string>();
         var successes = new List<string>();
 
         // 1. Validate tool call chain
-        ValidateToolCalls(scenario, conversation, issues, successes);
+        var policyResults = ValidateToolCalls(scenario, conversation, issues, successes, availableToolNames);
 
         // 2. Validate response content
         ValidateResponse(scenario, conversation, issues, successes);
@@ -69,29 +73,36 @@ public static class ScenarioValidator
         await ValidateFinalStateAsync(scenario, haClient, issues, successes);
 
         var totalChecks = issues.Count + successes.Count;
-        var score = totalChecks > 0 ? (double)successes.Count / totalChecks * 100 : 100;
+        double? score = policyResults.Any(result => result.IsInconclusive)
+            ? null
+            : totalChecks > 0 ? (double)successes.Count / totalChecks * 100 : 100;
 
         return new ScenarioValidationResult
         {
             ScenarioId = scenario.Id,
-            Passed = issues.Count == 0,
+            Passed = issues.Count == 0 && policyResults.All(result => result.Passed),
             Score = score,
             Issues = issues,
-            Successes = successes
+            Successes = successes,
+            ToolPolicyResults = policyResults
         };
     }
 
-    private static void ValidateToolCalls(
+    private static IReadOnlyList<AssertionResult> ValidateToolCalls(
         TestScenario scenario,
         IReadOnlyList<ConversationTurn> conversation,
         List<string> issues,
-        List<string> successes)
+        List<string> successes,
+        IReadOnlyCollection<string>? availableToolNames)
     {
         // Extract actual tool calls from the conversation in order
         var actualToolCalls = conversation
             .Where(t => t.Role == "assistant" && t.ToolCalls is { Count: > 0 })
             .SelectMany(t => t.ToolCalls!)
             .ToList();
+
+        var policyResults = ValidateForbiddenTools(
+            scenario, actualToolCalls, availableToolNames, issues, successes);
 
         var expected = scenario.ExpectedToolCalls;
 
@@ -102,7 +113,7 @@ public static class ScenarioValidator
                 successes.Add("No tool calls made (as expected)");
             else
                 issues.Add($"Expected no tool calls but got {actualToolCalls.Count}: {string.Join(", ", actualToolCalls.Select(t => t.Name))}");
-            return;
+            return policyResults;
         }
 
         // Check tool count
@@ -148,15 +159,71 @@ public static class ScenarioValidator
             }
         }
 
-        // A scenario with only optional expectations is a rejection case. Calls it did not
-        // anticipate, such as an activation after a lookup, are failures.
-        if (requiredCount == 0)
+        // Preserve strict rejection for optional-only scenarios, and allow any
+        // scenario to reject calls left after its declared chain explicitly.
+        if (requiredCount == 0 || scenario.RejectUnlistedToolCalls)
         {
             for (; actualIndex < actualToolCalls.Count; actualIndex++)
             {
-                issues.Add($"Unexpected tool call '{actualToolCalls[actualIndex].Name}'");
+                issues.Add($"[{actualIndex}] Unexpected tool call '{actualToolCalls[actualIndex].Name}'");
             }
         }
+
+        return policyResults;
+    }
+
+    private static IReadOnlyList<AssertionResult> ValidateForbiddenTools(
+        TestScenario scenario,
+        IReadOnlyList<ToolCallInfo> actualToolCalls,
+        IReadOnlyCollection<string>? availableToolNames,
+        List<string> issues,
+        List<string> successes)
+    {
+        if (scenario.ForbiddenTools.Count == 0)
+        {
+            return [];
+        }
+
+        var report = new ToolUsageReport();
+        for (var i = 0; i < actualToolCalls.Count; i++)
+        {
+            // Preserve trace positions, but never pass argument values to policy diagnostics.
+            report.AddCall(new ToolCallRecord
+            {
+                Name = NormalizeFunctionName(actualToolCalls[i].Name),
+                CallId = actualToolCalls[i].CallId ?? $"call-{i}",
+                Order = i + 1
+            });
+        }
+
+        if (availableToolNames is not null)
+        {
+            report.DeclareAvailableTools(availableToolNames.Select(NormalizeFunctionName));
+        }
+
+        var results = new List<AssertionResult>();
+        foreach (var tool in scenario.ForbiddenTools.Select(NormalizeFunctionName).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            using var scope = AgentEvalScope.Collecting();
+            report.Should().NeverCallTool(tool, because: $"Scenario '{scenario.Id}' forbids this tool.");
+            var result = scope.Results.Single();
+            results.Add(result);
+
+            if (result.Outcome == AssertionOutcome.Failed)
+            {
+                foreach (var call in report.GetCallsByName(tool))
+                {
+                    var position = call.Order - 1;
+                    issues.Add($"[{position}] Forbidden tool call '{actualToolCalls[position].Name}'");
+                }
+            }
+            else if (result.Outcome == AssertionOutcome.Passed)
+            {
+                successes.Add($"{result.Assertion}: offered to the model and never called");
+            }
+        }
+
+        return results;
     }
 
     private static void ValidateCall(

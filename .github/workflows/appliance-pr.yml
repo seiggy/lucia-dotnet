@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 10.0.201
+          global-json-file: global.json
 
       - name: Install image test tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq gdisk zstd

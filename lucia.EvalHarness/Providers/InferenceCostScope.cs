@@ -5,7 +5,7 @@ using Microsoft.Extensions.AI;
 namespace lucia.EvalHarness.Providers;
 
 /// <summary>A single test's calls. Closing freezes the result, including unknown in-flight usage.</summary>
-public sealed class InferenceCostScope(bool isLocal, ModelPricing? pricing) : IDisposable
+public sealed class InferenceCostScope(bool noProviderCharge, ModelPricing? pricing) : IDisposable
 {
     private readonly Lock _gate = new();
     private readonly List<InferenceCostSummary> _calls = [];
@@ -56,10 +56,10 @@ public sealed class InferenceCostScope(bool isLocal, ModelPricing? pricing) : ID
         decimal? usd = null;
         var status = "missing_usage";
 
-        if (isLocal)
+        if (noProviderCharge)
         {
             usd = 0m;
-            status = "local";
+            status = "no_provider_charge";
         }
         else if (validUsage)
         {

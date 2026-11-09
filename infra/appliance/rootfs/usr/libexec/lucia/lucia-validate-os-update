@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
+# Runs after boot while an OS update or rollback is waiting. GRUB booted the trial slot at most
+# once (lucia-boot-slot), so a failed trial needs only a reboot to return to the committed slot.
 set -euo pipefail
 umask 0077
 
 update_root="${LUCIA_UPDATE_ROOT:-/var/lib/lucia/updates}"
 state="$update_root/state/os.env"
-nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
 systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
 curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
 nm_online_path="${LUCIA_NM_ONLINE_PATH:-/usr/bin/nm-online}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-15}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
 validation_credential_path="${LUCIA_VALIDATION_CREDENTIAL_PATH:-$update_root/state/validation.key}"
+helpers="$(dirname "${BASH_SOURCE[0]}")"
 
 [[ "$health_attempts" =~ ^[1-9][0-9]{0,2}$ \
     && "$health_delay" =~ ^(0|[1-9][0-9]{0,2})$ ]] \
@@ -66,90 +68,66 @@ PY
 }
 
 set_status() {
-    local next_status="$1"
-    sed -E "s/^status=.*/status=$next_status/" "$state" > "${state}.tmp"
+    sed -E "s/^status=.*/status=$1/" "$state" > "${state}.tmp"
     sync -f "${state}.tmp"
     mv -f "${state}.tmp" "$state"
     sync -f "$(dirname "$state")"
 }
 
-stop_recovery() {
-    local failed_action=rollback
-    if [[ "${status:-}" == pending || "${rollback_reason:-}" == apply-failure ]]; then
-        failed_action=apply
-    fi
-    set_status failed
-    write_operation "$failed_action" failed "$1"
-    printf '%s\n' "$1" >&2
+finish() {
+    set_status "$1"
+    write_operation "$action" "$2" "$3"
     rm -f "$validation_credential_path"
-    exit 0
-}
-
-request_recovery_reboot() {
-    local slot="$1"
-    local attempts
-    attempts="$(sed -n 's/^reboot_attempts=//p' "$state")"
-    attempts="${attempts:-0}"
-    [[ "$attempts" =~ ^[0-9]$ && "$attempts" -lt 2 ]] \
-        || stop_recovery "OS recovery stopped after repeated slot-switch attempts. Keep the device powered on and inspect its boot configuration."
-    sed '/^reboot_attempts=/d' "$state" > "${state}.tmp"
-    printf 'reboot_attempts=%s\n' "$((attempts + 1))" >> "${state}.tmp"
-    sync -f "${state}.tmp"
-    mv -f "${state}.tmp" "$state"
-    sync -f "$(dirname "$state")"
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$slot" \
-        || stop_recovery "NVIDIA rejected the OS slot switch. No reboot was requested."
-    "$systemctl_path" --no-block reboot \
-        || stop_recovery "The OS recovery reboot was rejected. Keep the device powered on and inspect the update status."
 }
 
 [[ -f "$state" ]] || exit 0
 status="$(sed -n 's/^status=//p' "$state")"
-if [[ "$status" != "pending" \
-    && "$status" != "rollback-pending" \
-    && "$status" != "rollback-recovery-pending" ]]; then
-    rm -f "$validation_credential_path"
-    exit 0
-fi
 previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
 target_slot="$(sed -n 's/^target_slot=//p' "$state")"
 validation_token="$(sed -n 's/^validation_token=//p' "$state")"
-rollback_reason="$(sed -n 's/^rollback_reason=//p' "$state")"
+case "$status" in
+    pending)
+        action=apply
+        trial_slot="$target_slot"
+        ;;
+    rollback-pending)
+        action=rollback
+        trial_slot="$previous_slot"
+        ;;
+    *)
+        rm -f "$validation_credential_path"
+        exit 0
+        ;;
+esac
 [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] || exit 1
 [[ "$target_slot" == "0" || "$target_slot" == "1" ]] || exit 1
 [[ "$previous_slot" != "$target_slot" ]] || exit 1
-if ! current_slot="$(bash "$(dirname "${BASH_SOURCE[0]}")/lucia-rootfs-ab-check" --layout)"; then
-    stop_recovery "RootFS A/B is unavailable or inconsistent. OS recovery stopped without rebooting; repair the boot configuration before retrying."
+if ! current_slot="$(bash "$helpers/lucia-rootfs-ab-check" --layout)"; then
+    if [[ "$action" == apply ]]; then
+        finish failed failed "OS slot layout is inconsistent after the update reboot. No further reboot was requested."
+    else
+        finish validated failed "OS slot layout is inconsistent after the rollback reboot. No further reboot was requested."
+    fi
+    exit 0
 fi
 
-if [[ "$current_slot" != "$previous_slot" \
-    && "$current_slot" != "$target_slot" ]]; then
-    exit 1
-fi
-if [[ "$current_slot" == "$target_slot" \
-    && "$status" == "rollback-pending" ]]; then
-    write_operation rollback running \
-        "OS rollback is retrying the previous slot."
-    request_recovery_reboot "$previous_slot"
+if [[ "$current_slot" != "$trial_slot" ]]; then
+    # The trial never finished starting (GRUB returned to the committed slot, or the launcher
+    # fell back to extlinux). Clear any trial still on disk so a later boot cannot select it.
+    bash "$helpers/lucia-boot-slot" cancel || exit 1
+    if [[ "$action" == apply ]]; then
+        finish rolled-back failed "The new OS did not finish starting; the previous OS is still running."
+    else
+        finish validated failed "The previous OS did not finish starting; the current OS is still running."
+    fi
     exit 0
 fi
-if [[ "$current_slot" == "$previous_slot" \
-    && "$status" == "rollback-recovery-pending" ]]; then
-    write_operation rollback running \
-        "OS rollback recovery is retrying the current slot."
-    request_recovery_reboot "$target_slot"
-    exit 0
-fi
+
 validation_credential=""
 if [[ -r "$validation_credential_path" ]]; then
     validation_credential="$(cat "$validation_credential_path")"
 fi
-validation_action=rollback
-if [[ "$status" == pending || "$rollback_reason" == apply-failure ]]; then
-    validation_action=apply
-fi
-write_operation "$validation_action" running \
-    "OS boot health validation is running." validating
+write_operation "$action" running "OS boot health validation is running." validating
 
 healthy=false
 if [[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
@@ -169,69 +147,31 @@ if [[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
         sleep "$health_delay"
     done
 fi
+
 if [[ "$healthy" == true ]]; then
-    "$nvbootctrl_path" verify \
-        || stop_recovery "NVIDIA boot verification failed. The OS update was not marked successful."
-    if [[ "$current_slot" == "$previous_slot" ]]; then
-        if [[ "$rollback_reason" == "apply-failure" \
-            || "$status" == "pending" ]]; then
-            write_operation apply failed \
-                "OS update failed boot validation; the previous slot was restored successfully."
-        else
-            write_operation rollback succeeded \
-                "OS rollback completed and passed boot validation."
-        fi
-        set_status rolled-back
-    elif [[ "$status" == "rollback-recovery-pending" ]]; then
-        if [[ "$rollback_reason" == "apply-failure" ]]; then
-            write_operation apply failed \
-                "OS update and fallback validation failed; the current slot was restored."
-        else
-            write_operation rollback failed \
-                "OS rollback failed validation; the current slot was restored."
-        fi
-        set_status validated
-    else
-        write_operation apply succeeded "OS update passed boot validation."
-        set_status validated
-    fi
+    # Keep the operation pending until the commit is saved; systemd retries the validator.
+    bash "$helpers/lucia-boot-slot" commit "$trial_slot" || exit 1
     "$curl_path" --fail --silent \
         --max-time 30 \
         --header "X-Lucia-Update-Credential: $validation_credential" \
         "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
         >/dev/null || true
-    rm -f "$validation_credential_path"
+    if [[ "$action" == apply ]]; then
+        finish validated succeeded "OS update passed boot validation."
+    else
+        finish rolled-back succeeded "OS rollback completed and passed boot validation."
+    fi
     exit 0
 fi
 
-if [[ "$current_slot" == "$target_slot" && "$status" == "pending" ]]; then
-    recovery_slot="$previous_slot"
-    sed -E \
-        -e 's/^status=.*/status=rollback-pending/' \
-        -e '/^rollback_reason=/d' \
-        "$state" > "${state}.tmp"
-    printf 'rollback_reason=apply-failure\n' >> "${state}.tmp"
-    sync -f "${state}.tmp"
-    mv -f "${state}.tmp" "$state"
-    sync -f "$(dirname "$state")"
-    write_operation apply running \
-        "OS update failed boot validation; rollback is scheduled."
-elif [[ "$current_slot" == "$previous_slot" ]]; then
-    recovery_slot="$target_slot"
-    set_status rollback-recovery-pending
-    write_operation rollback running \
-        "OS rollback failed boot validation; the current slot is being restored."
+bash "$helpers/lucia-boot-slot" cancel || exit 1
+if [[ "$action" == apply ]]; then
+    finish rolled-back failed "OS update failed boot validation; restarting into the previous OS."
 else
-    set_status failed
-    if [[ "$rollback_reason" == "apply-failure" ]]; then
-        write_operation apply failed \
-            "OS update and fallback slot both failed boot validation."
-    else
-        write_operation rollback failed \
-            "OS rollback and recovery slot both failed boot validation."
-    fi
-    rm -f "$validation_credential_path"
-    exit 0
+    finish validated failed "OS rollback failed boot validation; restarting into the current OS."
 fi
-request_recovery_reboot "$recovery_slot"
-exit 0
+if ! "$systemctl_path" --no-block reboot; then
+    # Stay non-terminal so the restarted validator requests the recovery reboot again.
+    set_status "$status"
+    exit 1
+fi

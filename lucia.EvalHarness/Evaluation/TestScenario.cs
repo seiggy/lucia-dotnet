@@ -58,6 +58,19 @@ public sealed class TestScenario
     public List<ExpectedToolCall> ExpectedToolCalls { get; init; } = [];
 
     /// <summary>
+    /// Rejects extra calls left after matching the expected chain. Defaults to false.
+    /// Scenarios with no required calls retain their existing strict behavior.
+    /// </summary>
+    public bool RejectUnlistedToolCalls { get; init; }
+
+    /// <summary>
+    /// Tools that must never appear in the assistant's calls, regardless of order
+    /// or whether unexpected calls are otherwise allowed.
+    /// Names use the same comparison as expected tools, including the Async suffix.
+    /// </summary>
+    public List<string> ForbiddenTools { get; init; } = [];
+
+    /// <summary>
     /// Substrings that MUST appear in the agent's final text response.
     /// Case-insensitive matching.
     /// </summary>

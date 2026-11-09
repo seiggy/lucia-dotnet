@@ -24,6 +24,13 @@ public sealed class InferenceBackend
 
     public string? ApiKey { get; set; }
 
+    /// <summary>
+    /// Explicit declaration that this backend has no model-under-test provider charge.
+    /// Defaults to false: missing prices or usage must not imply free inference.
+    /// This is independent of the API protocol and server address.
+    /// </summary>
+    public bool NoProviderCharge { get; set; }
+
     /// <summary>Azure account resource ID used to discover deployed Foundry models.</summary>
     public string? AzureResourceId { get; set; }
 

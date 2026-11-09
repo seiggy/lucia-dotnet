@@ -107,7 +107,11 @@ Turning the option off restores ordinary unknown-speaker routing. Typed
 dashboard chat, which authenticates with a dashboard session cookie, remains
 available in either mode, including when it simulates a Home Assistant device
 ID. Requests authenticated with an API key and carrying a device ID are treated
-as satellite requests. Rejections create a
+as satellite requests. A rejected voice turn returns `{"type":"ignored","text":""}`
+with `needsInput: false`. The Home Assistant integration passes the blank speech
+through, so the Assist pipeline skips text-to-speech and the satellite stays
+silent. This drops accidental wake-word activations from movies, calls and other
+background audio. Rejections create a
 redacted command-trace error without copying the speech into that trace.
 Existing transcript recording and retention remain unchanged.
 

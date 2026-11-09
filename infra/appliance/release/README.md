@@ -189,87 +189,76 @@ Install the Lucia update before its matching OS update when the manifest's
 `minimumLuciaVersion` requires it. The OS channel remains incompatible until
 that application version is installed.
 
-OS updates stream the selected raw images directly to the inactive `APP`,
-kernel, and device-tree partitions. NVIDIA rootfs A/B selects the new slot for
-the next boot. Before switching slots, the updater restores the device hostname,
-recovery password hash, and provisioned Wi-Fi connection in the new root
-filesystem. `lucia-os-update-validation.service` checks NetworkManager, Redis,
-AgentHost, and the local health endpoint after boot. A failed check selects the
-previous slot and reboots. Intentional rollback runs the same checks on the
-previous slot and returns to the current slot if that validation fails.
+OS updates stream the selected root filesystem image directly to the inactive
+`APP` or `APP_b` partition. Lucia selects OS slots with GRUB, not with NVIDIA's
+firmware RootFS A/B setting, so stock Jetson Orin Nano firmware works and no
+USB recovery flash or capsule is needed. Before switching slots, the updater
+restores the device hostname, machine ID, recovery password hash, provisioned
+Wi-Fi connection, SSH host keys, the recovery account's `authorized_keys`,
+the `/boot/efi` mount, and whether the telemetry collector and Redis exporter
+are enabled in the new root filesystem.
+`lucia-os-update-validation.service` checks NetworkManager, Redis, AgentHost,
+and the local health endpoint after boot. Intentional rollback runs the same
+checks on the previous slot.
 
-### RootFS A/B prerequisites and recovery
+### OS slot selection with GRUB
 
-An `APP_b` partition is not proof of working rootfs redundancy. Image generation
-uses `ROOTFS_AB=1` with `--no-flash`; the SD installer writes the resulting NVMe
-image, not the device's QSPI configuration. It reports unverified firmware without
-blocking the hardware-tested offline installer.
+NVIDIA's UEFI launcher (`EFI/BOOT/BOOTAA64.efi`) supports a GRUB boot mode: it
+writes the kernel arguments it would pass to Linux into `EFI/BOOT/boot.cfg` and
+starts `EFI/BOOT/grubaa64.efi`. If GRUB cannot be loaded, it falls back to the
+extlinux boot from `APP`. The mode is the unlocked, non-volatile UEFI variable
+`L4TDefaultBootMode` (0 GRUB, 1 extlinux).
 
-The shared `lucia-rootfs-ab-check` reads NVIDIA's native capability result.
-Exit code 0 from `is-rootfs-ab-enabled` means disabled; 1 and 2 mean enabled on
-slots A and B. Other results and disagreement with `get-current-slot` block OS
-updates. The full preflight also requires matching bootloader/rootfs slots,
-the supported extlinux UEFI boot mode,
-the current mounted root and its kernel PARTUUID to agree, and all six root,
-kernel, and DTB partitions to belong to the same disk. It never enables firmware
-features automatically.
+The release build compiles `infra/appliance/boot/grub.cfg` into a standalone
+`grubaa64.efi` inside the image chroot, using the image's `grub-common` and the
+pinned `grub-efi-arm64-bin` modules from `appliance.lock`, and ships it at
+`/usr/share/lucia/boot/grubaa64.efi`. The build fails if `grub-script-check`
+rejects the configuration.
+
+`lucia-boot-slot` owns `EFI/BOOT/lucia.env` on the ESP:
+
+- `lucia_slot` is the committed slot (`a` = `APP`, `b` = `APP_b`).
+- `lucia_trial` is a one-shot slot. GRUB clears it with `save_env` before
+  booting it, so a trial that panics, hangs or is power-cycled returns to the
+  committed slot on the next boot. If the clear cannot be saved, GRUB boots the
+  committed slot instead of the trial.
+- `lucia_a` and `lucia_b` record the GPT partition numbers. GRUB reads kernel,
+  initrd and root `PARTUUID` from the chosen slot itself.
+
+Every OS update installs the running OS's `grubaa64.efi` on the ESP, commits
+the running slot in `lucia.env` and sets `L4TDefaultBootMode` to GRUB. It then
+sets `lucia_trial` to the new slot and reboots. GRUB on the ESP always comes
+from an OS that has already booted. The updater refuses a target image that
+lacks `lucia-boot-slot`, `grubaa64.efi` or the validation unit, because that OS
+could never commit its trial. The validator commits the trial slot only after
+health checks pass; if the commit cannot be saved, the operation stays pending
+and systemd retries the validator. If the checks fail, it clears the trial and
+reboots into the committed slot. If the device comes back on the committed slot
+instead of the trial, the new OS never finished starting: the validator clears
+any trial still on disk and reports the operation as failed without another
+reboot. Rollback is available only after an OS update has been validated.
+
+`lucia-rootfs-ab-check --layout` keeps its name and output for the manager and
+installer. It requires the GRUB or extlinux boot mode, a mounted root that is
+`APP` or `APP_b`, its kernel `root=PARTUUID` to match, both slots and the ESP
+(mounted at `/boot/efi`) on one disk, and an OS image that ships GRUB. Without
+`--layout` it only checks the boot mode; the installer uses that to warn about
+unsupported firmware without blocking installation.
 
 The manager reports a blocking reason to the dashboard and rechecks before
 accepting OS operations. The privileged updater checks again before writing.
-Older managers or missing recovery helpers leave OS updates blocked while
-Lucia-only updates remain available. Existing installations need the matching
-root-owned updater, validator, `lucia-rootfs-ab-check`, and
-`lucia-rebind-rootfs.py` helpers installed through an approved recovery procedure.
-The running and fallback OS must both contain the corrected recovery logic.
-An application update does not replace `/usr/libexec/lucia` by itself.
+An application update does not replace `/usr/libexec/lucia`, so devices
+installed from an image without `lucia-boot-slot` need a newer installer image
+or the matching root-owned helpers installed through the recovery procedure.
 
 After writing a verified image, the updater changes its extlinux and root fstab
 references to the actual inactive partition's PARTUUID. It does not change the
-device's partition IDs. Directory symlinks and missing boot files are rejected
-before activation. Partition-based kernel boot and GRUB are not accepted by this
-extlinux-specific updater.
+device's partition IDs. Directory symlinks are rejected before activation.
 
-Post-boot validation repeats the full layout check before health checks or
-recovery reboots. A healthy application alone cannot prove that Linux mounted
-the requested OS slot. Boot validation uses the shipped `nvbootctrl verify`
-command only after layout, Lucia, and network health pass. It runs before
-NVIDIA's default boot-validation service.
-Recovery persists a maximum of two additional reboot requests per operation.
-If the requested slot never becomes active, readiness cannot be verified, or
-the budget is exhausted, it records a terminal failure rather than rebooting
-forever. The GUI retains the error; a manual power cycle is not the default fix.
-
-For an existing device whose firmware has redundancy disabled:
-
-1. Keep the running OS intact. Back up application data, configuration, recovery
-   access, GPT metadata, and boot configuration before any firmware work.
-2. Prepare the board-matched Jetson Linux BSP using NVIDIA's external-NVMe
-   RootFS A/B flashing procedure. Inspect its flash plan before running it.
-   This repository does not yet provide a hardware-verified firmware-only
-   conversion that preserves an existing installation. Do not toggle EFI bytes
-   or execute a generic full-disk flash command as a substitute.
-3. Arrange USB Force Recovery and serial or HDMI console access. Execute only
-   the reviewed provisioning plan with explicit owner approval.
-4. Verify A-to-B and B-to-A boots, actual root PARTUUIDs, warm and cold boot
-   behavior, health validation, and deliberately failed-update rollback.
-   Preserve user data and confirm that recovery stops with an actionable error.
-
-The software regressions cover disabled/unknown capability, bounded retries,
-device-specific UUID rebinding, API admission, and GUI messages. They do not
-prove firmware provisioning or real slot failover. That hardware acceptance
-remains tracked in #275.
-The mounted-image verifier runs the image's checker against deterministic
-NVIDIA-tool responses for enabled slots A/B, disabled redundancy, and unsupported
-results. It checks both the status and warning behavior without reading the
-x86-64 build host's firmware. Missing root or target PARTUUID metadata returns a
-specific diagnostic rather than an unexplained command failure.
-
-Images older than this updater cannot bootstrap it from the dashboard. Upgrade
-those devices once by reinstalling or manually deploying a release that
-contains the verifier.
-
-GitHub Release assets are limited to 2 GiB per file. The packager uses
-1.9-billion-byte parts so installer and OS images stay within that limit.
+NVIDIA's firmware RootFS A/B (`ROOTFS_AB=1` in the QSPI firmware) is not used.
+On-device capsule updates that enabled it left the updated bootloader slot
+unbootable on hardware, and the SD installer cannot write QSPI. Jetson Linux
+upgrades that need new boot firmware remain out of scope for the OS channel.
 
 ## Runner
 

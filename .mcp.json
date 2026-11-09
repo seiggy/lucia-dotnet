@@ -10,6 +10,55 @@
         "agent",
         "mcp"
       ]
+    },
+    "memory": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "tools": [
+        "*"
+      ],
+      "env": {
+        "MEMORY_FILE_PATH": "E:\\github\\lucia-dotnet/.github/memory.json"
+      }
+    },
+    "microsoft.docs": {
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp",
+      "tools": [
+        "*"
+      ]
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--browser",
+        "chromium",
+        "--executable-path",
+        "/usr/bin/microsoft-edge-stable"
+      ],
+      "tools": [
+        "*"
+      ]
+    },
+    "todo-md": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@danjdewhurst/todo-md-mcp"
+      ],
+      "tools": [
+        "*"
+      ],
+      "env": {
+        "TODO_FILE_PATH": "E:\\github\\lucia-dotnet/.github/.todo.md"
+      }
     }
   }
 }

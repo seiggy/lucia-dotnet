@@ -53,9 +53,12 @@ public sealed class InferenceCostChatClientTests
     [Theory]
     [InlineData(InferenceBackendType.Ollama)]
     [InlineData(InferenceBackendType.OpenAICompat)]
-    public async Task LocalProvider_IsZeroEvenWithoutUsageButUnexecutedIsNotFree(InferenceBackendType type)
+    public async Task DeclaredNoChargeProvider_IsZeroEvenWithoutUsageButUnexecutedIsNotFree(InferenceBackendType type)
     {
-        using var client = CreateClient(null, type);
+        var backend = Backend(type);
+        backend.NoProviderCharge = true;
+        using var client = new InferenceCostChatClient(
+            new ScriptedChatClient(_ => Task.FromResult(new ChatResponse())), backend, "model");
         using (var empty = client.BeginScope())
         {
             Assert.Equal("no_calls", empty.Complete().CostStatus);
@@ -66,7 +69,7 @@ public sealed class InferenceCostChatClientTests
         await client.GetResponseAsync([]);
         var cost = scope.Complete();
         Assert.Equal(0m, cost.EstimatedUsd);
-        Assert.Equal("local", cost.CostStatus);
+        Assert.Equal("no_provider_charge", cost.CostStatus);
         Assert.Equal("missing_usage", cost.UsageStatus);
         Assert.Null(cost.InputTokens);
     }
