@@ -182,7 +182,7 @@ public sealed class FamilyMemberServiceTests : IDisposable
             PreferredProviderId = "local",
             DailyBudgetUsd = 0.5m,
             BlockedTopics = ["  violence  ", ""],
-            QuietHours = new QuietHoursWindow { Start = new(21, 0), End = new(7, 0), TimeZoneId = "America/New_York" },
+            QuietHours = new QuietHoursWindow { Start = new(21, 0), End = new(7, 0), TimeZoneId = EasternTimeZone.Id },
         };
         Assert.Equal(FamilyOperationStatus.Ok, (await _service.SetLlmControlsAsync(adult, valid)).Status);
         Assert.Equal(["violence"], (await _members.GetAsync(adult))!.LlmControls.BlockedTopics);

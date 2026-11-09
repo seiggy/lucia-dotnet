@@ -38,8 +38,9 @@ public sealed class QuietHoursEvaluatorTests
     {
         // 02:30 UTC is 21:30 the previous evening in New York (EST, UTC-5).
         var now = new DateTimeOffset(2026, 11, 7, 2, 30, 0, TimeSpan.Zero);
+        Assert.True(TimeZoneInfo.TryFindSystemTimeZoneById(EasternTimeZone.Id, out _));
 
-        Assert.True(QuietHoursEvaluator.IsActive(Window(21, 7, "America/New_York"), now));
-        Assert.False(QuietHoursEvaluator.IsActive(Window(21, 7, "UTC"), now.AddHours(10)));
+        Assert.True(QuietHoursEvaluator.IsActive(Window(21, 23, EasternTimeZone.Id), now));
+        Assert.False(QuietHoursEvaluator.IsActive(Window(21, 23, "UTC"), now));
     }
 }
