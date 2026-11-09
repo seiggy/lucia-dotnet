@@ -25,6 +25,11 @@ public abstract class TraceRepositoryContract
             agentId: "livingroom-agent",
             modelDeploymentName: "gpt-4o-mini",
             success: false);
+        trace.AgentExecutions.Single().ToolCalls.Add(new TracedToolCall
+        {
+            ToolName = "read_sensor", CallId = "call-1", Result = "sanitized preview",
+            ResultTruncated = true, ResultIsError = true
+        });
 
         await scope.Store.InsertTraceAsync(trace);
 
@@ -39,6 +44,10 @@ public abstract class TraceRepositoryContract
         Assert.Equal("livingroom-agent", execution.AgentId);
         Assert.Equal("gpt-4o-mini", execution.ModelDeploymentName);
         Assert.False(execution.Success);
+        var tool = Assert.Single(execution.ToolCalls);
+        Assert.Equal("sanitized preview", tool.Result);
+        Assert.True(tool.ResultTruncated);
+        Assert.True(tool.ResultIsError);
     }
 
     [Fact]

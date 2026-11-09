@@ -11,6 +11,15 @@ public sealed class TraceCaptureOptions
     /// <summary>Whether trace capture is enabled.</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>Explicit opt-in to sanitized tool-result previews. Disabled by default.</summary>
+    public bool CaptureToolResults { get; set; }
+
+    /// <summary>Maximum UTF-8 bytes per preview, between 1 and 65536. Invalid values suppress previews.</summary>
+    public int MaxToolResultBytes { get; set; } = 4096;
+
+    /// <summary>Separate opt-in to sanitized tool results in newly generated training exports.</summary>
+    public bool IncludeToolResultsInTrainingExport { get; set; }
+
     /// <summary>Number of days to retain unlabeled traces before automatic cleanup.</summary>
     public int RetentionDays { get; set; } = 30;
 

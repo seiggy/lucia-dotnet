@@ -3,6 +3,7 @@ using lucia.Data.InMemory;
 using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Tests.Training;
 
@@ -26,7 +27,8 @@ public sealed class AgentTracingChatClientToolResultTests
         ]);
 
         var client = new AgentTracingChatClient(
-            inner, "robot-vacuum-agent", repository, NullLogger<AgentTracingChatClient>.Instance);
+            inner, "robot-vacuum-agent", repository, NullLogger<AgentTracingChatClient>.Instance,
+            traceOptions: Options.Create(new TraceCaptureOptions { CaptureToolResults = true }));
         AgentTracingChatClient.SetSessionId(SessionId);
 
         var userMessage = new ChatMessage(ChatRole.User, "Is the vacuum cleaning?");
