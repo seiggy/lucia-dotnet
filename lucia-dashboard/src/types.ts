@@ -273,6 +273,10 @@ export interface ModelProvider {
   copilotMetadata?: CopilotModelMetadata;
   enabled: boolean;
   isBuiltIn: boolean;
+  /** Estimated USD price per million input tokens; null or absent is free. */
+  inputCostPerMillionTokensUsd?: number | null;
+  /** Estimated USD price per million output tokens; null or absent is free. */
+  outputCostPerMillionTokensUsd?: number | null;
   createdAt: string;
   updatedAt: string;
 }

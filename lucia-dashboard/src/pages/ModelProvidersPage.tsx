@@ -691,6 +691,33 @@ export default function ModelProvidersPage() {
                 />
               </div>
 
+              {form.purpose !== 'Embedding' && (
+                <div className="space-y-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {([
+                      ['inputCostPerMillionTokensUsd', 'Input price (USD per 1M tokens)'],
+                      ['outputCostPerMillionTokensUsd', 'Output price (USD per 1M tokens)'],
+                    ] as const).map(([key, label]) => (
+                      <div key={key}>
+                        <label htmlFor={`provider-${key}`} className="mb-1 block text-sm text-fog">{label}</label>
+                        <input
+                          id={`provider-${key}`}
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          inputMode="decimal"
+                          value={form[key] ?? ''}
+                          onChange={e => setForm(prev => ({ ...prev, [key]: e.target.value === '' ? null : Number(e.target.value) }))}
+                          placeholder="Free"
+                          className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-dust">Used to estimate family members' spending against their limits. Leave blank for local models.</p>
+                </div>
+              )}
+
               {/* Auth Config */}
               <div className="space-y-3 rounded bg-basalt p-4">
                 <h3 className="text-sm font-medium text-fog">Authentication</h3>

@@ -60,6 +60,7 @@ src/
 │   ├── ConfigurationPage.tsx     # System configuration editor
 │   ├── EntityLocationPage.tsx    # Entity-to-area mapping
 │   ├── ExportPage.tsx            # JSONL dataset export for fine-tuning
+│   ├── FamilyPage.tsx            # Family members, permissions, model controls, device pairing
 │   ├── ListsPage.tsx             # List management
 │   ├── LoginPage.tsx             # API key login
 │   ├── MatcherDebugPage.tsx      # Entity matcher diagnostics
@@ -138,6 +139,31 @@ Cmd Traces labels voice enrollment as **Voice onboarding**. Its detail view show
 the stage, whether another reply is needed, and the returned conversation ID
 alongside the incoming request context. Personal answers are redacted, and no
 command-match score or LLM invocation is shown for the local workflow.
+
+## Family
+
+Open **Family** in the sidebar to manage the people who use the Lucia apps. The
+web dashboard stays an administration portal; family members use their own apps.
+
+- **Members:** add administrators, adults, children, and time-limited guests.
+  A child needs at least one active adult or administrator as a guardian, and a
+  guardian cannot be removed while they are a child's only guardian.
+- **Permissions:** each agent can follow the role default, or be set to Allow,
+  Ask guardian, or Block for that member. Individual tools can be overridden by
+  name; the stricter of the agent and tool rules applies.
+- **Model & safety:** allowed and preferred model providers, daily and monthly
+  spending limits, extra instructions, blocked topics, quiet hours, and the
+  optional prompt-injection and personal-data guardrails. Spending is estimated
+  from the input and output token prices on each provider (Providers page).
+- **Devices & sign-in:** create a one-time QR pairing code for a member's phone
+  or tablet, link an enrolled voice profile, link a single sign-on account, and
+  remove any of them. Removing a device key stops that device immediately.
+- **Usage:** today's and this month's estimated spending against the limits,
+  with the latest model calls.
+- **App sign-in:** OpenID Connect settings for the family apps. Saved changes
+  take effect after Lucia restarts.
+
+Guardians approve requests from the apps, not from this portal.
 
 ## User memories
 

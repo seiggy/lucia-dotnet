@@ -60,6 +60,7 @@
 - **Framework:** React
 - **Version:** Latest stable
 - **Build Tool:** Vite
+- **QR codes:** `qrcode` 1.5 renders device pairing codes in the browser, so the one-time pairing secret is never sent to an external service.
 
 ## Infrastructure
 
