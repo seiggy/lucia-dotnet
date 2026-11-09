@@ -393,6 +393,38 @@ public sealed class AlarmScheduledTaskTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_PresenceTarget_OnlySimilarRoomPlayer_SkipsPlayback()
+    {
+        var task = CreateAlarmTask(
+            targetEntity: "presence",
+            alarmSoundUri: "media-source://local/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(1),
+            autoDismissAfter: TimeSpan.FromMilliseconds(300));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var presenceService = A.Fake<IPresenceDetectionService>();
+        var entityLocationService = A.Fake<IEntityLocationService>(options => options.Implements<IAgentFilteredEntityLocationService>());
+
+        A.CallTo(() => presenceService.GetOccupiedAreasAsync(A<CancellationToken>._))
+            .Returns(new List<OccupiedArea> { new("bedroom", "Bedroom", true, 1, PresenceConfidence.Highest) });
+
+        // The occupied bedroom has no visible speaker; only the similarly named guest bedroom matches.
+        A.CallTo(() => ((IAgentFilteredEntityLocationService)entityLocationService).SearchHierarchyForAgentAsync(
+            "Bedroom", A<HybridMatchOptions?>._, A<IReadOnlyList<string>?>._, "timer-agent", A<CancellationToken>._))
+            .Returns(HierarchyResults.Resolved(new List<HomeAssistantEntity>
+            {
+                new() { EntityId = "media_player.guest_bedroom_speaker", FriendlyName = "Guest Bedroom Speaker", AreaId = "guest_bedroom" }
+            }));
+
+        var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        A.CallTo(() => haClient.CallServiceAsync(
+            A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_PresenceTarget_PicksHighestConfidenceArea()
     {
         var task = CreateAlarmTask(

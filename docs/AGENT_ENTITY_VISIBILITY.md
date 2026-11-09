@@ -20,8 +20,10 @@ scoring, so an entity hidden from the timer agent can't win the match and crowd
 out a visible one.
 
 A presence alarm searches by the occupied area's name, because hierarchy
-matching scores names, not area IDs. When the match also covers a similarly
-named room, it prefers a media player in the occupied area itself.
+matching scores names, not area IDs. The match can also cover a similarly
+named room, so the alarm only uses a media player in the occupied area itself.
+If that area has no visible player, the alarm doesn't play rather than ringing
+in another room.
 
 The shared visibility rule is unchanged:
 
@@ -67,5 +69,5 @@ The contract tests cover the allow-list matrix, case handling and domain
 filters for the scoped hierarchy, plus missing caller IDs. They also run the
 real timer and alarm skills against the production location service and check
 that a hidden satellite is never queried for live state. Skill tests check the
-fixed agent ID, token forwarding, the occupied-room preference and that no
+fixed agent ID, token forwarding, the occupied-room restriction and that no
 unscoped search runs. No live model or Home Assistant instance is needed.

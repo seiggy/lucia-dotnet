@@ -154,7 +154,7 @@ public sealed class AlarmScheduledTask : IScheduledTask
             Id, bestArea.AreaName, bestArea.Confidence);
 
         // Find a media_player in the occupied area. Hierarchy matching scores names, and may
-        // also match similarly named rooms, so prefer a player in the occupied area itself.
+        // also match similarly named rooms, so keep only players in the occupied area itself.
         var hierarchyResult = await filteredLocationService.SearchHierarchyForAgentAsync(
             bestArea.AreaName,
             options: null,
@@ -162,7 +162,7 @@ public sealed class AlarmScheduledTask : IScheduledTask
             TimerAgent.AgentId,
             ct).ConfigureAwait(false);
         var mediaPlayers = hierarchyResult.ResolvedEntities
-            .OrderByDescending(e => string.Equals(e.AreaId, bestArea.AreaId, StringComparison.OrdinalIgnoreCase))
+            .Where(e => string.Equals(e.AreaId, bestArea.AreaId, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (mediaPlayers.Count == 0)
