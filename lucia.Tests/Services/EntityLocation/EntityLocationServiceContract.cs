@@ -4,6 +4,8 @@ using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.Tests.Data.Providers;
 using lucia.Tests.TestDoubles;
+using lucia.TimerAgent;
+using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -269,6 +271,86 @@ public abstract class EntityLocationServiceContract
     }
 
     // ── Visibility ──────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task AgentHierarchy_RejectsMissingCallerIdentity(string? callerAgentId)
+    {
+        await using var scope = await CreateAsync(new SampleHomeAssistant());
+        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
+        await Assert.ThrowsAnyAsync<ArgumentException>(() =>
+            filtered.SearchHierarchyForAgentAsync("Kitchen", null, null, callerAgentId!));
+    }
+
+    [Theory]
+    [InlineData(null, true, false)]
+    [InlineData(null, true, true)]
+    [InlineData("", false, false)]
+    [InlineData("", false, true)]
+    [InlineData("timer-agent", true, false)]
+    [InlineData("TIMER-AGENT", true, true)]
+    [InlineData("light-agent", false, false)]
+    [InlineData("light-agent", false, true)]
+    public async Task AgentHierarchy_RespectsVisibilityWithAndWithoutDomainFilter(
+        string? allowedAgent, bool visible, bool filterDomain)
+    {
+        await using var scope = await CreateAsync(new SampleHomeAssistant());
+        await LoadAsync(scope.Store);
+        await scope.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?>
+        {
+            ["light.kitchen_ceiling"] = allowedAgent is null ? null : allowedAgent.Length == 0 ? [] : [allowedAgent]
+        });
+        var filtered = Assert.IsAssignableFrom<IAgentFilteredEntityLocationService>(scope.Store);
+        string[]? domains = filterDomain ? ["LIGHT"] : null;
+
+        var hierarchy = await filtered.SearchHierarchyForAgentAsync("Kitchen", null, domains, "timer-agent");
+
+        Assert.Equal(visible, hierarchy.ResolvedEntities.Any(entity => entity.EntityId == "light.kitchen_ceiling"));
+        Assert.Contains(hierarchy.ResolvedEntities, entity => entity.EntityId == "light.kitchen_island");
+
+        // Dashboard inventory searches stay unscoped, including the hidden entity.
+        var options = new HybridMatchOptions { Threshold = 0, ScoreDropoffRatio = 0 };
+        Assert.Contains(await scope.Store.FindEntitiesByLocationAsync("Kitchen", domains), entity => entity.EntityId == "light.kitchen_ceiling");
+        Assert.Contains(await scope.Store.SearchEntitiesAsync("Kitchen", domains, options), match => match.Entity.EntityId == "light.kitchen_ceiling");
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", false)]
+    [InlineData("timer-agent", true)]
+    [InlineData("light-agent", false)]
+    public async Task TimerAndAlarm_LocationResolutionUsesTheProductionVisibilityPolicy(string? allowedAgent, bool visible)
+    {
+        var home = new SampleHomeAssistant();
+        home.Entities.Add(SampleHomeAssistant.Entity("assist_satellite.office_sat", "Office Satellite"));
+        home.AreaEntities["office"].Add("assist_satellite.office_sat");
+        await using var scope = await CreateAsync(home);
+        await LoadAsync(scope.Store);
+        var agents = allowedAgent is null ? null : allowedAgent.Length == 0 ? new List<string>() : [allowedAgent];
+        await scope.Store.SetEntityAgentsAsync(new Dictionary<string, List<string>?>
+        {
+            ["assist_satellite.office_sat"] = agents,
+            ["media_player.office_speaker"] = agents
+        });
+
+        var tasks = new ScheduledTaskStore();
+        var repository = A.Fake<IScheduledTaskRepository>();
+        var timer = new TimerSkill(scope.Store, home.Client, tasks, repository,
+            TimeProvider.System, NullLogger<TimerSkill>.Instance);
+        var alarm = new AlarmSkill(A.Fake<IAlarmClockRepository>(), tasks, repository,
+            new CronScheduleService(TimeProvider.System, NullLogger<CronScheduleService>.Instance),
+            scope.Store, TimeProvider.System, NullLogger<AlarmSkill>.Instance);
+
+        await timer.SetTimerAsync(60, "Done!", "Office");
+        await alarm.SetAlarmAsync("Wake up", "07:00", "Office");
+
+        Assert.Equal(visible ? 1 : 0, timer.ActiveTimerCount);
+        Assert.Equal(visible ? 2 : 0, tasks.Count);
+        if (!visible)
+            A.CallTo(() => home.Client.GetStateAsync("assist_satellite.office_sat", A<CancellationToken>._)).MustNotHaveHappened();
+    }
 
     [Fact]
     public async Task GetVisibilityConfigAsync_Default_ExposesEverything()

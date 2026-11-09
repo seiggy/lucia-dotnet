@@ -15,7 +15,7 @@ namespace lucia.TimerAgent;
 /// </summary>
 public sealed class TimerAgentPlugin : IAgentPlugin
 {
-    public string AgentId => "timer-agent";
+    public string AgentId => TimerAgent.AgentId;
 
     public void ConfigureAgentHost(IHostApplicationBuilder builder)
     {
@@ -44,7 +44,7 @@ public sealed class TimerAgentPlugin : IAgentPlugin
     public void MapAgentEndpoints(WebApplication app)
     {
         var timerAgent = app.Services.GetServices<ILuciaAgent>()
-            .First(a => a.GetAgentCard().Name == "timer-agent");
+            .First(a => a.GetAgentCard().Name == TimerAgent.AgentId);
         // Primary A2A endpoint — used by mesh mode (A2AHost) and standalone mode alike.
         // In standalone mode, AgentDiscoveryExtension separately maps the /a2a/timer-agent
         // path from the agent card URL, so no mirror mapping is needed here.
