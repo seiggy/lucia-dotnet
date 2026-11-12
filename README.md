@@ -905,7 +905,7 @@ The release strategy is recommended for production use — publish per-plugin zi
 
 The **Plugins** page has three tabs:
 
-- **Installed** — View, enable/disable, and uninstall plugins. Changes require an app restart (a banner will prompt you).
+- **Installed** — View, enable/disable, and uninstall plugins. Changes require an app restart (a banner will prompt you). Plugins that implement `IPluginStatusProvider` show a live status line under their row (e.g. the resolved home location for a weather plugin); the line hides itself when there is nothing to report.
 - **Store** — Browse available plugins from all configured repositories. One-click install.
 - **Repositories** — Add, remove, and sync plugin repositories. Supports both local (development) and Git (production) sources.
 

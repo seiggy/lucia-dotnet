@@ -551,6 +551,7 @@ export interface InstalledPlugin {
   source: string
   repositoryId: string | null
   description: string | null
+  status?: string | null
   installedAt: string
   pluginPath: string
   enabled: boolean
