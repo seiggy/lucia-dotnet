@@ -27,11 +27,9 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
-  {{- if eq .Values.lucia.service.type "NodePort" }}
-  {{- if .Values.lucia.service.nodePort }}
+      {{- if and (eq .Values.lucia.service.type "NodePort") .Values.lucia.service.nodePort }}
       nodePort: {{ .Values.lucia.service.nodePort }}
-  {{- end }}
-  {{- end }}
+      {{- end }}
   selector:
     {{- include "lucia.selectorLabels" . | nindent 4 }}
   sessionAffinity: None

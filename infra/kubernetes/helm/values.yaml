@@ -42,6 +42,25 @@ lucia:
     # Service annotations
     annotations: {}
 
+  # Wyoming voice protocol server (raw TCP, JSONL + PCM), served by the voice
+  # image on port 10400. When enabled, the chart renders a dedicated Service
+  # for it — independent of lucia.service, so it can be exposed as NodePort
+  # while HTTP stays ClusterIP behind an ingress — plus the matching container
+  # port and the Wyoming__Port env var on the Deployment. An HTTP ingress
+  # cannot carry it; external clients need an L4/TCP path such as a NodePort
+  # or a TCP-capable load balancer.
+  wyoming:
+    enabled: false
+    service:
+      # Service type for the Wyoming port only (does not affect lucia.service.type)
+      type: ClusterIP
+      # Service and container port for the Wyoming listener
+      port: 10400
+      # Pin the NodePort of the Wyoming service (only used when type is NodePort)
+      nodePort: null
+      # Service annotations
+      annotations: {}
+
   # Ingress configuration
   ingress:
     # Enable ingress
