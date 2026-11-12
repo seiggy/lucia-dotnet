@@ -31,7 +31,7 @@ public interface ILuciaPlugin
     /// Configurable properties exposed by this plugin.
     /// The dashboard generates a dynamic form from these definitions.
     /// Values are stored in the standard config store under <see cref="ConfigSection"/>
-    /// and deleted when the plugin is uninstalled.
+    /// and deleted when the plugin is uninstalled unless another installed plugin shares the section.
     /// </summary>
     IReadOnlyList<PluginConfigProperty> ConfigProperties => [];
 

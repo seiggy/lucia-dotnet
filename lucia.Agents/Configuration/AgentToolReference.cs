@@ -17,4 +17,9 @@ public sealed class AgentToolReference
     /// The tool name reported by the MCP server or plugin provider.
     /// </summary>
     public string ToolName { get; set; } = default!;
+
+    /// <summary>
+    /// Set to <c>plugin</c> for plugin tools. Missing values identify MCP tools.
+    /// </summary>
+    public string? Source { get; set; }
 }

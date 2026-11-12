@@ -401,21 +401,24 @@ function AgentForm({
     }
   }, [definition?.id])
 
-  const toggleTool = (serverId: string, toolName: string) => {
+  const toggleTool = (serverId: string, toolName: string, source?: 'plugin') => {
     setSelectedTools(prev => {
-      const exists = prev.some(t => t.serverId === serverId && t.toolName === toolName)
+      const matches = (t: AgentToolReference) => t.serverId === serverId && t.toolName === toolName &&
+        (t.source === 'plugin') === (source === 'plugin')
+      const exists = prev.some(matches)
       if (exists) {
-        return prev.filter(t => !(t.serverId === serverId && t.toolName === toolName))
+        return prev.filter(t => !matches(t))
       }
-      return [...prev, { serverId, toolName }]
+      return [...prev, source ? { serverId, toolName, source } : { serverId, toolName }]
     })
   }
 
-  const isToolSelected = (serverId: string, toolName: string) =>
-    selectedTools.some(t => t.serverId === serverId && t.toolName === toolName)
+  const isToolSelected = (serverId: string, toolName: string, source?: 'plugin') =>
+    selectedTools.some(t => t.serverId === serverId && t.toolName === toolName &&
+      (t.source === 'plugin') === (source === 'plugin'))
 
   const unavailablePluginTools = selectedTools.filter(reference =>
-    reference.serverId.startsWith('plugin:') && !pluginProviders.some(provider =>
+    reference.source === 'plugin' && !pluginProviders.some(provider =>
       provider.serverId === reference.serverId && provider.tools.some(tool => tool.toolName === reference.toolName)
     )
   )
@@ -643,8 +646,8 @@ function AgentForm({
                       <label key={tool.toolName} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 hover:bg-stone focus-within:ring-2 focus-within:ring-amber">
                         <input
                           type="checkbox"
-                          checked={isToolSelected(provider.serverId, tool.toolName)}
-                          onChange={() => toggleTool(provider.serverId, tool.toolName)}
+                          checked={isToolSelected(provider.serverId, tool.toolName, 'plugin')}
+                          onChange={() => toggleTool(provider.serverId, tool.toolName, 'plugin')}
                           className="mt-0.5 h-4 w-4 shrink-0"
                         />
                         <span className="min-w-0">
@@ -667,7 +670,7 @@ function AgentForm({
                       <code className="min-w-0 break-all text-xs text-dust">{reference.serverId}/{reference.toolName}</code>
                       <button
                         type="button"
-                        onClick={() => toggleTool(reference.serverId, reference.toolName)}
+                        onClick={() => toggleTool(reference.serverId, reference.toolName, 'plugin')}
                         aria-label={`Remove ${reference.toolName} from ${reference.serverId}`}
                         className="rounded bg-basalt px-3 py-2 text-xs text-fog hover:bg-stone focus-visible:ring-2 focus-visible:ring-amber"
                       >Remove</button>

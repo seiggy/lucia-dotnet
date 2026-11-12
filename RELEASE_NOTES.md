@@ -24,8 +24,9 @@
   CVE-2026-120006. The Aspire client, testing, and community integrations and
   their required Microsoft.Extensions dependencies were updated as well.
 - Uninstalling a plugin now deletes its `ConfigSection` entries from the config
-  store, so API keys don't outlive the plugin. A section shared with another
-  loaded plugin is kept. (#349)
+  store, so API keys don't outlive the plugin. Shared and nested sections used
+  by installed plugins are preserved. Cleanup failures leave the plugin installed
+  so the uninstall can be retried. (#349)
 
 ---
 

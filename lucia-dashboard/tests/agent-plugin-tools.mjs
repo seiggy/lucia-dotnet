@@ -36,7 +36,7 @@ const pluginProviders = [{
   tools: [],
 }]
 
-async function openPage({ viewport, providers = pluginProviders, pluginStatus = 200, mcpStatus = 200, definitions = [] } = {}) {
+async function openPage({ viewport, providers = pluginProviders, pluginStatus = 200, mcpStatus = 200, definitions = [], mcpId = 'search' } = {}) {
   const context = await browser.newContext({ viewport: viewport ?? { width: 1280, height: 1000 } })
   const page = await context.newPage()
   const errors = []
@@ -86,21 +86,47 @@ async function openPage({ viewport, providers = pluginProviders, pluginStatus = 
       return reply([])
     }
     if (path === '/api/mcp-servers/status') {
-      return reply({ search: { state: 'Connected', serverId: 'search', serverName: 'Search' } }, mcpStatus)
+      return reply({ [mcpId]: { state: 'Connected', serverId: mcpId, serverName: 'Search' } }, mcpStatus)
     }
     if (path === '/api/mcp-servers') {
-      return reply([{ id: 'search', name: 'Search', enabled: true }], mcpStatus)
+      return reply([{ id: mcpId, name: 'Search', enabled: true }], mcpStatus)
     }
-    if (path === '/api/mcp-servers/search/tools') {
-      return reply([{ serverId: 'search', toolName: 'web_search', description: 'Search the web' }])
+    if (decodeURIComponent(path) === `/api/mcp-servers/${mcpId}/tools`) {
+      return reply([{ serverId: mcpId, toolName: 'web_search', description: 'Search the web' }])
     }
     errors.push(`Unexpected API request: ${request.method()} ${path}`)
     return reply({ error: 'Unexpected test request' }, 500)
   })
+
   await page.goto(`${baseUrl}/agent-definitions`)
   await page.getByRole('button', { name: '+ New Agent', exact: true }).waitFor()
   return { context, page, errors, writes }
 }
+
+test('a plugin-prefixed MCP server remains separate from the plugin provider', async () => {
+  const mcpId = 'plugin:Flight weather'
+  const mcpReference = { serverId: mcpId, toolName: 'web_search' }
+  const { context, page, writes } = await openPage({
+    mcpId,
+    definitions: [{
+      id: 'existing', name: 'existing', displayName: 'Existing', description: '', instructions: '',
+      enabled: true, tools: [mcpReference], isBuiltIn: false,
+    }],
+  })
+  try {
+    await page.getByRole('button', { name: 'Edit', exact: true }).click()
+    assert.equal(await page.getByRole('checkbox', { name: /web_search/ }).isChecked(), true)
+    assert.equal(await page.getByRole('heading', { name: 'Unavailable selected plugin tools' }).count(), 0)
+    await page.getByRole('checkbox', { name: /check_flight_conditions/ }).check()
+    await page.getByRole('button', { name: 'Update Agent', exact: true }).click()
+    assert.deepEqual(writes[0].tools, [
+      mcpReference,
+      { serverId: mcpId, toolName: 'check_flight_conditions', source: 'plugin' },
+    ])
+  } finally {
+    await context.close()
+  }
+})
 
 for (const viewport of [{ width: 1280, height: 1000 }, { width: 390, height: 844 }]) {
   test(`create and edit a custom agent with plugin and MCP tools at ${viewport.width}px`, async () => {
@@ -120,7 +146,7 @@ for (const viewport of [{ width: 1280, height: 1000 }, { width: 390, height: 844
       await page.getByRole('button', { name: 'Create Agent', exact: true }).click()
       await page.getByRole('button', { name: 'Edit', exact: true }).waitFor()
       assert.deepEqual(writes[0].tools, [
-        { serverId: 'plugin:Flight weather', toolName: 'check_flight_conditions' },
+        { serverId: 'plugin:Flight weather', toolName: 'check_flight_conditions', source: 'plugin' },
         { serverId: 'search', toolName: 'web_search' },
       ])
       assert.equal(writes[0].instructions, 'Answer briefly.')
@@ -153,7 +179,7 @@ test('plugin tools remain selectable if MCP discovery fails', async () => {
 })
 
 test('unavailable plugin selections survive save and can be removed after discovery fails', async () => {
-  const reference = { serverId: 'plugin:Removed', toolName: 'old_tool' }
+  const reference = { serverId: 'plugin:Removed', toolName: 'old_tool', source: 'plugin' }
   const { context, page, writes } = await openPage({
     pluginStatus: 503,
     definitions: [{

@@ -810,7 +810,7 @@ new SearXngPlugin()
 
 Register one or more `IAgentToolProvider` implementations in `ConfigureServices`. The general agent automatically includes their tools and lists each provider as a skill on its agent card. Custom agents can select individual plugin tools alongside MCP tools in **Definitions > New Agent > Agent Tools**. Each agent receives instruction hints only for providers whose tools it uses, appended after its system instructions.
 
-The authenticated `GET /api/agent-definitions/tools/plugins` endpoint lists provider names, descriptions, tools, and initialization errors. Saved plugin references use `serverId: "plugin:{provider.Name}"` and the tool's name. Keep provider names unique and stable across plugin updates. Existing MCP references are unchanged; `plugin:` is reserved for plugin providers.
+The authenticated `GET /api/agent-definitions/tools/plugins` endpoint lists provider names, descriptions, tools, and initialization errors. Saved plugin references use `source: "plugin"`, `serverId: "plugin:{provider.Name}"`, and the tool's name. Keep provider names unique and stable across plugin updates. Existing MCP references remain valid, including server IDs beginning with `plugin:`.
 
 Providers initialize once per host, shared by discovery, the general agent, and custom agents. A failed provider has no callable tools and its error appears in the picker. Fix its configuration and restart Lucia to retry. Missing tools remain visible in saved definitions and are skipped with a warning at runtime. Remove unavailable selections explicitly, or restore the plugin and restart Lucia. After saving a custom agent, use **Reload Agents** to apply its tool selection. Select only one tool with any given name.
 

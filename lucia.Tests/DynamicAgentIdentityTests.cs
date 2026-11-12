@@ -21,6 +21,37 @@ namespace lucia.Tests;
 public sealed class DynamicAgentIdentityTests
 {
     [Fact]
+    public async Task LegacyMcpReference_WithPluginPrefix_IsResolvedAsMcp()
+    {
+        var definition = new AgentDefinition
+        {
+            Id = "legacy-agent",
+            Name = "legacy-agent",
+            DisplayName = "Legacy agent",
+            Description = "",
+            Instructions = "",
+            Tools = [new AgentToolReference { ServerId = "plugin:weather", ToolName = "forecast" }],
+        };
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        A.CallTo(() => repository.GetAgentDefinitionAsync(definition.Id, A<CancellationToken>._)).Returns(definition);
+        var mcpRegistry = A.Fake<IMcpToolRegistry>();
+        var resolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(A.Fake<AIAgent>()));
+        var agent = new DynamicAgent(definition.Id, definition, repository, mcpRegistry, resolver,
+            A.Fake<IModelProviderResolver>(), A.Fake<IModelProviderRepository>(),
+            new TracingChatClientFactory(A.Fake<ITraceRepository>(), NullLoggerFactory.Instance),
+            new AgentsTelemetrySource(), NullLoggerFactory.Instance);
+
+        await agent.InitializeAsync();
+
+        A.CallTo(() => mcpRegistry.ResolveToolsAsync(
+            A<IReadOnlyList<AgentToolReference>>.That.Matches(references =>
+                references.Count == 1 && references[0].ServerId == "plugin:weather"),
+            A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task CardAndAIAgent_UseDefinitionIdAsRoutingIdentity_EvenWhenNameDiffers()
     {
         var definition = new AgentDefinition
@@ -98,7 +129,7 @@ public sealed class DynamicAgentIdentityTests
         {
             Id = "weather-agent", Name = "weather-agent", DisplayName = "Weather agent",
             Description = "Forecasts", Instructions = "Answer briefly.",
-            Tools = [mcpReference, new AgentToolReference { ServerId = "plugin:Weather", ToolName = pluginToolName }],
+            Tools = [mcpReference, new AgentToolReference { ServerId = "plugin:Weather", ToolName = pluginToolName, Source = "plugin" }],
         };
         var repository = A.Fake<IAgentDefinitionRepository>();
         A.CallTo(() => repository.GetAgentDefinitionAsync(definition.Id, A<CancellationToken>._)).Returns(definition);

@@ -7,6 +7,8 @@ using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
 using lucia.Agents.PluginFramework;
 using lucia.Agents.Services;
+using lucia.Data.Sqlite;
+using lucia.Tests.Data;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Tests.Plugins;
@@ -359,6 +361,11 @@ public sealed class PluginSystemTests : IDisposable
     {
         var pluginDir = Path.Combine(CreateTempDir(), "plugins");
         var configStore = A.Fake<IConfigStoreWriter>();
+        A.CallTo(() => configStore.GetAllEntriesAsync(A<CancellationToken>._)).Returns(
+        [
+            new() { Key = "Weather:ApiKey", Section = "Weather" },
+            new() { Key = "Other:ApiKey", Section = "Other" },
+        ]);
         var weather = A.Fake<ILuciaPlugin>();
         A.CallTo(() => weather.PluginId).Returns("weather");
         A.CallTo(() => weather.ConfigSection).Returns("Weather");
@@ -377,16 +384,21 @@ public sealed class PluginSystemTests : IDisposable
 
         await svc.UninstallPluginAsync("weather");
 
-        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("Weather:", A<CancellationToken>._))
+        A.CallTo(() => configStore.DeleteByKeysAsync(
+                A<IReadOnlyCollection<string>>.That.Matches(keys => keys.Count == 1 && keys.Contains("Weather:ApiKey")),
+                A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
-        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("Other:", A<CancellationToken>._))
-            .MustNotHaveHappened();
     }
 
     [Fact]
     public async Task UninstallPluginAsync_KeepsConfigSectionSharedWithAnotherPlugin()
     {
         var configStore = A.Fake<IConfigStoreWriter>();
+        A.CallTo(() => configStore.GetAllEntriesAsync(A<CancellationToken>._)).Returns(
+        [
+            new() { Key = "Shared:ApiKey", Section = "Shared" },
+            new() { Key = "shared:OtherKey", Section = "shared" },
+        ]);
         var first = A.Fake<ILuciaPlugin>();
         A.CallTo(() => first.PluginId).Returns("first");
         A.CallTo(() => first.ConfigSection).Returns("Shared");
@@ -410,14 +422,46 @@ public sealed class PluginSystemTests : IDisposable
 
         await svc.UninstallPluginAsync("first");
 
-        A.CallTo(() => configStore.DeleteByKeyPrefixAsync(A<string>._, A<CancellationToken>._))
+        A.CallTo(() => configStore.DeleteByKeysAsync(A<IReadOnlyCollection<string>>._, A<CancellationToken>._))
             .MustNotHaveHappened();
 
         await svc.UninstallPluginAsync("second");
-        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("shared:", A<CancellationToken>._))
+        A.CallTo(() => configStore.DeleteByKeysAsync(
+                A<IReadOnlyCollection<string>>.That.Matches(keys =>
+                    keys.Count == 2 && keys.Contains("Shared:ApiKey") && keys.Contains("shared:OtherKey")),
+                A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
-        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("Shared:", A<CancellationToken>._))
-            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task UninstallPluginAsync_WhenConfigCleanupFails_CanRetryAfterRestart()
+    {
+        using var database = new SqliteTestHelper();
+        var configStore = new SqliteConfigStoreWriter(database.ConnectionFactory);
+        await configStore.SetAsync("Weather:ApiKey", "secret");
+        var pluginDir = Path.Combine(CreateTempDir(), "plugins");
+        var pluginPath = Path.Combine(pluginDir, "weather");
+        Directory.CreateDirectory(pluginPath);
+        await File.WriteAllTextAsync(Path.Combine(pluginPath, "plugin.cs"), MinimalPluginCs);
+        var plugin = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => plugin.PluginId).Returns("weather");
+        A.CallTo(() => plugin.ConfigSection).Returns("Weather");
+        var brokenStore = A.Fake<IConfigStoreWriter>();
+        A.CallTo(() => brokenStore.GetAllEntriesAsync(A<CancellationToken>._)).Throws(new InvalidOperationException("store unavailable"));
+        A.CallTo(() => brokenStore.DeleteByKeyPrefixAsync(A<string>._, A<CancellationToken>._)).Throws(new InvalidOperationException("store unavailable"));
+        var repository = A.Fake<IPluginManagementRepository>();
+        var beforeRestart = new PluginManagementService(repository, new PluginChangeTracker(), [],
+            CreateLogger<PluginManagementService>(), pluginDir, brokenStore, [plugin]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => beforeRestart.UninstallPluginAsync("weather"));
+        Assert.True(File.Exists(Path.Combine(pluginPath, "plugin.cs")));
+        A.CallTo(() => repository.DeleteInstalledPluginAsync("weather", A<CancellationToken>._)).MustNotHaveHappened();
+
+        var afterRestart = new PluginManagementService(repository, new PluginChangeTracker(), [],
+            CreateLogger<PluginManagementService>(), pluginDir, configStore, [plugin]);
+        await afterRestart.UninstallPluginAsync("weather");
+        Assert.Null(await configStore.GetAsync("Weather:ApiKey"));
+        Assert.False(Directory.Exists(pluginPath));
     }
 
     // ── Test 7: UninstallPluginAsync removes folder and signals restart ─

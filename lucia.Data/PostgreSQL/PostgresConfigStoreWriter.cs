@@ -165,6 +165,18 @@ public sealed class PostgresConfigStoreWriter : IConfigStoreWriter
         return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<long> DeleteByKeysAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default)
+    {
+        if (keys.Count == 0)
+            return 0;
+
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM configuration WHERE key = ANY(@keys);";
+        cmd.Parameters.AddWithValue("keys", keys.ToArray());
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task<IReadOnlyList<ConfigEntry>> ReadEntriesAsync(NpgsqlCommand cmd, CancellationToken cancellationToken)
     {
         var entries = new List<ConfigEntry>();

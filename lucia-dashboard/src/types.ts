@@ -215,10 +215,11 @@ export interface McpServerStatus {
 }
 
 // Agent Definitions
-/** Reference to an MCP or plugin tool. Plugin server IDs use `plugin:{providerName}`. */
+/** Reference to an MCP or plugin tool. Missing source identifies an MCP tool. */
 export interface AgentToolReference {
   serverId: string;
   toolName: string;
+  source?: 'plugin' | null;
 }
 
 export interface PluginToolProviderInfo {

@@ -30,7 +30,7 @@ public sealed partial class PluginToolRegistry : IDisposable
     }
 
     public static bool IsPluginReference(AgentToolReference reference) =>
-        reference.ServerId.StartsWith(Prefix, StringComparison.Ordinal);
+        string.Equals(reference.Source, "plugin", StringComparison.Ordinal);
 
     public async Task<IReadOnlyList<PluginToolProviderInfo>> GetProvidersAsync(CancellationToken ct = default)
     {
