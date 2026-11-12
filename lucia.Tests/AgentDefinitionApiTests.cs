@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Claims;
 using FakeItEasy;
 using lucia.AgentHost.Apis;
 using lucia.Agents.Abstractions;
@@ -7,14 +8,46 @@ using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Providers;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Tests;
 
 public sealed class AgentDefinitionApiTests
 {
+    [Fact]
+    public async Task PluginToolsId_ResolvesAgentWithoutShadowingCatalog()
+    {
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        A.CallTo(() => repository.GetAgentDefinitionAsync("plugin-tools", A<CancellationToken>._))
+            .Returns(new AgentDefinition { Id = "plugin-tools", Name = "plugin-tools" });
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorization();
+        builder.Services.AddSingleton(repository);
+        builder.Services.AddSingleton(new PluginToolRegistry([], NullLogger<PluginToolRegistry>.Instance));
+
+        await using var app = builder.Build();
+        app.Use(async (context, next) =>
+        {
+            context.User = new ClaimsPrincipal(new ClaimsIdentity([], "test"));
+            await next();
+        });
+        app.UseAuthorization();
+        app.MapAgentDefinitionApi();
+        await app.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
+
+        (await client.GetAsync("/api/agent-definitions/plugin-tools")).EnsureSuccessStatusCode();
+        (await client.GetAsync("/api/agent-definitions/tools/plugins")).EnsureSuccessStatusCode();
+        A.CallTo(() => repository.GetAgentDefinitionAsync("plugin-tools", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
     [Fact]
     public async Task PluginToolsCatalog_UsesTheSameReferenceIdsAsSavedAgentDefinitions()
     {

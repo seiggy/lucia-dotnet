@@ -55,13 +55,14 @@ public sealed partial class PluginToolRegistry : IDisposable
 
     /// <summary>Resolves selected tools, or all plugin tools when references are null.</summary>
     public async Task<(IReadOnlyList<AITool> Tools, IReadOnlyList<string> Hints)> ResolveToolsAsync(
-        IReadOnlyList<AgentToolReference>? references = null, CancellationToken ct = default)
+        IReadOnlyList<AgentToolReference>? references = null, CancellationToken ct = default,
+        IEnumerable<string>? existingToolNames = null)
     {
         await InitializeAsync(ct).ConfigureAwait(false);
         references ??= _tools.SelectMany(entry => entry.Value.Select(tool =>
             new AgentToolReference { ServerId = entry.Key, ToolName = tool.Name })).ToList();
         var resolved = new List<AITool>();
-        var names = new HashSet<string>(StringComparer.Ordinal);
+        var names = new HashSet<string>(existingToolNames ?? [], StringComparer.Ordinal);
         var selectedProviders = new HashSet<string>(StringComparer.Ordinal);
         var hints = new List<string>();
         foreach (var reference in references)

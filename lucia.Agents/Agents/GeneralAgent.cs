@@ -168,7 +168,9 @@ public sealed class GeneralAgent : ILuciaAgent
             var pluginTools = new List<AITool>(_webSearchSkill?.GetTools() ?? []);
             if (_pluginToolRegistry is not null)
             {
-                var resolved = await _pluginToolRegistry.ResolveToolsAsync(ct: cancellationToken).ConfigureAwait(false);
+                var resolved = await _pluginToolRegistry.ResolveToolsAsync(
+                    ct: cancellationToken,
+                    existingToolNames: pluginTools.Select(tool => tool.Name)).ConfigureAwait(false);
                 pluginTools.AddRange(resolved.Tools);
                 Instructions += string.Concat(resolved.Hints.Select(hint => "\n- " + hint));
                 foreach (var provider in await _pluginToolRegistry.GetProvidersAsync(cancellationToken).ConfigureAwait(false))

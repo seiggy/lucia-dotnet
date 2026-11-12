@@ -647,7 +647,7 @@ export async function removeTodoItem(entityId: string, item: string): Promise<vo
 
 /** List registered plugin capabilities and selectable tools for custom agents. */
 export async function fetchPluginToolProviders(): Promise<PluginToolProviderInfo[]> {
-  const res = await fetch(`${BASE}/agent-definitions/plugin-tools`);
+  const res = await fetch(`${BASE}/agent-definitions/tools/plugins`);
   if (!res.ok) throw new Error(`Failed to load plugin tools: ${res.statusText}`);
   return res.json();
 }

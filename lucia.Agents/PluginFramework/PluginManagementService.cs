@@ -262,8 +262,12 @@ public sealed class PluginManagementService
         if (_configStore is null || string.IsNullOrWhiteSpace(section))
             return;
 
+        var installedIds = (await GetInstalledPluginsAsync(ct).ConfigureAwait(false))
+            .Select(p => p.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (_loadedPlugins.Any(p =>
                 !string.Equals(p.PluginId, pluginId, StringComparison.OrdinalIgnoreCase) &&
+                installedIds.Contains(p.PluginId) &&
                 string.Equals(p.ConfigSection, section, StringComparison.OrdinalIgnoreCase)))
         {
             _logger.LogWarning(
@@ -271,7 +275,14 @@ public sealed class PluginManagementService
             return;
         }
 
-        var deleted = await _configStore.DeleteByKeyPrefixAsync($"{section}:", ct).ConfigureAwait(false);
+        long deleted = 0;
+        foreach (var sectionName in _loadedPlugins
+                     .Select(p => p.ConfigSection)
+                     .Where(name => string.Equals(name, section, StringComparison.OrdinalIgnoreCase))
+                     .Distinct(StringComparer.Ordinal))
+        {
+            deleted += await _configStore.DeleteByKeyPrefixAsync($"{sectionName}:", ct).ConfigureAwait(false);
+        }
         _logger.LogInformation(
             "Deleted {Count} config entries in section '{Section}' for uninstalled plugin '{Id}'.", deleted, section, pluginId);
     }

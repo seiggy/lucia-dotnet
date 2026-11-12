@@ -95,6 +95,23 @@ public abstract class ConfigStoreWriterContract
         Assert.Null(await scope.Store.GetAsync("Feature:Alpha", CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData("Weather_API:", "WeatherXAPI:")]
+    [InlineData("Weather%API:", "WeatherXYZAPI:")]
+    [InlineData(@"Weather\API:", "WeatherAPI:")]
+    public async Task DeleteByKeyPrefixAsync_TreatsWildcardCharactersLiterally(string prefix, string unrelatedPrefix)
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.SetAsync(prefix + "ApiKey", "plugin", cancellationToken: CancellationToken.None);
+        await scope.Store.SetAsync(unrelatedPrefix + "ApiKey", "other", cancellationToken: CancellationToken.None);
+
+        var deleted = await scope.Store.DeleteByKeyPrefixAsync(prefix, CancellationToken.None);
+
+        Assert.Equal(1, deleted);
+        Assert.Null(await scope.Store.GetAsync(prefix + "ApiKey", CancellationToken.None));
+        Assert.Equal("other", await scope.Store.GetAsync(unrelatedPrefix + "ApiKey", CancellationToken.None));
+    }
+
     [Fact]
     public async Task DeleteAllAsync_RemovesEverything()
     {

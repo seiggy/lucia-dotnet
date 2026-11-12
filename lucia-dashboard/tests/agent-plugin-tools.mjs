@@ -62,7 +62,7 @@ async function openPage({ viewport, providers = pluginProviders, pluginStatus = 
     if (path === '/api/tasks/background') {
       return reply([])
     }
-    if (path === '/api/agent-definitions/plugin-tools') {
+    if (path === '/api/agent-definitions/tools/plugins') {
       return reply(providers, pluginStatus)
     }
     if (path === '/api/agent-definitions' || request.method() === 'PATCH') {

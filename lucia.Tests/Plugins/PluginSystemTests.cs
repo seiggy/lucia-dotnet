@@ -393,20 +393,31 @@ public sealed class PluginSystemTests : IDisposable
         var second = A.Fake<ILuciaPlugin>();
         A.CallTo(() => second.PluginId).Returns("second");
         A.CallTo(() => second.ConfigSection).Returns("shared");
+        var pluginDir = Path.Combine(CreateTempDir(), "plugins");
 
         var svc = new PluginManagementService(
             A.Fake<IPluginManagementRepository>(),
             new PluginChangeTracker(),
             [],
             CreateLogger<PluginManagementService>(),
-            Path.Combine(CreateTempDir(), "plugins"),
+            pluginDir,
             configStore,
             [first, second]);
+
+        var secondPath = Path.Combine(pluginDir, "second");
+        Directory.CreateDirectory(secondPath);
+        await File.WriteAllTextAsync(Path.Combine(secondPath, "plugin.cs"), MinimalPluginCs);
 
         await svc.UninstallPluginAsync("first");
 
         A.CallTo(() => configStore.DeleteByKeyPrefixAsync(A<string>._, A<CancellationToken>._))
             .MustNotHaveHappened();
+
+        await svc.UninstallPluginAsync("second");
+        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("shared:", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("Shared:", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
     }
 
     // ── Test 7: UninstallPluginAsync removes folder and signals restart ─

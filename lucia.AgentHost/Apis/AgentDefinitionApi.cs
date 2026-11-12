@@ -34,7 +34,7 @@ public static class AgentDefinitionApi
         group.MapGet("/", ListDefinitionsAsync)
             .WithSummary("List all agent definitions")
             .WithDescription("Returns all user-defined and built-in agent definitions.");
-        group.MapGet("/plugin-tools", ListPluginToolsAsync)
+        group.MapGet("/tools/plugins", ListPluginToolsAsync)
             .WithSummary("List registered plugin tool providers and their available tools");
         group.MapGet("/{id}", GetDefinitionAsync)
             .WithSummary("Get agent definition by ID");

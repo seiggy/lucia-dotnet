@@ -7,6 +7,7 @@ using lucia.Agents.Services;
 using lucia.Agents.Training;
 using lucia.Tests.Data;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Tests;
@@ -236,6 +237,30 @@ public sealed class GeneralAgentTests
 
         Assert.Equal("Answer briefly.\n- Call weather before answering.", agent.Instructions);
         A.CallTo(() => provider.InitializeAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ToolProviders_HintsRequireAToolThatSurvivesWebSearchDuplicates(bool hasUniqueTool)
+    {
+        var toolNames = hasUniqueTool ? new[] { "web_search", "plugin_search" } : ["web_search"];
+        var provider = CreateToolProvider("Plugin search", "Searches", "Use plugin-specific parameters.", toolNames);
+        var webSearch = A.Fake<IWebSearchSkill>();
+        A.CallTo(() => webSearch.GetTools()).Returns([AIFunctionFactory.Create(() => "search", "web_search")]);
+        var resolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(A.Fake<AIAgent>()));
+        var agent = new GeneralAgent(
+            resolver, A.Fake<IAgentDefinitionRepository>(), A.Fake<IMcpToolRegistry>(),
+            new TracingChatClientFactory(A.Fake<ITraceRepository>(), NullLoggerFactory.Instance),
+            NullLoggerFactory.Instance, webSearch,
+            new PluginToolRegistry([provider], NullLogger<PluginToolRegistry>.Instance));
+
+        await agent.InitializeAsync();
+
+        Assert.Equal(hasUniqueTool ? 2 : 1, agent.Tools.Count);
+        Assert.Equal(hasUniqueTool, agent.Instructions.Contains("Use plugin-specific parameters.", StringComparison.Ordinal));
     }
 
     private static IAgentToolProvider CreateToolProvider(

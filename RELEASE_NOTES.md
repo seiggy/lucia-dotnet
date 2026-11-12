@@ -16,7 +16,7 @@
   individual plugin tools alongside MCP tools in the dashboard. Provider
   initialization is shared, selected tools retain their instruction hints,
   and unavailable saved selections remain visible and removable. The authenticated
-  `GET /api/agent-definitions/plugin-tools` endpoint exposes the tool catalog. (#348)
+  `GET /api/agent-definitions/tools/plugins` endpoint exposes the tool catalog. (#348)
 
 ## Fixed
 
