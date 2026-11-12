@@ -7,6 +7,7 @@ using lucia.Agents.Services;
 using lucia.Agents.Training;
 using lucia.Tests.Data;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Tests;
@@ -182,16 +183,112 @@ public sealed class GeneralAgentTests
         Assert.Equal([null, "model-y"], appliedConnections);
     }
 
+    [Fact]
+    public async Task ToolProviders_ContributeToolsSkillsHintsAndInitialize()
+    {
+        var flight = CreateToolProvider("Flight weather", "Checks flyability", "Use check_flight_conditions for flying.", "check_flight_conditions");
+        var homelab = CreateToolProvider("Homelab", "Homelab status", null, "homelab_status", "check_flight_conditions");
+        var resolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(A.Fake<AIAgent>()));
+
+        var agent = CreateAgent(resolver, A.Fake<IAgentDefinitionRepository>(), [flight, homelab]);
+        await agent.InitializeAsync();
+
+        Assert.Equal(["check_flight_conditions", "homelab_status"], agent.Tools.Select(t => t.Name));
+        Assert.Contains(agent.GetAgentCard().Skills, s => s.Name == "Flight weather" && s.Description == "Checks flyability");
+        Assert.Contains(agent.GetAgentCard().Skills, s => s.Name == "Homelab");
+        Assert.Contains("Use check_flight_conditions for flying.", agent.Instructions);
+        A.CallTo(() => flight.InitializeAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => homelab.InitializeAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task ToolProviders_InitializeFailure_DoesNotBlockAgent()
+    {
+        var broken = CreateToolProvider("Broken", "Fails", null, "broken_tool");
+        A.CallTo(() => broken.InitializeAsync(A<CancellationToken>._)).Throws(new InvalidOperationException("boom"));
+        var resolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(A.Fake<AIAgent>()));
+
+        var agent = CreateAgent(resolver, A.Fake<IAgentDefinitionRepository>(), [broken]);
+        await agent.InitializeAsync();
+
+        Assert.NotNull(agent.GetAIAgent());
+        Assert.Empty(agent.Tools);
+        Assert.DoesNotContain(agent.GetAgentCard().Skills, skill => skill.Name == "Broken");
+    }
+
+    [Fact]
+    public async Task ToolProviders_HintsAreAppendedToCustomInstructionsWithoutAccumulatingOnRefresh()
+    {
+        var provider = CreateToolProvider("Weather", "Forecasts", "Call weather before answering.", "weather");
+        var definition = CreateDefinition("model-x", "Answer briefly.", DateTime.UnixEpoch);
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        A.CallTo(() => repository.GetAgentDefinitionAsync("general-assistant", A<CancellationToken>._)).Returns(definition);
+        var resolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(A.Fake<AIAgent>()));
+        var agent = CreateAgent(resolver, repository, [provider]);
+
+        await agent.InitializeAsync();
+        await agent.RefreshConfigAsync();
+
+        Assert.Equal("Answer briefly.\n- Call weather before answering.", agent.Instructions);
+        A.CallTo(() => provider.InitializeAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ToolProviders_HintsRequireAToolThatSurvivesWebSearchDuplicates(bool hasUniqueTool)
+    {
+        var toolNames = hasUniqueTool ? new[] { "web_search", "plugin_search" } : ["web_search"];
+        var provider = CreateToolProvider("Plugin search", "Searches", "Use plugin-specific parameters.", toolNames);
+        var webSearch = A.Fake<IWebSearchSkill>();
+        A.CallTo(() => webSearch.GetTools()).Returns([AIFunctionFactory.Create(() => "search", "web_search")]);
+        var resolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(A.Fake<AIAgent>()));
+        var agent = new GeneralAgent(
+            resolver, A.Fake<IAgentDefinitionRepository>(), A.Fake<IMcpToolRegistry>(),
+            new TracingChatClientFactory(A.Fake<ITraceRepository>(), NullLoggerFactory.Instance),
+            NullLoggerFactory.Instance, webSearch,
+            new PluginToolRegistry([provider], NullLogger<PluginToolRegistry>.Instance));
+
+        await agent.InitializeAsync();
+
+        Assert.Equal(hasUniqueTool ? 2 : 1, agent.Tools.Count);
+        Assert.Equal(hasUniqueTool, agent.Instructions.Contains("Use plugin-specific parameters.", StringComparison.Ordinal));
+    }
+
+    private static IAgentToolProvider CreateToolProvider(
+        string name, string description, string? hint, params string[] toolNames)
+    {
+        var provider = A.Fake<IAgentToolProvider>();
+        A.CallTo(() => provider.Name).Returns(name);
+        A.CallTo(() => provider.Description).Returns(description);
+        A.CallTo(() => provider.InstructionHint).Returns(hint);
+        A.CallTo(() => provider.GetTools()).ReturnsLazily(() =>
+            toolNames.Select(n => (Microsoft.Extensions.AI.AITool)Microsoft.Extensions.AI.AIFunctionFactory.Create(() => n, n)).ToList());
+        return provider;
+    }
+
     private static GeneralAgent CreateAgent(
         IChatClientResolver resolver,
-        IAgentDefinitionRepository repository)
+        IAgentDefinitionRepository repository,
+        IEnumerable<IAgentToolProvider>? toolProviders = null)
     {
         return new GeneralAgent(
             resolver,
             repository,
             A.Fake<IMcpToolRegistry>(),
             new TracingChatClientFactory(A.Fake<ITraceRepository>(), NullLoggerFactory.Instance),
-            NullLoggerFactory.Instance);
+            NullLoggerFactory.Instance,
+            pluginToolRegistry: toolProviders is null
+                ? null
+                : new PluginToolRegistry(toolProviders, NullLogger<PluginToolRegistry>.Instance));
     }
 
     private static AgentDefinition CreateDefinition(

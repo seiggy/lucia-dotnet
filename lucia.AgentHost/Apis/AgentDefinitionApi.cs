@@ -34,6 +34,8 @@ public static class AgentDefinitionApi
         group.MapGet("/", ListDefinitionsAsync)
             .WithSummary("List all agent definitions")
             .WithDescription("Returns all user-defined and built-in agent definitions.");
+        group.MapGet("/tools/plugins", ListPluginToolsAsync)
+            .WithSummary("List registered plugin tool providers and their available tools");
         group.MapGet("/{id}", GetDefinitionAsync)
             .WithSummary("Get agent definition by ID");
         group.MapPost("/", CreateDefinitionAsync)
@@ -70,6 +72,10 @@ public static class AgentDefinitionApi
         var definitions = await repository.GetAllAgentDefinitionsAsync().ConfigureAwait(false);
         return TypedResults.Ok(definitions);
     }
+
+    private static async Task<Ok<IReadOnlyList<PluginToolProviderInfo>>> ListPluginToolsAsync(
+        [FromServices] PluginToolRegistry registry, CancellationToken cancellationToken) =>
+        TypedResults.Ok(await registry.GetProvidersAsync(cancellationToken).ConfigureAwait(false));
 
     private static async Task<Results<Ok<AgentDefinition>, NotFound>> GetDefinitionAsync(
         string id,

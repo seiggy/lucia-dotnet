@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { AgentDefinition, AgentToolReference, McpToolInfo, ModelProvider } from '../types'
+import type { AgentDefinition, AgentToolReference, McpToolInfo, ModelProvider, PluginToolProviderInfo } from '../types'
 import {
   fetchAgentDefinitions,
   createAgentDefinition,
@@ -13,6 +13,7 @@ import {
   connectMcpServer,
   fetchModelProviders,
   fetchSkillConfig,
+  fetchPluginToolProviders,
   type SkillConfigSectionData,
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
@@ -292,6 +293,10 @@ function AgentForm({
   const [serverTools, setServerTools] = useState<Record<string, McpToolInfo[]>>({})
   const [serverToolErrors, setServerToolErrors] = useState<Record<string, string>>({})
   const [loadingServerIds, setLoadingServerIds] = useState<Record<string, boolean>>({})
+  const [pluginProviders, setPluginProviders] = useState<PluginToolProviderInfo[]>([])
+  const [loadingPluginTools, setLoadingPluginTools] = useState(true)
+  const [pluginToolError, setPluginToolError] = useState<string | null>(null)
+  const [mcpToolError, setMcpToolError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [idError, setIdError] = useState<string | null>(null)
@@ -300,6 +305,25 @@ function AgentForm({
 
   useEffect(() => {
     let isCancelled = false
+
+    const loadPluginTools = async () => {
+      setLoadingPluginTools(true)
+      setPluginToolError(null)
+      try {
+        const providers = await fetchPluginToolProviders()
+        if (!isCancelled) {
+          setPluginProviders(providers)
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setPluginToolError(err instanceof Error ? err.message : 'Unable to load plugin tools')
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoadingPluginTools(false)
+        }
+      }
+    }
 
     const load = async () => {
       try {
@@ -352,8 +376,10 @@ function AgentForm({
         setServerStatuses(refreshedStatuses)
         setServerTools(nextTools)
         setServerToolErrors(nextErrors)
-      } catch {
-        // Non-critical: tool picker won't be populated
+      } catch (err) {
+        if (!isCancelled) {
+          setMcpToolError(err instanceof Error ? err.message : 'Unable to load MCP tools')
+        }
       } finally {
         if (!isCancelled) {
           setLoadingServerIds({})
@@ -361,6 +387,7 @@ function AgentForm({
       }
     }
     load()
+    loadPluginTools()
 
     // Load skill config sections for this agent (if any)
     if (definition?.id) {
@@ -374,18 +401,27 @@ function AgentForm({
     }
   }, [definition?.id])
 
-  const toggleTool = (serverId: string, toolName: string) => {
+  const toggleTool = (serverId: string, toolName: string, source?: 'plugin') => {
     setSelectedTools(prev => {
-      const exists = prev.some(t => t.serverId === serverId && t.toolName === toolName)
+      const matches = (t: AgentToolReference) => t.serverId === serverId && t.toolName === toolName &&
+        (t.source === 'plugin') === (source === 'plugin')
+      const exists = prev.some(matches)
       if (exists) {
-        return prev.filter(t => !(t.serverId === serverId && t.toolName === toolName))
+        return prev.filter(t => !matches(t))
       }
-      return [...prev, { serverId, toolName }]
+      return [...prev, source ? { serverId, toolName, source } : { serverId, toolName }]
     })
   }
 
-  const isToolSelected = (serverId: string, toolName: string) =>
-    selectedTools.some(t => t.serverId === serverId && t.toolName === toolName)
+  const isToolSelected = (serverId: string, toolName: string, source?: 'plugin') =>
+    selectedTools.some(t => t.serverId === serverId && t.toolName === toolName &&
+      (t.source === 'plugin') === (source === 'plugin'))
+
+  const unavailablePluginTools = selectedTools.filter(reference =>
+    reference.source === 'plugin' && !pluginProviders.some(provider =>
+      provider.serverId === reference.serverId && provider.tools.some(tool => tool.toolName === reference.toolName)
+    )
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -399,6 +435,14 @@ function AgentForm({
     setSaving(true)
     setError(null)
     try {
+      const duplicate = selectedTools.find((tool, index) =>
+        selectedTools.some((other, otherIndex) => otherIndex !== index && other.toolName === tool.toolName)
+      )
+      if (duplicate) {
+        setError(`More than one selected tool is named "${duplicate.toolName}". Select only one tool with that name.`)
+        return
+      }
+
       // Save any pending skill config changes (e.g. domain list edits)
       await skillConfigRef.current?.saveAll()
 
@@ -567,19 +611,81 @@ function AgentForm({
           </label>
         </div>
 
-        {/* MCP Tool Picker — hidden for built-in agents (tools come from code) */}
+        {/* Tool picker is hidden for built-in agents, whose tools come from code. */}
         {!isBuiltIn && (
         <div className="rounded border border-stone bg-charcoal p-6 space-y-4">
           <h2 className="text-lg font-semibold text-light">
-            MCP Tools
+            Agent Tools
             {selectedTools.length > 0 && (
               <span className="ml-2 text-sm font-normal text-dust">
                 ({selectedTools.length} selected)
               </span>
             )}
           </h2>
+          <p className="text-sm text-dust">Choose tools from installed plugins and MCP servers for this agent.</p>
 
-          {mcpServers.length === 0 ? (
+          <section aria-labelledby="plugin-tools-heading" className="space-y-3">
+            <h3 id="plugin-tools-heading" className="text-sm font-semibold text-light">Plugin tools</h3>
+            {loadingPluginTools ? (
+              <p role="status" className="animate-pulse text-sm text-dust">Loading plugin tools...</p>
+            ) : pluginToolError ? (
+              <p role="alert" className="text-sm text-rose">{pluginToolError}. Reload the page to try again. Saved selections are kept.</p>
+            ) : pluginProviders.length === 0 ? (
+              <p className="text-sm text-dust">No plugin tool providers registered. Install a tool plugin on the Plugins page, then restart Lucia.</p>
+            ) : pluginProviders.map(provider => (
+              <div key={provider.serverId} className="rounded border border-stone bg-basalt p-3">
+                <h4 className="text-sm font-medium">{provider.name}</h4>
+                <p className="mt-1 text-xs text-dust">{provider.description}</p>
+                {provider.errorMessage ? (
+                  <p role="alert" className="mt-2 text-xs text-rose">Tools unavailable: {provider.errorMessage}. Check the plugin configuration and restart Lucia.</p>
+                ) : provider.tools.length === 0 ? (
+                  <p className="mt-2 text-xs text-dust">This provider has no tools.</p>
+                ) : (
+                  <div className="mt-2 grid gap-1">
+                    {provider.tools.map(tool => (
+                      <label key={tool.toolName} className="flex cursor-pointer items-start gap-2 rounded px-2 py-2 hover:bg-stone focus-within:ring-2 focus-within:ring-amber">
+                        <input
+                          type="checkbox"
+                          checked={isToolSelected(provider.serverId, tool.toolName, 'plugin')}
+                          onChange={() => toggleTool(provider.serverId, tool.toolName, 'plugin')}
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                        />
+                        <span className="min-w-0">
+                          <code className="break-all text-xs font-mono text-amber">{tool.toolName}</code>
+                          {tool.description && <span className="mt-0.5 block text-xs text-dust">{tool.description}</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+            {!loadingPluginTools && unavailablePluginTools.length > 0 && (
+              <div className="rounded border border-stone p-3">
+                <h4 className="text-sm font-medium text-amber">Unavailable selected plugin tools</h4>
+                <p className="mt-1 text-xs text-dust">These selections are kept when you save. Restore the plugin and restart Lucia, or remove them.</p>
+                <div className="mt-2 space-y-2">
+                  {unavailablePluginTools.map(reference => (
+                    <div key={`${reference.serverId}/${reference.toolName}`} className="flex flex-wrap items-center justify-between gap-2">
+                      <code className="min-w-0 break-all text-xs text-dust">{reference.serverId}/{reference.toolName}</code>
+                      <button
+                        type="button"
+                        onClick={() => toggleTool(reference.serverId, reference.toolName, 'plugin')}
+                        aria-label={`Remove ${reference.toolName} from ${reference.serverId}`}
+                        className="rounded bg-basalt px-3 py-2 text-xs text-fog hover:bg-stone focus-visible:ring-2 focus-visible:ring-amber"
+                      >Remove</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          <h3 className="text-sm font-semibold text-light">MCP tools</h3>
+
+          {mcpToolError ? (
+            <p role="alert" className="text-sm text-rose">{mcpToolError}. Reload the page to try again. Saved selections are kept.</p>
+          ) : mcpServers.length === 0 ? (
             <p className="text-sm text-dust">
               No MCP servers configured. Add servers in the MCP Servers page first.
             </p>

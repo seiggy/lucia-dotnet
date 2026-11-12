@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Claims;
 using FakeItEasy;
 using lucia.AgentHost.Apis;
 using lucia.Agents.Abstractions;
@@ -7,11 +8,70 @@ using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Providers;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Tests;
 
 public sealed class AgentDefinitionApiTests
 {
+    [Fact]
+    public async Task PluginToolsId_ResolvesAgentWithoutShadowingCatalog()
+    {
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        A.CallTo(() => repository.GetAgentDefinitionAsync("plugin-tools", A<CancellationToken>._))
+            .Returns(new AgentDefinition { Id = "plugin-tools", Name = "plugin-tools" });
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorization();
+        builder.Services.AddSingleton(repository);
+        builder.Services.AddSingleton(new PluginToolRegistry([], NullLogger<PluginToolRegistry>.Instance));
+
+        await using var app = builder.Build();
+        app.Use(async (context, next) =>
+        {
+            context.User = new ClaimsPrincipal(new ClaimsIdentity([], "test"));
+            await next();
+        });
+        app.UseAuthorization();
+        app.MapAgentDefinitionApi();
+        await app.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
+
+        (await client.GetAsync("/api/agent-definitions/plugin-tools")).EnsureSuccessStatusCode();
+        (await client.GetAsync("/api/agent-definitions/tools/plugins")).EnsureSuccessStatusCode();
+        A.CallTo(() => repository.GetAgentDefinitionAsync("plugin-tools", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task PluginToolsCatalog_UsesTheSameReferenceIdsAsSavedAgentDefinitions()
+    {
+        var provider = A.Fake<IAgentToolProvider>();
+        A.CallTo(() => provider.Name).Returns("Weather");
+        A.CallTo(() => provider.Description).Returns("Weather forecasts");
+        A.CallTo(() => provider.GetTools()).Returns([AIFunctionFactory.Create(() => "sunny", "forecast")]);
+        using var registry = new PluginToolRegistry([provider], NullLogger<PluginToolRegistry>.Instance);
+        var handler = typeof(AgentDefinitionApi).GetMethod("ListPluginToolsAsync", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(handler);
+
+        var result = await Assert.IsType<Task<Ok<IReadOnlyList<PluginToolProviderInfo>>>>(
+            handler.Invoke(null, [registry, CancellationToken.None]));
+        var capability = Assert.Single(result.Value!);
+        var tool = Assert.Single(capability.Tools);
+
+        Assert.Equal("Weather", capability.Name);
+        Assert.Equal("Weather forecasts", capability.Description);
+        Assert.Equal("plugin:Weather", capability.ServerId);
+        Assert.Equal(capability.ServerId, tool.ServerId);
+        Assert.Equal("forecast", tool.ToolName);
+        Assert.Null(capability.ErrorMessage);
+    }
+
     [Fact]
     public async Task ReplaceDefinitionAsync_ReplacesClientFieldsAndPreservesSystemManagedFields()
     {

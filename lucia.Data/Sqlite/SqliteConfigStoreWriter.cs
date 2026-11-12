@@ -160,10 +160,29 @@ public sealed class SqliteConfigStoreWriter : IConfigStoreWriter
     {
         using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
-        cmd.CommandText = "DELETE FROM configuration WHERE key LIKE @prefix;";
-        cmd.Parameters.AddWithValue("@prefix", keyPrefix + "%");
+        cmd.CommandText = "DELETE FROM configuration WHERE key LIKE @prefix ESCAPE '\\';";
+        cmd.Parameters.AddWithValue("@prefix", SqlLikePattern.Escape(keyPrefix) + "%");
 
         return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<long> DeleteByKeysAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction();
+        using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = "DELETE FROM configuration WHERE key = @key;";
+        var parameter = cmd.Parameters.Add("@key", SqliteType.Text);
+        long deleted = 0;
+        foreach (var key in keys)
+        {
+            parameter.Value = key;
+            deleted += await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return deleted;
     }
 
     private static async Task<IReadOnlyList<ConfigEntry>> ReadEntriesAsync(SqliteCommand cmd, CancellationToken cancellationToken)

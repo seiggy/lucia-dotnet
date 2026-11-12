@@ -30,14 +30,17 @@ public interface ILuciaPlugin
     /// <summary>
     /// Configurable properties exposed by this plugin.
     /// The dashboard generates a dynamic form from these definitions.
-    /// Values are stored in the standard config store under <see cref="ConfigSection"/>.
+    /// Values are stored in the standard config store under <see cref="ConfigSection"/>
+    /// and deleted when the plugin is uninstalled unless another installed plugin shares the section.
     /// </summary>
     IReadOnlyList<PluginConfigProperty> ConfigProperties => [];
 
     /// <summary>
     /// Registers services into the DI container <b>before</b> the host is built.
-    /// Use this to add interfaces (e.g. <c>IWebSearchSkill</c>) that core agents
-    /// resolve via optional injection.
+    /// Use this to add interfaces that core agents resolve via optional injection,
+    /// such as <c>IWebSearchSkill</c> or one or more <see cref="IAgentToolProvider"/>
+    /// registrations that contribute tools to the general agent and make them
+    /// selectable for custom agents in the dashboard.
     /// </summary>
     void ConfigureServices(IHostApplicationBuilder builder) { }
 

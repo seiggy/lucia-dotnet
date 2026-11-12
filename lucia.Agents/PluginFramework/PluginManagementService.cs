@@ -18,20 +18,27 @@ public sealed class PluginManagementService
     private readonly Dictionary<string, IPluginRepositorySource> _sources;
     private readonly ILogger<PluginManagementService> _logger;
     private readonly string _pluginDirectory;
+    private readonly IConfigStoreWriter? _configStore;
+    private readonly IReadOnlyList<ILuciaPlugin> _loadedPlugins;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _updateLocks = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _uninstallGate = new(1, 1);
 
     public PluginManagementService(
         IPluginManagementRepository repository,
         PluginChangeTracker changeTracker,
         IEnumerable<IPluginRepositorySource> sources,
         ILogger<PluginManagementService> logger,
-        string pluginDirectory)
+        string pluginDirectory,
+        IConfigStoreWriter? configStore = null,
+        IEnumerable<ILuciaPlugin>? loadedPlugins = null)
     {
         _repository = repository;
         _changeTracker = changeTracker;
         _sources = sources.ToDictionary(s => s.Type, StringComparer.OrdinalIgnoreCase);
         _logger = logger;
         _pluginDirectory = pluginDirectory;
+        _configStore = configStore;
+        _loadedPlugins = loadedPlugins?.ToList() ?? [];
     }
 
     // ── Bootstrap ────────────────────────────────────────────────
@@ -233,14 +240,67 @@ public sealed class PluginManagementService
 
     public async Task UninstallPluginAsync(string pluginId, CancellationToken ct = default)
     {
-        var pluginPath = Path.Combine(_pluginDirectory, pluginId);
-        if (Directory.Exists(pluginPath))
-            Directory.Delete(pluginPath, recursive: true);
+        await _uninstallGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await DeletePluginConfigAsync(pluginId, ct).ConfigureAwait(false);
+            var pluginPath = Path.Combine(_pluginDirectory, pluginId);
+            if (Directory.Exists(pluginPath))
+                Directory.Delete(pluginPath, recursive: true);
 
-        await _repository.DeleteInstalledPluginAsync(pluginId, ct).ConfigureAwait(false);
+            await _repository.DeleteInstalledPluginAsync(pluginId, ct).ConfigureAwait(false);
+            _changeTracker.MarkRestartRequired();
+            _logger.LogInformation("Plugin '{Id}' uninstalled.", pluginId);
+        }
+        finally
+        {
+            _uninstallGate.Release();
+        }
+    }
 
-        _changeTracker.MarkRestartRequired();
-        _logger.LogInformation("Plugin '{Id}' uninstalled.", pluginId);
+    /// <summary>
+    /// Removes the uninstalled plugin's config section (e.g. API keys) from the config store.
+    /// Sections shared with another loaded plugin are kept.
+    /// </summary>
+    private async Task DeletePluginConfigAsync(string pluginId, CancellationToken ct)
+    {
+        var section = _loadedPlugins
+            .FirstOrDefault(p => string.Equals(p.PluginId, pluginId, StringComparison.OrdinalIgnoreCase))
+            ?.ConfigSection;
+        if (_configStore is null || string.IsNullOrWhiteSpace(section))
+            return;
+
+        var installedIds = (await GetInstalledPluginsAsync(ct).ConfigureAwait(false))
+            .Select(p => p.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var otherSections = _loadedPlugins.Where(p =>
+                !string.Equals(p.PluginId, pluginId, StringComparison.OrdinalIgnoreCase) &&
+                installedIds.Contains(p.PluginId) &&
+                !string.IsNullOrWhiteSpace(p.ConfigSection))
+            .Select(p => p.ConfigSection!)
+            .ToList();
+        if (otherSections.Any(other =>
+                string.Equals(other, section, StringComparison.OrdinalIgnoreCase) ||
+                section.StartsWith(other + ":", StringComparison.OrdinalIgnoreCase)))
+        {
+            _logger.LogWarning(
+                "Plugin '{Id}' config section '{Section}' is shared with another plugin and was kept.", pluginId, section);
+            return;
+        }
+
+        var prefix = section + ":";
+        var protectedPrefixes = otherSections
+            .Where(other => other.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Select(other => other + ":")
+            .ToArray();
+        var entries = await _configStore.GetAllEntriesAsync(ct).ConfigureAwait(false);
+        var keys = entries.Select(entry => entry.Key)
+            .Where(key => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                && !protectedPrefixes.Any(protectedPrefix => key.StartsWith(protectedPrefix, StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        var deleted = await _configStore.DeleteByKeysAsync(keys, ct).ConfigureAwait(false);
+        _logger.LogInformation(
+            "Deleted {Count} config entries in section '{Section}' for uninstalled plugin '{Id}'.", deleted, section, pluginId);
     }
 
     // ── Update Detection ────────────────────────────────────────

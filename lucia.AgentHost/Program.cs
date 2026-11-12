@@ -186,7 +186,9 @@ builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<PluginChangeTracker>(),
         sp.GetServices<IPluginRepositorySource>(),
         sp.GetRequiredService<ILogger<PluginManagementService>>(),
-        pluginDir);
+        pluginDir,
+        sp.GetRequiredService<IConfigStoreWriter>(),
+        sp.GetServices<ILuciaPlugin>());
 });
 
 // Auto-discover ILuciaPlugin implementations (scripts + legacy DLLs)

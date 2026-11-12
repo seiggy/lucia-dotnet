@@ -1,5 +1,8 @@
+using FakeItEasy;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.PluginFramework;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Tests.Data.Providers;
 
@@ -93,6 +96,122 @@ public abstract class ConfigStoreWriterContract
         Assert.Equal(1, await scope.Store.GetEntryCountAsync(CancellationToken.None));
         Assert.Equal("c", await scope.Store.GetAsync("Other:Gamma", CancellationToken.None));
         Assert.Null(await scope.Store.GetAsync("Feature:Alpha", CancellationToken.None));
+    }
+
+    [Theory]
+    [InlineData("Weather_API:", "WeatherXAPI:")]
+    [InlineData("Weather%API:", "WeatherXYZAPI:")]
+    [InlineData(@"Weather\API:", "WeatherAPI:")]
+    public async Task DeleteByKeyPrefixAsync_TreatsWildcardCharactersLiterally(string prefix, string unrelatedPrefix)
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.SetAsync(prefix + "ApiKey", "plugin", cancellationToken: CancellationToken.None);
+        await scope.Store.SetAsync(unrelatedPrefix + "ApiKey", "other", cancellationToken: CancellationToken.None);
+
+        var deleted = await scope.Store.DeleteByKeyPrefixAsync(prefix, CancellationToken.None);
+
+        Assert.Equal(1, deleted);
+        Assert.Null(await scope.Store.GetAsync(prefix + "ApiKey", CancellationToken.None));
+        Assert.Equal("other", await scope.Store.GetAsync(unrelatedPrefix + "ApiKey", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DeleteByKeysAsync_DeletesOnlyExactKeys()
+    {
+        await using var scope = await CreateAsync();
+        await scope.Store.SetAsync("Weather:ApiKey", "first");
+        await scope.Store.SetAsync("weather:ApiKey", "second");
+        await scope.Store.SetAsync("Weather:ApiKeyExtra", "third");
+
+        Assert.Equal(2, await scope.Store.DeleteByKeysAsync(["Weather:ApiKey", "weather:ApiKey"]));
+        Assert.Null(await scope.Store.GetAsync("Weather:ApiKey"));
+        Assert.Null(await scope.Store.GetAsync("weather:ApiKey"));
+        Assert.Equal("third", await scope.Store.GetAsync("Weather:ApiKeyExtra"));
+        Assert.Equal(0, await scope.Store.DeleteByKeysAsync([]));
+    }
+
+    [Theory]
+    [InlineData("Weather", "Weather:Radar")]
+    [InlineData("Weather:Radar", "Weather")]
+    [InlineData("Shared", "shared")]
+    public async Task Uninstall_SharedOrNestedSectionsSurviveRestart(string firstSection, string secondSection)
+    {
+        await using var scope = await CreateAsync();
+        var pluginDir = Path.Combine(Path.GetTempPath(), "lucia-plugin-config-" + Guid.NewGuid().ToString("N"));
+        var first = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => first.PluginId).Returns("first");
+        A.CallTo(() => first.ConfigSection).Returns(firstSection);
+        var second = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => second.PluginId).Returns("second");
+        A.CallTo(() => second.ConfigSection).Returns(secondSection);
+        var firstPath = Path.Combine(pluginDir, "first");
+        var secondPath = Path.Combine(pluginDir, "second");
+        Directory.CreateDirectory(firstPath);
+        Directory.CreateDirectory(secondPath);
+        await File.WriteAllTextAsync(Path.Combine(firstPath, "plugin.cs"), "");
+        await File.WriteAllTextAsync(Path.Combine(secondPath, "plugin.cs"), "");
+        await scope.Store.SetAsync(firstSection + ":ApiKey", "first", cancellationToken: CancellationToken.None);
+        await scope.Store.SetAsync(secondSection + ":OtherKey", "second", cancellationToken: CancellationToken.None);
+        await scope.Store.SetAsync(secondSection + ":ApiKey", "second-api", cancellationToken: CancellationToken.None);
+        var repository = A.Fake<IPluginManagementRepository>();
+        try
+        {
+            var beforeRestart = new PluginManagementService(repository, new PluginChangeTracker(), [],
+                NullLogger<PluginManagementService>.Instance, pluginDir, scope.Store, [first, second]);
+            await beforeRestart.UninstallPluginAsync("first");
+
+            Assert.Equal("second", await scope.Store.GetAsync(secondSection + ":OtherKey"));
+            Assert.Equal("second-api", await scope.Store.GetAsync(secondSection + ":ApiKey"));
+            if (!string.Equals(firstSection, secondSection, StringComparison.OrdinalIgnoreCase)
+                && !firstSection.StartsWith(secondSection + ":", StringComparison.OrdinalIgnoreCase))
+                Assert.Null(await scope.Store.GetAsync(firstSection + ":ApiKey"));
+
+            var afterRestart = new PluginManagementService(repository, new PluginChangeTracker(), [],
+                NullLogger<PluginManagementService>.Instance, pluginDir, scope.Store, [second]);
+            await afterRestart.UninstallPluginAsync("second");
+
+            Assert.Null(await scope.Store.GetAsync(firstSection + ":ApiKey"));
+            Assert.Null(await scope.Store.GetAsync(secondSection + ":OtherKey"));
+            Assert.Null(await scope.Store.GetAsync(secondSection + ":ApiKey"));
+        }
+        finally
+        {
+            if (Directory.Exists(pluginDir))
+                Directory.Delete(pluginDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Uninstall_ConcurrentSharedOwners_RemovesConfigAfterBothUninstalls()
+    {
+        await using var scope = await CreateAsync();
+        var pluginDir = Path.Combine(Path.GetTempPath(), "lucia-plugin-concurrent-" + Guid.NewGuid().ToString("N"));
+        var first = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => first.PluginId).Returns("first");
+        A.CallTo(() => first.ConfigSection).Returns("Shared");
+        var second = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => second.PluginId).Returns("second");
+        A.CallTo(() => second.ConfigSection).Returns("Shared");
+        foreach (var id in new[] { "first", "second" })
+        {
+            var path = Path.Combine(pluginDir, id);
+            Directory.CreateDirectory(path);
+            await File.WriteAllTextAsync(Path.Combine(path, "plugin.cs"), "");
+        }
+
+        await scope.Store.SetAsync("Shared:ApiKey", "secret");
+        try
+        {
+            var service = new PluginManagementService(A.Fake<IPluginManagementRepository>(), new PluginChangeTracker(),
+                [], NullLogger<PluginManagementService>.Instance, pluginDir, scope.Store, [first, second]);
+            await Task.WhenAll(service.UninstallPluginAsync("first"), service.UninstallPluginAsync("second"));
+            Assert.Null(await scope.Store.GetAsync("Shared:ApiKey"));
+        }
+        finally
+        {
+            if (Directory.Exists(pluginDir))
+                Directory.Delete(pluginDir, recursive: true);
+        }
     }
 
     [Fact]

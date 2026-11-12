@@ -147,6 +147,7 @@ public abstract class AgentDefinitionRepositoryContract
             [
                 new AgentToolReference { ServerId = "github-mcp", ToolName = "search" },
                 new AgentToolReference { ServerId = "docs-mcp", ToolName = "read_file" },
+                new AgentToolReference { ServerId = "plugin:weather", ToolName = "forecast", Source = "plugin" },
             ],
             ModelConnectionName = "gpt-4o",
             EmbeddingProviderName = "text-embedding-3",
@@ -167,8 +168,8 @@ public abstract class AgentDefinitionRepositoryContract
         Assert.Equal(definition.Description, saved.Description);
         Assert.Equal(definition.Instructions, saved.Instructions);
         Assert.Equal(
-            definition.Tools.Select(tool => (tool.ServerId, tool.ToolName)).ToArray(),
-            saved.Tools.Select(tool => (tool.ServerId, tool.ToolName)).ToArray());
+            definition.Tools.Select(tool => (tool.ServerId, tool.ToolName, tool.Source)).ToArray(),
+            saved.Tools.Select(tool => (tool.ServerId, tool.ToolName, tool.Source)).ToArray());
         Assert.Equal(definition.ModelConnectionName, saved.ModelConnectionName);
         Assert.Equal(definition.EmbeddingProviderName, saved.EmbeddingProviderName);
         Assert.Equal(definition.Enabled, saved.Enabled);

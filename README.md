@@ -34,7 +34,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **📡 Presence Detection** — Auto-discovered motion/occupancy/mmWave sensors with room-level confidence scoring for context-aware automations
 - **📅 Scheduled Task System** — Extensible CRON-based scheduler with database persistence supporting alarms, timers, and deferred agent actions
 - **🔌 Extensible** — Script-based plugin system for adding capabilities without recompiling. Plugin repository for discovery and one-click install.
-- **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
+- **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with plugin and MCP tools, no code required
 - **🔌 Model Provider System** — Configure OpenAI, llama.cpp, OpenRouter, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, and Google Gemini from the dashboard with per-agent model assignment
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
 - **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, climate, scenes, music, timers, lists, etc.) without reconfiguring
@@ -374,7 +374,7 @@ View all registered agents with their capabilities, skills, and connection statu
 
 ![Agent Definitions](docs/images/agent-definitions.png)
 
-Create and manage custom agents at runtime—no code changes required. Each agent definition includes a name, system prompt, optional model connection override, and a granular MCP tool picker. Tags indicate system vs. user-defined agents. Changes take effect immediately; agents are loaded from the database on each invocation.
+Create and manage custom agents at runtime. Each agent definition includes a name, system prompt, optional model connection override, and a picker for individual plugin and MCP tools. Tags indicate system vs. user-defined agents. Use **Reload Agents** after saving to rebuild custom agents from their stored definitions.
 
 ### Model Providers
 
@@ -505,7 +505,7 @@ lucia-dotnet/
 │   └── plugins/                  # Agent Framework plugins
 
 ├── lucia.Agents/                 # Shared agent implementations and orchestration
-│   ├── Abstractions/             # ILuciaPlugin, IWebSearchSkill, IEntityLocationService, IHybridEntityMatcher
+│   ├── Abstractions/             # ILuciaPlugin, IWebSearchSkill, IAgentToolProvider, IEntityLocationService, IHybridEntityMatcher
 │   ├── Agents/                   # GeneralAgent, LightAgent, ClimateAgent, SceneAgent, ListsAgent, OrchestratorAgent
 │   ├── Configuration/            # Plugin, repository, and manifest models
 │   ├── Extensions/               # PluginLoader, PluginScriptHost, service registrations
@@ -667,7 +667,7 @@ Navigate to **Agent Definitions** and click **New Agent**:
 | **Display Name** | Human-readable name for the dashboard |
 | **Instructions** | System prompt that defines the agent's behavior |
 | **Model Connection** | Optional override (blank = default model) |
-| **MCP Tools** | Select individual tools from registered MCP servers |
+| **Agent Tools** | Select individual tools from registered plugin providers and MCP servers |
 
 **3. Use the Agent**
 
@@ -691,7 +691,7 @@ Plugins implement the `ILuciaPlugin` interface and participate in four lifecycle
 
 | Hook | When | Use Case |
 |------|------|----------|
-| `ConfigureServices(IHostApplicationBuilder)` | Before app is built | Register DI services (e.g., `IWebSearchSkill`) |
+| `ConfigureServices(IHostApplicationBuilder)` | Before app is built | Register DI services (e.g., `IWebSearchSkill`, `IAgentToolProvider`) |
 | `ExecuteAsync(IServiceProvider, CancellationToken)` | After app is built, before HTTP starts | Run initialization, seed data |
 | `MapEndpoints(WebApplication)` | During endpoint registration | Add custom HTTP endpoints |
 | `OnSystemReadyAsync(IServiceProvider, CancellationToken)` | After all agents are online | Logic that depends on agents or Home Assistant |
@@ -805,6 +805,36 @@ public sealed class SearXngPlugin : ILuciaPlugin
 // ... skill class, then:
 new SearXngPlugin()
 ```
+
+### Contributing tools to agents
+
+Register one or more `IAgentToolProvider` implementations in `ConfigureServices`. The general agent automatically includes their tools and lists each provider as a skill on its agent card. Custom agents can select individual plugin tools alongside MCP tools in **Definitions > New Agent > Agent Tools**. Each agent receives instruction hints only for providers whose tools it uses, appended after its system instructions.
+
+The authenticated `GET /api/agent-definitions/tools/plugins` endpoint lists provider names, descriptions, tools, and initialization errors. Saved plugin references use `source: "plugin"`, `serverId: "plugin:{provider.Name}"`, and the tool's name. Keep provider names unique and stable across plugin updates. Existing MCP references remain valid, including server IDs beginning with `plugin:`.
+
+Providers initialize once per host, shared by discovery, the general agent, and custom agents. A failed provider has no callable tools and its error appears in the picker. Fix its configuration and restart Lucia to retry. Missing tools remain visible in saved definitions and are skipped with a warning at runtime. Remove unavailable selections explicitly, or restore the plugin and restart Lucia. After saving a custom agent, use **Reload Agents** to apply its tool selection. Select only one tool with any given name.
+
+```csharp
+public sealed class FlightWeatherTools : IAgentToolProvider
+{
+    public string Name => "Flight weather";
+    public string Description => "Checks whether conditions are flyable for paramotors and ultralights.";
+    public string? InstructionHint => "For flying questions, call check_flight_conditions before answering.";
+
+    public IList<AITool> GetTools() =>
+        [AIFunctionFactory.Create((string location) => $"Calm at {location}", "check_flight_conditions")];
+}
+
+// In your plugin:
+public void ConfigureServices(IHostApplicationBuilder builder) =>
+    builder.Services.AddSingleton<IAgentToolProvider, FlightWeatherTools>();
+```
+
+If two providers expose a tool with the same name, the first one wins and the agent logs a warning. A provider whose `InitializeAsync` throws is logged and skipped during initialization; it does not stop the agent. Custom definition instructions set in the dashboard replace the default instructions, so instruction hints apply only to the defaults.
+
+### Plugin configuration and uninstall
+
+A plugin that sets `ConfigSection` and `ConfigProperties` gets a config form on the **Plugins** page. Values live in the config store under `{ConfigSection}:*`. Uninstalling the plugin deletes those entries, including API keys. Lucia keeps the section only when another loaded plugin declares the same `ConfigSection`.
 
 ### Plugin Repository System
 

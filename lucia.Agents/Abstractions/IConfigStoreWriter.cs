@@ -62,4 +62,10 @@ public interface IConfigStoreWriter
     /// Deletes all configuration entries whose key starts with the given prefix. Returns the number of deleted entries.
     /// </summary>
     Task<long> DeleteByKeyPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the exact keys supplied. Returns the number of deleted entries.
+    /// </summary>
+    Task<long> DeleteByKeysAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This configuration store does not support deleting individual keys.");
 }

@@ -21,6 +21,7 @@ import type {
   McpToolInfo,
   McpServerStatus,
   AgentDefinition,
+  PluginToolProviderInfo,
   ModelProvider,
   ProviderModelsResponse,
   OptimizableSkillInfo,
@@ -643,6 +644,13 @@ export async function removeTodoItem(entityId: string, item: string): Promise<vo
 }
 
 // ── MCP Servers ──────────────────────────────────────────────────────
+
+/** List registered plugin capabilities and selectable tools for custom agents. */
+export async function fetchPluginToolProviders(): Promise<PluginToolProviderInfo[]> {
+  const res = await fetch(`${BASE}/agent-definitions/tools/plugins`);
+  if (!res.ok) throw new Error(`Failed to load plugin tools: ${res.statusText}`);
+  return res.json();
+}
 
 export async function fetchMcpServers(): Promise<McpToolServerDefinition[]> {
   const res = await fetch(`${BASE}/mcp-servers`);

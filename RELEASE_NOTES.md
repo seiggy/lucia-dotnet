@@ -11,6 +11,22 @@
   meter (connection pool and command metrics) and, in `Trace` and `Profile`
   modes, a span for each PostgreSQL query. Microsoft.Data.Sqlite has no
   built-in instrumentation.
+- Plugins can contribute tools by registering `IAgentToolProvider` services.
+  The general agent includes them automatically. Custom agents can select
+  individual plugin tools alongside MCP tools in the dashboard. Provider
+  initialization is shared, selected tools retain their instruction hints,
+  and unavailable saved selections remain visible and removable. The authenticated
+  `GET /api/agent-definitions/tools/plugins` endpoint exposes the tool catalog. (#348)
+
+## Fixed
+
+- Updated the Aspire AppHost SDK and hosting packages to 13.6.5 to address
+  CVE-2026-120006. The Aspire client, testing, and community integrations and
+  their required Microsoft.Extensions dependencies were updated as well.
+- Uninstalling a plugin now deletes its `ConfigSection` entries from the config
+  store, so API keys don't outlive the plugin. Shared and nested sections used
+  by installed plugins are preserved. Cleanup failures leave the plugin installed
+  so the uninstall can be retried. (#349)
 
 ---
 

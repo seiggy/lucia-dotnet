@@ -159,9 +159,21 @@ public sealed class PostgresConfigStoreWriter : IConfigStoreWriter
     {
         await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = connection.CreateCommand();
-        cmd.CommandText = "DELETE FROM configuration WHERE key LIKE @prefix;";
-        cmd.Parameters.AddWithValue("prefix", keyPrefix + "%");
+        cmd.CommandText = "DELETE FROM configuration WHERE key LIKE @prefix ESCAPE '\\';";
+        cmd.Parameters.AddWithValue("prefix", SqlLikePattern.Escape(keyPrefix) + "%");
 
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<long> DeleteByKeysAsync(IReadOnlyCollection<string> keys, CancellationToken cancellationToken = default)
+    {
+        if (keys.Count == 0)
+            return 0;
+
+        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM configuration WHERE key = ANY(@keys);";
+        cmd.Parameters.AddWithValue("keys", keys.ToArray());
         return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
