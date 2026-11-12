@@ -354,6 +354,61 @@ public sealed class PluginSystemTests : IDisposable
         Assert.Equal("lucia-official", result[0].Source);
     }
 
+    [Fact]
+    public async Task UninstallPluginAsync_DeletesLoadedPluginConfigSection()
+    {
+        var pluginDir = Path.Combine(CreateTempDir(), "plugins");
+        var configStore = A.Fake<IConfigStoreWriter>();
+        var weather = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => weather.PluginId).Returns("weather");
+        A.CallTo(() => weather.ConfigSection).Returns("Weather");
+        var other = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => other.PluginId).Returns("other");
+        A.CallTo(() => other.ConfigSection).Returns("Other");
+
+        var svc = new PluginManagementService(
+            A.Fake<IPluginManagementRepository>(),
+            new PluginChangeTracker(),
+            [],
+            CreateLogger<PluginManagementService>(),
+            pluginDir,
+            configStore,
+            [weather, other]);
+
+        await svc.UninstallPluginAsync("weather");
+
+        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("Weather:", A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+        A.CallTo(() => configStore.DeleteByKeyPrefixAsync("Other:", A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task UninstallPluginAsync_KeepsConfigSectionSharedWithAnotherPlugin()
+    {
+        var configStore = A.Fake<IConfigStoreWriter>();
+        var first = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => first.PluginId).Returns("first");
+        A.CallTo(() => first.ConfigSection).Returns("Shared");
+        var second = A.Fake<ILuciaPlugin>();
+        A.CallTo(() => second.PluginId).Returns("second");
+        A.CallTo(() => second.ConfigSection).Returns("shared");
+
+        var svc = new PluginManagementService(
+            A.Fake<IPluginManagementRepository>(),
+            new PluginChangeTracker(),
+            [],
+            CreateLogger<PluginManagementService>(),
+            Path.Combine(CreateTempDir(), "plugins"),
+            configStore,
+            [first, second]);
+
+        await svc.UninstallPluginAsync("first");
+
+        A.CallTo(() => configStore.DeleteByKeyPrefixAsync(A<string>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
     // ── Test 7: UninstallPluginAsync removes folder and signals restart ─
 
     [Fact]

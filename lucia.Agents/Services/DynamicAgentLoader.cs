@@ -25,6 +25,7 @@ public sealed class DynamicAgentLoader : BackgroundService, IDynamicAgentLoader
     private readonly ILoggerFactory _loggerFactory;
     private readonly AgentsTelemetrySource _telemetrySource;
     private readonly ILogger<DynamicAgentLoader> _logger;
+    private readonly PluginToolRegistry _pluginToolRegistry;
 
     public DynamicAgentLoader(
         IAgentDefinitionRepository repository,
@@ -36,7 +37,8 @@ public sealed class DynamicAgentLoader : BackgroundService, IDynamicAgentLoader
         IModelProviderRepository providerRepository,
         TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory,
-        AgentsTelemetrySource telemetrySource)
+        AgentsTelemetrySource telemetrySource,
+        PluginToolRegistry pluginToolRegistry)
     {
         _telemetrySource = telemetrySource;
         _repository = repository;
@@ -49,6 +51,7 @@ public sealed class DynamicAgentLoader : BackgroundService, IDynamicAgentLoader
         _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgentLoader>();
+        _pluginToolRegistry = pluginToolRegistry;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -117,7 +120,8 @@ public sealed class DynamicAgentLoader : BackgroundService, IDynamicAgentLoader
                     _providerRepository,
                     _tracingFactory,
                     _telemetrySource,
-                    _loggerFactory);
+                    _loggerFactory,
+                    _pluginToolRegistry);
 
                 await agent.InitializeAsync(ct).ConfigureAwait(false);
                 await _agentRegistry.RegisterAgentAsync(agent.GetAgentCard(), ct).ConfigureAwait(false);

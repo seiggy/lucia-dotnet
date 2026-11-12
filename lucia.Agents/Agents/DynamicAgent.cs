@@ -14,7 +14,7 @@ namespace lucia.Agents.Agents;
 
 /// <summary>
 /// A user-defined agent that is constructed from its stored definition
-/// and resolved MCP tools. The agent is pre-built during initialization
+/// and resolved MCP and plugin tools. The agent is pre-built during initialization
 /// and can be rebuilt on demand for hot-reload.
 /// </summary>
 public sealed class DynamicAgent : ILuciaAgent
@@ -29,6 +29,7 @@ public sealed class DynamicAgent : ILuciaAgent
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgent> _logger;
     private readonly AgentsTelemetrySource _telemetrySource;
+    private readonly PluginToolRegistry? _pluginToolRegistry;
 
     private AgentCard _agentCard;
     private AgentDefinition? _lastDefinition;
@@ -44,7 +45,8 @@ public sealed class DynamicAgent : ILuciaAgent
         IModelProviderRepository providerRepository,
         TracingChatClientFactory tracingFactory,
         AgentsTelemetrySource telemetrySource,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        PluginToolRegistry? pluginToolRegistry = null)
     {
         _telemetrySource = telemetrySource;
         _agentId = agentId;
@@ -56,6 +58,7 @@ public sealed class DynamicAgent : ILuciaAgent
         _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgent>();
+        _pluginToolRegistry = pluginToolRegistry;
         _lastDefinition = initialDefinition;
 
         _agentCard = BuildAgentCard(initialDefinition);
@@ -73,7 +76,7 @@ public sealed class DynamicAgent : ILuciaAgent
     public AIAgent GetAIAgent() => _cachedAgent;
 
     /// <summary>
-    /// Loads the latest definition from the store, resolves MCP tools, and caches
+    /// Loads the latest definition from the store, resolves selected tools, and caches
     /// the constructed agent for subsequent <see cref="GetAIAgent"/> calls.
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -85,7 +88,7 @@ public sealed class DynamicAgent : ILuciaAgent
 
     /// <summary>
     /// Reloads the agent definition from the store and rebuilds the cached AIAgent
-    /// with the latest MCP tools. Safe to call at runtime for hot-reload.
+    /// with the latest MCP and plugin tools. Safe to call at runtime for hot-reload.
     /// </summary>
     public async Task RebuildAsync(CancellationToken cancellationToken = default)
     {
@@ -105,10 +108,29 @@ public sealed class DynamicAgent : ILuciaAgent
         _lastDefinition = definition;
         _agentCard = BuildAgentCard(definition);
 
-        // Resolve MCP tools asynchronously
-        var tools = definition.Tools.Count > 0
-            ? await _toolRegistry.ResolveToolsAsync(definition.Tools, cancellationToken).ConfigureAwait(false)
+        var mcpReferences = definition.Tools.Where(reference => !PluginToolRegistry.IsPluginReference(reference)).ToList();
+        var tools = mcpReferences.Count > 0
+            ? await _toolRegistry.ResolveToolsAsync(mcpReferences, cancellationToken).ConfigureAwait(false)
             : [];
+        var pluginReferences = definition.Tools.Where(PluginToolRegistry.IsPluginReference).ToList();
+        IReadOnlyList<string> hints = [];
+        if (pluginReferences.Count > 0)
+        {
+            if (_pluginToolRegistry is null)
+            {
+                throw new InvalidOperationException("Plugin tool registry is required to resolve plugin tool references.");
+            }
+
+            var resolved = await _pluginToolRegistry.ResolveToolsAsync(pluginReferences, cancellationToken).ConfigureAwait(false);
+            tools = [.. tools, .. resolved.Tools];
+            hints = resolved.Hints;
+        }
+
+        var duplicate = tools.GroupBy(tool => tool.Name, StringComparer.Ordinal).FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+        {
+            throw new InvalidOperationException($"Agent '{_agentId}' selects multiple tools named '{duplicate.Key}'. Select only one.");
+        }
 
         activity?.SetTag("agent.tool_count", tools.Count);
 
@@ -122,7 +144,7 @@ public sealed class DynamicAgent : ILuciaAgent
         else
         {
             var chatClient = await ResolveClientAsync(definition, cancellationToken).ConfigureAwait(false);
-            _cachedAgent = BuildAgent(definition, tools, chatClient);
+            _cachedAgent = BuildAgent(definition, tools, hints, chatClient);
         }
     }
 
@@ -156,12 +178,13 @@ public sealed class DynamicAgent : ILuciaAgent
         }
     }
 
-    private AIAgent BuildAgent(AgentDefinition definition, IReadOnlyList<AITool> tools, IChatClient chatClient)
+    private AIAgent BuildAgent(AgentDefinition definition, IReadOnlyList<AITool> tools, IReadOnlyList<string> hints, IChatClient chatClient)
     {
         var traced = _tracingFactory.Wrap(chatClient, _agentId);
         var chatOptions = new ChatOptions
         {
-            Instructions = definition.Instructions.Length == 0 ? "You are a helpful assistant." : definition.Instructions,
+            Instructions = (definition.Instructions.Length == 0 ? "You are a helpful assistant." : definition.Instructions)
+                + string.Concat(hints.Select(hint => "\n- " + hint)),
         };
 
         if (tools.Count > 0)

@@ -77,7 +77,7 @@
 
 ### Cloud-Native Framework
 - **Platform:** .NET Aspire
-- **Version:** 13
+- **Version:** 13.6.5 for the AppHost SDK and stable integrations. The Azure OpenAI client integration uses 13.6.5-preview.1.26559.7, and Azure AI Foundry hosting remains on its latest release, 13.1.3-preview.1.26166.8.
 - **Features:** Service discovery, resilience, observability
 
 ### Observability

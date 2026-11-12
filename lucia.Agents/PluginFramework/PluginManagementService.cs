@@ -18,6 +18,8 @@ public sealed class PluginManagementService
     private readonly Dictionary<string, IPluginRepositorySource> _sources;
     private readonly ILogger<PluginManagementService> _logger;
     private readonly string _pluginDirectory;
+    private readonly IConfigStoreWriter? _configStore;
+    private readonly IReadOnlyList<ILuciaPlugin> _loadedPlugins;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _updateLocks = new(StringComparer.OrdinalIgnoreCase);
 
     public PluginManagementService(
@@ -25,13 +27,17 @@ public sealed class PluginManagementService
         PluginChangeTracker changeTracker,
         IEnumerable<IPluginRepositorySource> sources,
         ILogger<PluginManagementService> logger,
-        string pluginDirectory)
+        string pluginDirectory,
+        IConfigStoreWriter? configStore = null,
+        IEnumerable<ILuciaPlugin>? loadedPlugins = null)
     {
         _repository = repository;
         _changeTracker = changeTracker;
         _sources = sources.ToDictionary(s => s.Type, StringComparer.OrdinalIgnoreCase);
         _logger = logger;
         _pluginDirectory = pluginDirectory;
+        _configStore = configStore;
+        _loadedPlugins = loadedPlugins?.ToList() ?? [];
     }
 
     // ── Bootstrap ────────────────────────────────────────────────
@@ -238,9 +244,36 @@ public sealed class PluginManagementService
             Directory.Delete(pluginPath, recursive: true);
 
         await _repository.DeleteInstalledPluginAsync(pluginId, ct).ConfigureAwait(false);
+        await DeletePluginConfigAsync(pluginId, ct).ConfigureAwait(false);
 
         _changeTracker.MarkRestartRequired();
         _logger.LogInformation("Plugin '{Id}' uninstalled.", pluginId);
+    }
+
+    /// <summary>
+    /// Removes the uninstalled plugin's config section (e.g. API keys) from the config store.
+    /// Sections shared with another loaded plugin are kept.
+    /// </summary>
+    private async Task DeletePluginConfigAsync(string pluginId, CancellationToken ct)
+    {
+        var section = _loadedPlugins
+            .FirstOrDefault(p => string.Equals(p.PluginId, pluginId, StringComparison.OrdinalIgnoreCase))
+            ?.ConfigSection;
+        if (_configStore is null || string.IsNullOrWhiteSpace(section))
+            return;
+
+        if (_loadedPlugins.Any(p =>
+                !string.Equals(p.PluginId, pluginId, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(p.ConfigSection, section, StringComparison.OrdinalIgnoreCase)))
+        {
+            _logger.LogWarning(
+                "Plugin '{Id}' config section '{Section}' is shared with another plugin and was kept.", pluginId, section);
+            return;
+        }
+
+        var deleted = await _configStore.DeleteByKeyPrefixAsync($"{section}:", ct).ConfigureAwait(false);
+        _logger.LogInformation(
+            "Deleted {Count} config entries in section '{Section}' for uninstalled plugin '{Id}'.", deleted, section, pluginId);
     }
 
     // ── Update Detection ────────────────────────────────────────

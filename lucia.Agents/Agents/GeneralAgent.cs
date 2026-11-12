@@ -19,6 +19,8 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IMcpToolRegistry _toolRegistry;
     private readonly IWebSearchSkill? _webSearchSkill;
+    private readonly PluginToolRegistry? _pluginToolRegistry;
+    private readonly string _defaultInstructions;
     private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GeneralAgent> _logger;
@@ -43,17 +45,20 @@ public sealed class GeneralAgent : ILuciaAgent
         IMcpToolRegistry toolRegistry,
         TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory,
-        IWebSearchSkill? webSearchSkill = null)
+        IWebSearchSkill? webSearchSkill = null,
+        PluginToolRegistry? pluginToolRegistry = null)
     {
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
         _toolRegistry = toolRegistry;
         _webSearchSkill = webSearchSkill;
+        _pluginToolRegistry = pluginToolRegistry;
         _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GeneralAgent>();
 
-        Tools = _webSearchSkill?.GetTools() ?? [];
+        var webSearchTools = _webSearchSkill?.GetTools() ?? [];
+        Tools = [.. webSearchTools];
 
         // Create the agent card for registration
         var skills = new List<AgentSkill>();
@@ -63,7 +68,7 @@ public sealed class GeneralAgent : ILuciaAgent
             Name = "Personal memory",
             Description = "Handle personal memory requests such as 'remember I prefer tea', 'what do you know about me', and 'forget my preference' for an enrolled speaker."
         });
-        if (Tools.Count > 0)
+        if (webSearchTools.Count > 0)
         {
             skills.Add(new AgentSkill
             {
@@ -72,12 +77,11 @@ public sealed class GeneralAgent : ILuciaAgent
                 Description = "Search the web for current events, news, and facts",
             });
         }
-
         _agent = new AgentCard
         {
             SupportedInterfaces = [new AgentInterface { Url = "/a2a/general-assistant" }],
             Name = AgentId,
-            Description = Tools.Count > 0
+            Description = webSearchTools.Count > 0
                 ? "Agent for general knowledge, web search, and personal memory requests in Home Assistant"
                 : "Agent for handling #general-knowledge questions and personal memory requests in Home Assistant",
             Capabilities = new AgentCapabilities
@@ -91,10 +95,9 @@ public sealed class GeneralAgent : ILuciaAgent
             Version = "1.0.0",
         };
 
-        var webSearchHint = Tools.Count > 0
+        var webSearchHint = webSearchTools.Count > 0
             ? "\n- When asked about recent events, news, or facts that may change, use the web_search tool to find current information before answering."
             : "";
-
         var instructions = """
                 You are a specialized general knowledge agent for a Home Assistant platform.
 
@@ -112,6 +115,7 @@ public sealed class GeneralAgent : ILuciaAgent
                 """;
 
         Instructions = instructions;
+        _defaultInstructions = instructions;
 
         // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
         _aiAgent = null!;
@@ -156,17 +160,50 @@ public sealed class GeneralAgent : ILuciaAgent
             var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
             var newConnectionName = definition?.ModelConnectionName;
 
-            if (!string.IsNullOrEmpty(definition?.Instructions))
-                Instructions = definition.Instructions;
+            Instructions = !string.IsNullOrEmpty(definition?.Instructions)
+                ? definition.Instructions
+                : _defaultInstructions;
 
             // Resolve MCP tools from the agent definition and merge with plugin-provided tools
-            var pluginTools = _webSearchSkill?.GetTools() ?? [];
+            var pluginTools = new List<AITool>(_webSearchSkill?.GetTools() ?? []);
+            if (_pluginToolRegistry is not null)
+            {
+                var resolved = await _pluginToolRegistry.ResolveToolsAsync(ct: cancellationToken).ConfigureAwait(false);
+                pluginTools.AddRange(resolved.Tools);
+                Instructions += string.Concat(resolved.Hints.Select(hint => "\n- " + hint));
+                foreach (var provider in await _pluginToolRegistry.GetProvidersAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    if (provider.Tools.Count > 0 && !_agent.Skills.Any(skill => skill.Id == provider.ServerId))
+                    {
+                        _agent.Skills.Add(new AgentSkill
+                        {
+                            Id = provider.ServerId,
+                            Name = provider.Name,
+                            Description = provider.Description,
+                        });
+                    }
+                }
+            }
+
             var mcpTools = definition?.Tools.Count > 0
-                ? await _toolRegistry.ResolveToolsAsync(definition.Tools, cancellationToken).ConfigureAwait(false)
+                ? await _toolRegistry.ResolveToolsAsync(
+                    definition.Tools.Where(reference => !PluginToolRegistry.IsPluginReference(reference)).ToList(),
+                    cancellationToken).ConfigureAwait(false)
                 : [];
 
-            var allTools = new List<AITool>(pluginTools);
-            allTools.AddRange(mcpTools);
+            var allTools = new List<AITool>();
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var tool in pluginTools.Concat(mcpTools))
+            {
+                if (names.Add(tool.Name))
+                {
+                    allTools.Add(tool);
+                }
+                else
+                {
+                    _logger.LogWarning("GeneralAgent: skipping duplicate tool '{Tool}'", tool.Name);
+                }
+            }
             Tools = allTools;
 
             if (allTools.Count > 0)

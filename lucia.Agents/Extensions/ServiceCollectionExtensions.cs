@@ -191,6 +191,7 @@ public static class ServiceCollectionExtensions
 
         // Register MCP tool registry and dynamic agent system
         builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
+        builder.Services.AddSingleton<PluginToolRegistry>();
         builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
         builder.Services.AddSingleton<DynamicAgentLoader>();
         builder.Services.AddSingleton<IDynamicAgentLoader>(sp => sp.GetRequiredService<DynamicAgentLoader>());

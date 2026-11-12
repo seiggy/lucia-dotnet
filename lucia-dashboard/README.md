@@ -104,6 +104,29 @@ The dashboard uses API key authentication with HMAC-signed sessions:
 2. **Login** — Users authenticate at `/login` with their API key.
 3. **Route guards** — `AuthContext` redirects unauthenticated users to login and users who haven't completed setup to the wizard.
 
+## Custom agent tools
+
+The **Agent Tools** picker in **Definitions > New Agent** lists registered plugin
+providers and MCP servers. Select individual tools from either source. Plugin
+descriptions and initialization errors appear with each provider; discovery
+failures in one source do not hide tools from the other.
+
+Saved selections use the existing server ID and tool name fields. Plugin IDs use
+`plugin:{providerName}`. Unavailable plugin selections stay in the definition
+until explicitly removed, even if discovery fails. Fix the plugin configuration
+and restart Lucia to retry initialization. Use **Reload Agents** after saving
+to apply the new selection.
+
+Run the picker regression checks against a production build:
+
+```powershell
+npm run build
+node --test tests\agent-plugin-tools.mjs
+```
+
+These checks use the installed Playwright Chromium browser and mocked API
+responses, without modifying a running Lucia instance.
+
 ## Appliance OS update prerequisites
 
 The Appliance page reports why an OS update is blocked, including unavailable
