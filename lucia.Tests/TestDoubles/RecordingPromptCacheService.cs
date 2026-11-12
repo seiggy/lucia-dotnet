@@ -18,7 +18,7 @@ internal sealed class RecordingPromptCacheService : IPromptCacheService
         => Task.CompletedTask;
 
     public Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(
-        string normalizedPrompt, string? semanticQueryText = null, CancellationToken cancellationToken = default)
+        string normalizedPrompt, string? semanticQueryText = null, string? expectedInstructionsHash = null, CancellationToken cancellationToken = default)
         => Task.FromResult<CachedChatResponseData?>(null);
 
     public Task CacheChatResponseAsync(

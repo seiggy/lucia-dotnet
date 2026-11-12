@@ -1,6 +1,7 @@
 using System.Reflection;
 using FakeItEasy;
 using lucia.AgentHost.Apis;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Registry;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -40,6 +41,18 @@ public sealed class AgentRegistryApiTests
     }
 
     [Fact]
+    public async Task UnregisterAgentAsync_EvictsPromptCaches()
+    {
+        var registry = A.Fake<IAgentRegistry>();
+        var promptCache = A.Fake<IPromptCacheService>();
+
+        await InvokeUnregisterAsync("https://agents.example.com/custom", registry, promptCache);
+
+        A.CallTo(() => promptCache.EvictAllAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => promptCache.EvictAllChatEntriesAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task UpdateAgentAsync_EncodedSlashesInTheRoute_LooksUpTheDecodedAddress()
     {
         // ASP.NET Core leaves %2F encoded in route values, so the dashboard's encoded URL arrives like this.
@@ -60,7 +73,7 @@ public sealed class AgentRegistryApiTests
         // The dashboard encodes the address twice. Kestrel decodes one layer, so a literal %2F in the address arrives as %252F.
         var registry = A.Fake<IAgentRegistry>();
 
-        await AgentRegistryApi.UnregisterAgentAsync(registry, "http%3A%2F%2Fagent-host%2Fa2a%2Fx%252Fy", CancellationToken.None);
+        await AgentRegistryApi.UnregisterAgentAsync(registry, "http%3A%2F%2Fagent-host%2Fa2a%2Fx%252Fy", A.Fake<IPromptCacheService>(), CancellationToken.None);
 
         A.CallTo(() => registry.UnregisterAgentAsync("http://agent-host/a2a/x%2Fy", A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
@@ -71,7 +84,7 @@ public sealed class AgentRegistryApiTests
     {
         var registry = A.Fake<IAgentRegistry>();
 
-        await AgentRegistryApi.UnregisterAgentAsync(registry, "http:%2F%2Fagent-host%3A8080%2Fa2a%2Flight-agent", CancellationToken.None);
+        await AgentRegistryApi.UnregisterAgentAsync(registry, "http:%2F%2Fagent-host%3A8080%2Fa2a%2Flight-agent", A.Fake<IPromptCacheService>(), CancellationToken.None);
 
         A.CallTo(() => registry.UnregisterAgentAsync("http://agent-host:8080/a2a/light-agent", A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
@@ -86,7 +99,7 @@ public sealed class AgentRegistryApiTests
             "RegisterAgentAsync",
             BindingFlags.NonPublic | BindingFlags.Static);
         Assert.NotNull(method);
-        var task = (Task)method.Invoke(null, [registry, httpClientFactory, loggerFactory, agentId, CancellationToken.None])!;
+        var task = (Task)method.Invoke(null, [registry, httpClientFactory, loggerFactory, agentId, A.Fake<IPromptCacheService>(), CancellationToken.None])!;
         await task.ConfigureAwait(false);
         var resultProperty = task.GetType().GetProperty("Result");
         Assert.NotNull(resultProperty);
@@ -102,7 +115,23 @@ public sealed class AgentRegistryApiTests
             "UpdateAgentAsync",
             BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(method);
-        var task = (Task)method.Invoke(null, [registry, httpClientFactory, agentId, CancellationToken.None])!;
+        var task = (Task)method.Invoke(null, [registry, httpClientFactory, agentId, A.Fake<IPromptCacheService>(), CancellationToken.None])!;
+        await task.ConfigureAwait(false);
+        var resultProperty = task.GetType().GetProperty("Result");
+        Assert.NotNull(resultProperty);
+        return (IResult)resultProperty.GetValue(task)!;
+    }
+
+    private static async Task<IResult> InvokeUnregisterAsync(
+        string agentId,
+        IAgentRegistry registry,
+        IPromptCacheService promptCache)
+    {
+        var method = typeof(AgentRegistryApi).GetMethod(
+            "UnregisterAgentAsync",
+            BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(method);
+        var task = (Task)method.Invoke(null, [registry, agentId, promptCache, CancellationToken.None])!;
         await task.ConfigureAwait(false);
         var resultProperty = task.GetType().GetProperty("Result");
         Assert.NotNull(resultProperty);

@@ -5,6 +5,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -189,6 +190,7 @@ public sealed class InMemoryPromptCacheService : IPromptCacheService, IDisposabl
     public async Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(
         string normalizedPrompt,
         string? semanticQueryText = null,
+        string? expectedInstructionsHash = null,
         CancellationToken cancellationToken = default)
     {
         try
@@ -236,6 +238,11 @@ public sealed class InMemoryPromptCacheService : IPromptCacheService, IDisposabl
                     continue;
 
                 if (kvp.Value.Embedding is null)
+                    continue;
+
+                // Scope semantic matches to the same agent: entries cached under different
+                // system instructions (or legacy entries without a hash) must never be served.
+                if (!ChatCacheScope.Matches(kvp.Value.InstructionsHash, expectedInstructionsHash))
                     continue;
 
                 var candidateEmbedding = new Embedding<float>(kvp.Value.Embedding);

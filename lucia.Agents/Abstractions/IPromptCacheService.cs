@@ -30,8 +30,14 @@ public interface IPromptCacheService
     /// The normalized prompt should include the system instructions and user messages
     /// to differentiate between agents. The optional <paramref name="semanticQueryText"/>
     /// provides user-text-only content for embedding comparison (avoids system-prompt-dominated embeddings).
+    /// When <paramref name="expectedInstructionsHash"/> is provided, semantic matches are restricted
+    /// to entries cached under the same system instructions; legacy entries without a hash are never served.
     /// </summary>
-    Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(string normalizedPrompt, string? semanticQueryText = null, CancellationToken cancellationToken = default);
+    Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(
+        string normalizedPrompt,
+        string? semanticQueryText = null,
+        string? expectedInstructionsHash = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cache an LLM response (text and/or function calls) for a normalized prompt.
