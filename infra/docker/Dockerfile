@@ -195,6 +195,9 @@ COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
 
 # Copy official plugins (MetaMCP, SearXNG) so env-based tools are registered at startup
 COPY --from=build --chown=appuser:appuser /src/plugins ./plugins
+# Seed script for the chart's seed-plugins init container: marker-based sync of
+# bundled plugins into the persistent volume (see infra/docker/scripts/seed-plugins.sh).
+COPY --chown=appuser:appuser infra/docker/scripts/seed-plugins.sh /usr/local/bin/seed-plugins.sh
 
 # PluginDirectory default is {AppContext.BaseDirectory}/plugins = /app/plugins
 ENV PluginDirectory=/app/plugins

@@ -128,6 +128,26 @@ lucia:
   # Environment variables (from ConfigMap and Secrets)
   env: {}
 
+## Plugin persistence (/app/plugins).
+## Bundled plugins ship baked into the image; plugins installed from a repository
+## or store (dashboard → Plugins) are written to /app/plugins and must survive pod
+## recreation, so the directory is backed by a PVC. A seed init container syncs
+## the bundled plugins into the volume on every pod start using per-plugin
+## .lucia-seeded markers: marked (bundled) dirs are replaced from the current image
+## each start so plugin updates and corruption repair flow through, while unmarked
+## (installed) dirs are never touched.
+## NEVER delete the claim on upgrades — installed plugins live there.
+plugins:
+  enabled: true
+  # Existing PVC to mount at /app/plugins (e.g. one created manually). When set, no PVC
+  # is created by this chart.
+  existingClaim: ""
+  # Used only when existingClaim is empty.
+  size: 1Gi
+  accessMode: ReadWriteOnce
+  # RWX-capable class required for replicaCount > 1 (empty = cluster default).
+  storageClass: ""
+
 ## Redis Configuration
 redis:
   # Enable embedded Redis

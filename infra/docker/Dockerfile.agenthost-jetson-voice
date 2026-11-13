@@ -445,6 +445,8 @@ COPY --from=model-download --chown=appuser:appuser /assets/models ./models
 # SPA + plugins.
 COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
 COPY --from=dotnet-publish --chown=appuser:appuser /src/plugins ./plugins
+# Seed script for the chart's seed-plugins init container (marker-based).
+COPY --chown=appuser:appuser infra/docker/scripts/seed-plugins.sh /usr/local/bin/seed-plugins.sh
 
 EXPOSE 8080 10400
 

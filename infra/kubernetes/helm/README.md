@@ -113,6 +113,38 @@ Restart the AgentHost deployment after rotating the external Secret.
 
 Run chart regressions with `python tests/render_regressions.py`.
 
+### Plugin Persistence
+
+With `plugins.enabled: true` (default), the chart mounts a persistent volume at
+`/app/plugins` so plugins survive pod restarts and image upgrades. Set
+`plugins.existingClaim` to use your own PVC; otherwise the chart creates
+`<release>-plugins` (`plugins.size`, `plugins.accessMode`, `plugins.storageClass`).
+
+A `seed-plugins` init container syncs the bundled plugins baked into the image
+into the volume on every pod start, using a per-plugin `.lucia-seeded` marker:
+
+- **Marked directories (bundled plugins) are image-managed.** They are replaced
+  from the current image on every pod start, so bundled plugin code updates
+  automatically when you ship a new image, and corrupted or partial copies heal
+  themselves. The volume only keeps them *across* restarts; their content always
+  follows the image.
+- **Unmarked directories are never touched.** Plugins installed from a
+  repository or your own store persist exactly as-is, even if one shares a name
+  with a bundled plugin.
+
+Two consequences to know:
+
+1. Edits you make directly inside a bundled plugin's directory on the volume are
+   reset on the next pod start. To keep a modified version, install your own copy
+   under a different name from a repository/store.
+2. Uninstalling a bundled plugin removes it until the next pod start re-seeds it
+  (self-healing by design — the image always ships its bundled plugins). Use the
+  enable/disable toggle in the dashboard if you just want one inactive.
+
+NEVER delete the whole PVC on upgrades: repository- and store-installed plugins
+live there. With more than one replica, use `ReadWriteMany` plus an RWX-capable
+storage class.
+
 ### Basic Installation Scenarios
 
 #### Scenario 1: Home Lab with Local Storage
