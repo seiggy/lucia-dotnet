@@ -1,0 +1,36 @@
+{{- /*
+Lucia Wyoming Service Template
+
+This template defines a dedicated Service for the Wyoming voice protocol
+server (raw TCP, JSONL + PCM) served by the voice image. It is independent
+of the main Lucia service so it can use a different service type — e.g.
+NodePort for off-node voice clients while HTTP stays behind an ingress.
+
+Only rendered when lucia.wyoming.enabled is true.
+*/ -}}
+
+{{- if .Values.lucia.wyoming.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lucia.fullname" . }}-wyoming
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+  {{- with .Values.lucia.wyoming.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.lucia.wyoming.service.type }}
+  ports:
+    - port: {{ .Values.lucia.wyoming.service.port }}
+      targetPort: wyoming
+      protocol: TCP
+      name: wyoming
+      {{- if and (eq .Values.lucia.wyoming.service.type "NodePort") .Values.lucia.wyoming.service.nodePort }}
+      nodePort: {{ .Values.lucia.wyoming.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "lucia.selectorLabels" . | nindent 4 }}
+{{- end }}

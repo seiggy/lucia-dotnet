@@ -114,6 +114,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.lucia.wyoming.enabled }}
+            - name: wyoming
+              containerPort: {{ .Values.lucia.wyoming.service.port }}
+              protocol: TCP
+            {{- end }}
 
           # Environment variables from ConfigMap and Secrets
           envFrom:
@@ -135,6 +140,10 @@ spec:
               value: "Information"
             {{- with .Values.lucia.env }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.lucia.wyoming.enabled }}
+            - name: Wyoming__Port
+              value: {{ .Values.lucia.wyoming.service.port | quote }}
             {{- end }}
 
           # Liveness probe - restart container if failed

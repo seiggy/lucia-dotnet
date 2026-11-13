@@ -113,6 +113,41 @@ Restart the AgentHost deployment after rotating the external Secret.
 
 Run chart regressions with `python tests/render_regressions.py`.
 
+### Wyoming Voice Port
+
+The voice image serves the Wyoming protocol (raw TCP, JSONL + PCM) on port 10400.
+The chart does not expose it by default so non-voice deployments do not advertise
+a dead port. To expose it:
+
+```yaml
+lucia:
+  wyoming:
+    enabled: true
+    service:
+      type: ClusterIP   # Independent of lucia.service.type
+      port: 10400
+      nodePort: null    # Pin the NodePort when type is NodePort
+```
+
+Enabling renders a dedicated `<release>-wyoming` Service — separate from the
+HTTP service, with its own type — plus the matching container port and the
+`Wyoming__Port` env var, so one value controls both the app's listener and the
+exposed port. Because the service types are independent, a common setup is HTTP
+as ClusterIP behind an ingress with Wyoming as NodePort for off-node voice
+clients:
+
+```yaml
+lucia:
+  wyoming:
+    enabled: true
+    service:
+      type: NodePort
+      nodePort: 31400   # Reach Wyoming at <node-ip>:31400
+```
+
+An HTTP ingress cannot carry Wyoming; external clients need an L4/TCP path such
+as a NodePort or a TCP-capable load balancer.
+
 ### Basic Installation Scenarios
 
 #### Scenario 1: Home Lab with Local Storage
