@@ -92,14 +92,19 @@ assert not any("\nkind: PersistentVolumeClaim\n" in document for document in cla
 claim_deployment = next(document for document in claim_documents if "\nkind: Deployment\n" in document)
 assert "claimName: external-claim" in claim_deployment
 
-# Disabling plugins removes the init container, the mount, and the PVC.
+# Disabling plugins removes the init container and the mount but KEEPS
+# rendering the chart-managed PVC: if it stopped rendering on disable, a plain
+# `helm upgrade` would delete the claim (and with a Delete reclaim policy,
+# every installed plugin) — exactly what the README warns against. Keeping it
+# rendered also means re-enabling needs no migration step.
 plugins_disabled = render("plugins.enabled=false")
 assert plugins_disabled.returncode == 0, plugins_disabled.stderr
 disabled_documents = plugins_disabled.stdout.split("---")
 disabled_deployment = next(document for document in disabled_documents if "\nkind: Deployment\n" in document)
 assert "- name: seed-plugins" not in disabled_deployment
 assert "mountPath: /app/plugins" not in disabled_deployment
-assert not any("\nkind: PersistentVolumeClaim\n" in document for document in disabled_documents)
+disabled_pvc = next((document for document in disabled_documents if "name: lucia-plugins" in document and "\nkind: PersistentVolumeClaim\n" in document), None)
+assert disabled_pvc is not None, "disabling plugins must keep rendering the PVC, or an upgrade would delete installed plugins"
 
 # Rollout strategy vs the ReadWriteOnce plugins PVC: a single-replica pod can
 # never attach the volume while the previous pod still holds it, so

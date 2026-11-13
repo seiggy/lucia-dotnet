@@ -142,8 +142,12 @@ Two consequences to know:
   enable/disable toggle in the dashboard if you just want one inactive.
 
 NEVER delete the whole PVC on upgrades: repository- and store-installed plugins
-live there. With more than one replica, use `ReadWriteMany` plus an RWX-capable
-storage class.
+live there. Disabling `plugins.enabled` during an upgrade never deletes the
+claim — the chart keeps rendering it, so installed plugins survive and
+re-enabling needs no migration. Only a manual `kubectl delete pvc
+<release>-plugins` or `helm uninstall` removes it (and with a Delete reclaim
+policy, its data) — do that deliberately. With more than one replica, use
+`ReadWriteMany` plus an RWX-capable storage class.
 
 ### Basic Installation Scenarios
 

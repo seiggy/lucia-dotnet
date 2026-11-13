@@ -138,6 +138,9 @@ lucia:
 ## (installed) dirs are never touched.
 ## NEVER delete the claim on upgrades — installed plugins live there.
 plugins:
+  # Disabling removes the mount and the seed init container only; the chart
+  # keeps rendering the PVC so installed plugins survive an upgrade (and
+  # re-enabling needs no migration). Remove the volume deliberately, by hand.
   enabled: true
   # Existing PVC to mount at /app/plugins (e.g. one created manually). When set, no PVC
   # is created by this chart.
