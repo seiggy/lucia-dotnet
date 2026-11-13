@@ -30,12 +30,20 @@ public static class InstalledPluginApi
     }
 
     private static async Task<Ok<List<InstalledPluginDto>>> GetInstalledPluginsAsync(
-        PluginManagementService service, CancellationToken ct)
+        PluginManagementService service, IEnumerable<ILuciaPlugin> plugins, CancellationToken ct)
     {
-        var plugins = await service.GetInstalledPluginsWithUpdateInfoAsync(ct)
+        var installed = await service.GetInstalledPluginsWithUpdateInfoAsync(ct)
             .ConfigureAwait(false);
 
-        var dtos = plugins.Select(p => new InstalledPluginDto
+        // Optional capability: plugins may report a live, read-only status line for the dashboard.
+        var statusByPluginId = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var plugin in plugins)
+        {
+            if (plugin is IPluginStatusProvider provider)
+                statusByPluginId[plugin.PluginId] = provider.StatusLine;
+        }
+
+        var dtos = installed.Select(p => new InstalledPluginDto
         {
             Id = p.Plugin.Id,
             Name = p.Plugin.Name,
@@ -44,6 +52,7 @@ public static class InstalledPluginApi
             RepositoryId = p.Plugin.RepositoryId,
             Description = p.Plugin.Description,
             Author = p.Plugin.Author,
+            Status = statusByPluginId.GetValueOrDefault(p.Plugin.Id),
             PluginPath = p.Plugin.PluginPath,
             Enabled = p.Plugin.Enabled,
             InstalledAt = p.Plugin.InstalledAt,

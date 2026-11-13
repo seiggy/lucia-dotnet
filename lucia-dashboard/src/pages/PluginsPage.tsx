@@ -217,6 +217,12 @@ export default function PluginsPage() {
                     )}
                   </div>
                   {p.description && <p className="mt-0.5 text-xs text-fog">{p.description}</p>}
+                  {p.status && (
+                    <p className="mt-1 flex items-start gap-1.5 text-xs text-fog/80" title={p.status} data-testid="plugin-status">
+                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-stone/60" aria-hidden="true" />
+                      <span>{p.status}</span>
+                    </p>
+                  )}
                 </div>
                 <div className="ml-4 flex shrink-0 items-center gap-2">
                   {p.updateAvailable && (
