@@ -176,6 +176,67 @@ assert "T11 stale lock: searxng seeded" test -f "$S/searxng/$MARKER"
 assert "T11 stale lock: brave-search seeded too" test -f "$S/brave-search/$MARKER"
 assert "T11 stale lock: metamcp seeded too" test -f "$S/metamcp/$MARKER"
 
+# ── T12: a slow-but-LIVE holder (owner file old, heartbeat fresh) must be
+#     waited on, never broken: staleness requires EVERY file in the lock —
+#     the heartbeat above all — to be older than the threshold ──────────────
+
+HB="$WORK/t12-target"; mkdir -p "$HB"
+HELD_LOCK="$HB/.lucia-seed-locks/searxng.lucia-seed.lock"
+mkdir -p "$HELD_LOCK"
+echo "live-slow-pod" >"$HELD_LOCK/owner"
+touch -d '30 minutes ago' "$HELD_LOCK/owner"        # stale on its own, but...
+date -u '+%Y-%m-%dT%H:%M:%SZ' >"$HELD_LOCK/heartbeat"  # ...the holder is still beating
+LUCIA_SEED_LOCK_TIMEOUT_SECONDS=2 sh "$SCRIPT" "$WORK/src" "$HB" >"$WORK/t12.log" 2>&1
+RC=$?
+assert "T12 live slow holder: fails loudly instead of breaking a live lock" test $RC -ne 0
+assert "T12 live slow holder: no takeover attempted (no graveyard dir)" test -z "$(ls -d "${HELD_LOCK}".stale.* 2>/dev/null)"
+assert "T12 live slow holder: heartbeat still there" test -f "$HELD_LOCK/heartbeat"
+rm -rf "$HELD_LOCK"
+run_seed "$WORK/src" "$HB"
+assert "T12 after real release: exit 0" test $? -eq 0
+assert "T12 after real release: searxng seeded and marked" test -f "$HB/searxng/$MARKER"
+
+# ── T13: two seeders race to break the SAME stale lock. The old rm -rf +
+#     mkdir sequence let both proceed; takeover is now a single atomic rename,
+#     so exactly one actor breaks it and the other waits its turn ───────────
+
+R="$WORK/t13-target"; mkdir -p "$R"
+STALE_LOCK="$R/.lucia-seed-locks/brave-search.lucia-seed.lock"
+mkdir -p "$STALE_LOCK"
+echo "dead-pod" >"$STALE_LOCK/owner"
+touch -d '30 minutes ago' "$STALE_LOCK" "$STALE_LOCK/owner"
+HOSTNAME=pod-a LUCIA_SEED_LOCK_TIMEOUT_SECONDS=60 sh "$SCRIPT" "$WORK/src" "$R" >"$WORK/t13a.log" 2>&1 &
+PID_A=$!
+HOSTNAME=pod-b LUCIA_SEED_LOCK_TIMEOUT_SECONDS=60 sh "$SCRIPT" "$WORK/src" "$R" >"$WORK/t13b.log" 2>&1 &
+PID_B=$!
+wait $PID_A; RC_A=$?
+wait $PID_B; RC_B=$?
+TAKEOVERS=$(cat "$WORK/t13a.log" "$WORK/t13b.log" | grep -c 'taking over stale lock' || true)
+assert "T13 concurrent takeover: seeder A exit 0" test $RC_A -eq 0
+assert "T13 concurrent takeover: seeder B exit 0" test $RC_B -eq 0
+assert "T13 concurrent takeover: exactly one actor broke the stale lock" test "$TAKEOVERS" -eq 1
+assert "T13 concurrent takeover: brave-search seeded and marked" test -f "$R/brave-search/$MARKER"
+assert "T13 concurrent takeover: no graveyard leftovers" test -z "$(ls -d "${STALE_LOCK}".stale.* 2>/dev/null)"
+assert "T13 concurrent takeover: no staging dir dropped inside the destination" \
+  test -z "$(find "$R/brave-search" -name '*.lucia-seed-tmp' 2>/dev/null | head -n 1)"
+
+# ── T14: seeder whose stale-lock rename LOSES to an earlier breaker (lock
+#     already moved away) falls through to the plain mkdir and still seeds;
+#     the abandoned graveyard is swept at the end of the run ────────────────
+
+M="$WORK/t14-target"; mkdir -p "$M"
+M_LOCK="$M/.lucia-seed-locks/metamcp.lucia-seed.lock"
+mkdir -p "$M_LOCK"
+echo "dead-pod" >"$M_LOCK/owner"
+touch -d '30 minutes ago' "$M_LOCK/owner"
+mv "$M_LOCK" "$M_LOCK.stale.earlier-waiter"   # another waiter already took it away
+sh "$SCRIPT" "$WORK/src" "$M" >"$WORK/t14.log" 2>&1
+RC=$?
+assert "T14 lost rename race: exit 0 (fell through to mkdir)" test $RC -eq 0
+assert "T14 lost rename race: metamcp seeded and marked" test -f "$M/metamcp/$MARKER"
+assert "T14 lost rename race: no graveyard left behind (abandoned one swept)" \
+  test -z "$(ls -d "${M_LOCK}".stale.* 2>/dev/null)"
+
 echo
 echo "seed-plugins tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

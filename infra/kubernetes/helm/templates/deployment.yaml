@@ -120,6 +120,23 @@ spec:
           imagePullPolicy: {{ .Values.lucia.image.pullPolicy }}
           command:
             - /usr/local/bin/seed-plugins.sh
+          {{- if or .Values.plugins.seedLockTimeoutSeconds .Values.plugins.seedLockStaleMinutes .Values.plugins.seedLockHeartbeatSeconds }}
+          # Seed-lock tuning for slow RWX volumes (concurrent seeders); the
+          # script's own defaults apply when these are unset.
+          env:
+            {{- if .Values.plugins.seedLockTimeoutSeconds }}
+            - name: LUCIA_SEED_LOCK_TIMEOUT_SECONDS
+              value: {{ .Values.plugins.seedLockTimeoutSeconds | quote }}
+            {{- end }}
+            {{- if .Values.plugins.seedLockStaleMinutes }}
+            - name: LUCIA_SEED_LOCK_STALE_MINUTES
+              value: {{ .Values.plugins.seedLockStaleMinutes | quote }}
+            {{- end }}
+            {{- if .Values.plugins.seedLockHeartbeatSeconds }}
+            - name: LUCIA_SEED_LOCK_HEARTBEAT_SECONDS
+              value: {{ .Values.plugins.seedLockHeartbeatSeconds | quote }}
+            {{- end }}
+          {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

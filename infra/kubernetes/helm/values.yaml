@@ -150,6 +150,13 @@ plugins:
   accessMode: ReadWriteOnce
   # RWX-capable class required for replicaCount > 1 (empty = cluster default).
   storageClass: ""
+  # Optional seed-lock tuning for slow or contended ReadWriteMany volumes
+  # (multi-replica). All optional; when left null the script defaults apply
+  # (60s timeout, 5min stale, 30s heartbeat). When set, each is passed to the
+  # seed-plugins init container as LUCIA_SEED_LOCK_* env.
+  seedLockTimeoutSeconds: null
+  seedLockStaleMinutes: null
+  seedLockHeartbeatSeconds: null
 
 ## Redis Configuration
 redis:

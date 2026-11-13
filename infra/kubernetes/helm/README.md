@@ -144,12 +144,24 @@ Two consequences to know:
 NEVER delete the whole PVC on upgrades: repository- and store-installed plugins
 live there. Disabling `plugins.enabled` during an upgrade never deletes the
 claim — the chart keeps rendering it, so installed plugins survive and
-re-enabling needs no migration. Only a manual `kubectl delete pvc
-<release>-plugins` or `helm uninstall` removes it (and with a Delete reclaim
-policy, its data) — do that deliberately. With more than one replica, use
-`ReadWriteMany` plus an RWX-capable storage class; concurrent seeders on the
-shared volume are serialized by a per-plugin lock, so multi-replica starts
-are safe.
+re-enabling needs no migration. The remaining removal paths are deliberate: a
+manual `kubectl delete pvc <release>-plugins`, or `helm uninstall`. Note that
+`helm uninstall` removes the chart-managed PVC like any other chart resource —
+if you want installed plugins to survive an uninstall, back them up first, or
+annotate the claim before uninstalling (`kubectl annotate pvc
+<release>-plugins helm.sh/resource-policy=keep`).
+
+With more than one replica, use `ReadWriteMany` plus an RWX-capable storage
+class. Concurrent seeders on the shared volume are serialized by a per-plugin
+lock: each holder refreshes a heartbeat in its lock every 30s, so a lock is
+only broken when *every* file in it — the heartbeat included — has gone stale;
+a slow but live seeder keeps its lock. The break itself is a single atomic
+rename, so exactly one pod can ever take a stuck lock away, and a holder that
+notices its lock was taken mid-flight aborts instead of racing the destination
+swap. If your volume is slow, tune the thresholds through values (all optional;
+defaults in parentheses): `plugins.seedLockTimeoutSeconds` (60),
+`plugins.seedLockStaleMinutes` (5), and `plugins.seedLockHeartbeatSeconds`
+(30).
 
 ### Basic Installation Scenarios
 

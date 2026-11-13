@@ -117,4 +117,23 @@ assert multi.returncode == 0, multi.stderr
 multi_deployment = next(document for document in multi.stdout.split("---") if "\nkind: Deployment\n" in document)
 assert "maxUnavailable: 0" in multi_deployment
 
+# Seed-lock tuning for slow/contended RWX volumes (concurrent seeders): the
+# knobs are optional; unset means no env on the seed init container and the
+# script's own defaults apply, set means each is passed through as a
+# LUCIA_SEED_LOCK_* env.
+assert "LUCIA_SEED_LOCK" not in default_deployment
+seed_tuned = render(
+    "plugins.seedLockTimeoutSeconds=120",
+    "plugins.seedLockStaleMinutes=10",
+    "plugins.seedLockHeartbeatSeconds=45",
+)
+assert seed_tuned.returncode == 0, seed_tuned.stderr
+tuned_deployment = next(document for document in seed_tuned.stdout.split("---") if "\nkind: Deployment\n" in document)
+for name, value in (
+    ("LUCIA_SEED_LOCK_TIMEOUT_SECONDS", "120"),
+    ("LUCIA_SEED_LOCK_STALE_MINUTES", "10"),
+    ("LUCIA_SEED_LOCK_HEARTBEAT_SECONDS", "45"),
+):
+    assert f"- name: {name}" in tuned_deployment and f'value: "{value}"' in tuned_deployment, name
+
 print("Helm render regressions passed: defaults, external secrets, invalid values, and plugin persistence.")
