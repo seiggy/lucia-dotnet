@@ -23,7 +23,12 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0
+      # Single-replica pods cannot attach the ReadWriteOnce plugins PVC while
+      # the previous pod still holds it, so maxUnavailable: 0 deadlocks every
+      # upgrade (new pod waits for the detach; the old pod is held until the
+      # new one is ready). Allow the old pod to terminate first when a single
+      # replica runs; multi-replica (RWX) keeps zero downtime.
+      maxUnavailable: {{ if gt (int .Values.lucia.replicaCount) 1 }}0{{ else }}1{{ end }}
   selector:
     matchLabels:
       {{- include "lucia.selectorLabels" . | nindent 6 }}

@@ -101,4 +101,15 @@ assert "- name: seed-plugins" not in disabled_deployment
 assert "mountPath: /app/plugins" not in disabled_deployment
 assert not any("\nkind: PersistentVolumeClaim\n" in document for document in disabled_documents)
 
+# Rollout strategy vs the ReadWriteOnce plugins PVC: a single-replica pod can
+# never attach the volume while the previous pod still holds it, so
+# maxUnavailable: 0 deadlocks every upgrade (new pod waits for detach, old pod
+# is held until the new one is ready). Single replica must allow the old pod to
+# terminate first; multi-replica (RWX) can keep zero downtime.
+assert "maxUnavailable: 1" in default_deployment
+multi = render("lucia.replicaCount=2")
+assert multi.returncode == 0, multi.stderr
+multi_deployment = next(document for document in multi.stdout.split("---") if "\nkind: Deployment\n" in document)
+assert "maxUnavailable: 0" in multi_deployment
+
 print("Helm render regressions passed: defaults, external secrets, invalid values, and plugin persistence.")
