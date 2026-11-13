@@ -141,6 +141,41 @@ assert "T8 staging: real content wins" grep -q "v2 (updated)" "$T/searxng/plugin
 run_seed "$WORK/src" "$WORK/src"
 assert "T9 guard: source==target fails loudly" test $? -ne 0
 
+# ── T10: a live per-plugin lock (another seeder in flight) is waited on,
+#     then seeding fails loudly instead of racing the destination swap ─────
+
+L="$WORK/t10-target"; mkdir -p "$L"
+HELD_LOCK="$L/.lucia-seed-locks/brave-search.lucia-seed.lock"
+mkdir -p "$HELD_LOCK"
+echo "other-pod" >"$HELD_LOCK/owner"
+LUCIA_SEED_LOCK_TIMEOUT_SECONDS=1 sh "$SCRIPT" "$WORK/src" "$L" >"$WORK/t10.log" 2>&1
+RC=$?
+assert "T10 live lock: fails loudly while another seeder holds it" test $RC -ne 0
+assert "T10 live lock: stderr mentions the lock" grep -q "lock" "$WORK/t10.log"
+assert "T10 live lock: no double-swap behind a held lock" test ! -e "$L/brave-search"
+rm -rf "$HELD_LOCK"
+run_seed "$WORK/src" "$L"
+assert "T10 after release: exit 0" test $? -eq 0
+assert "T10 after release: plugin seeded" test -f "$L/brave-search/$MARKER"
+assert "T10 after release: lock cleaned up by the holder" test ! -e "$HELD_LOCK"
+
+# ── T11: a stale lock left by a hard-killed seeder is broken and seeding
+#     proceeds (SIGKILL skips the cleanup trap, so stale-breaking is the
+#     only recovery path) ────────────────────────────────────────────────────
+
+S="$WORK/t11-target"; mkdir -p "$S"
+STALE_LOCK="$S/.lucia-seed-locks/searxng.lucia-seed.lock"
+mkdir -p "$STALE_LOCK"
+echo "dead-pod" >"$STALE_LOCK/owner"
+touch -d '30 minutes ago' "$STALE_LOCK/owner"
+sh "$SCRIPT" "$WORK/src" "$S" >"$WORK/t11.log" 2>&1
+RC=$?
+assert "T11 stale lock: exit 0 after breaking the stale lock" test $RC -eq 0
+assert "T11 stale lock: stale lock dir removed" test ! -e "$STALE_LOCK"
+assert "T11 stale lock: searxng seeded" test -f "$S/searxng/$MARKER"
+assert "T11 stale lock: brave-search seeded too" test -f "$S/brave-search/$MARKER"
+assert "T11 stale lock: metamcp seeded too" test -f "$S/metamcp/$MARKER"
+
 echo
 echo "seed-plugins tests: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

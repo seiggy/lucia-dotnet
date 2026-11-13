@@ -24,12 +24,64 @@
 # behind; the next seed from that same host clears it, leftovers from other
 # hosts are inert dot-directories — delete by hand if a plugin scan ever picks
 # one up.
+#
+# Concurrent seeders on a shared ReadWriteMany volume (multiple replicas) are
+# serialized by a per-plugin mkdir lock under TARGET_DIR/.lucia-seed-locks/:
+# the "inspect destination + swap" section is critical, so a late mv can never
+# drop its staging dir inside a winner's destination. A hard-killed holder
+# (SIGKILL skips the cleanup trap) leaves a stale lock; a lock whose contents
+# are all older than LUCIA_SEED_LOCK_STALE_MINUTES (default 5) is broken and
+# re-taken, otherwise waiters fail loudly after LUCIA_SEED_LOCK_TIMEOUT_SECONDS
+# (default 60).
 
 set -eu
 
 SOURCE_DIR="${1:-/app/plugins}"
 TARGET_DIR="${2:-/plugins-data}"
 MARKER='.lucia-seeded'
+
+# Concurrent-seeder safety (shared ReadWriteMany volume, replicaCount > 1):
+# per-plugin mkdir locks under TARGET_DIR/.lucia-seed-locks/ serialize the
+# destination swap across pods. Tweak via environment if volumes are slow.
+LOCK_TIMEOUT_SECONDS="${LUCIA_SEED_LOCK_TIMEOUT_SECONDS:-60}"
+LOCK_STALE_MINUTES="${LUCIA_SEED_LOCK_STALE_MINUTES:-5}"
+CURRENT_LOCK=''
+
+cleanup_lock() {
+  if [ -n "$CURRENT_LOCK" ]; then rm -rf "$CURRENT_LOCK"; fi
+}
+trap cleanup_lock EXIT INT TERM
+
+# take_plugin_lock <name>: acquire the plugin's lock, breaking stale ones left
+# behind by hard-killed holders. Returns 1 after waiting LOCK_TIMEOUT_SECONDS.
+take_plugin_lock() {
+  lock="$TGT_ABS/.lucia-seed-locks/$1.lucia-seed.lock"
+  mkdir -p "$TGT_ABS/.lucia-seed-locks"
+  attempts=0
+  while :; do
+    if [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 1 -mmin +"$LOCK_STALE_MINUTES" 2>/dev/null)" ]; then
+      echo "seed: clearing stale lock for '$1' (no live holder for > ${LOCK_STALE_MINUTES} min)"
+      rm -rf "$lock"
+    fi
+    if mkdir "$lock" 2>/dev/null; then
+      CURRENT_LOCK="$lock"
+      { hostname 2>/dev/null || echo local; } >"$lock/owner"
+      return 0
+    fi
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge $((LOCK_TIMEOUT_SECONDS * 5)) ]; then
+      return 1
+    fi
+    sleep 0.2
+  done
+}
+
+release_plugin_lock() {
+  if [ -n "$CURRENT_LOCK" ]; then
+    rm -rf "$CURRENT_LOCK"
+    CURRENT_LOCK=''
+  fi
+}
 
 [ -d "$SOURCE_DIR" ] || { echo "seed: source dir '$SOURCE_DIR' does not exist — refusing to seed (broken image?)" >&2; exit 1; }
 
@@ -80,6 +132,14 @@ for src in "$SRC_ABS"/*/; do
   # final path, so a directory with the final name always carries its marker.
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$staging/$MARKER"
 
+  # Serialize "inspect destination + swap" per plugin: without the lock, two
+  # seeders on a shared volume could both see the dir missing and the late mv
+  # would drop its staging dir INSIDE the winner's destination.
+  if ! take_plugin_lock "$name"; then
+    echo "seed: could not take the lock for '$name' within ${LOCK_TIMEOUT_SECONDS}s (another seeder is holding it?) — refusing to risk a double-swap." >&2
+    rm -rf "$staging"
+    exit 1
+  fi
   if [ -d "$dest" ]; then
     rm -rf "$dest"
     replaced=$((replaced + 1))
@@ -87,6 +147,7 @@ for src in "$SRC_ABS"/*/; do
     seeded=$((seeded + 1))
   fi
   mv "$staging" "$dest"
+  release_plugin_lock
   echo "seed: seed  $name (from image)"
 done
 

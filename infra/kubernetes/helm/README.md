@@ -147,7 +147,9 @@ claim — the chart keeps rendering it, so installed plugins survive and
 re-enabling needs no migration. Only a manual `kubectl delete pvc
 <release>-plugins` or `helm uninstall` removes it (and with a Delete reclaim
 policy, its data) — do that deliberately. With more than one replica, use
-`ReadWriteMany` plus an RWX-capable storage class.
+`ReadWriteMany` plus an RWX-capable storage class; concurrent seeders on the
+shared volume are serialized by a per-plugin lock, so multi-replica starts
+are safe.
 
 ### Basic Installation Scenarios
 
