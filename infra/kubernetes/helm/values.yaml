@@ -147,6 +147,36 @@ lucia:
   # Environment variables (from ConfigMap and Secrets)
   env: {}
 
+## Plugin persistence (/app/plugins).
+## Bundled plugins ship baked into the image; plugins installed from a repository
+## or store (dashboard → Plugins) are written to /app/plugins and must survive pod
+## recreation, so the directory is backed by a PVC. A seed init container syncs
+## the bundled plugins into the volume on every pod start using per-plugin
+## .lucia-seeded markers: marked (bundled) dirs are replaced from the current image
+## each start so plugin updates and corruption repair flow through, while unmarked
+## (installed) dirs are never touched.
+## NEVER delete the claim on upgrades — installed plugins live there.
+plugins:
+  # Disabling removes the mount and the seed init container only; the chart
+  # keeps rendering the PVC so installed plugins survive an upgrade (and
+  # re-enabling needs no migration). Remove the volume deliberately, by hand.
+  enabled: true
+  # Existing PVC to mount at /app/plugins (e.g. one created manually). When set, no PVC
+  # is created by this chart.
+  existingClaim: ""
+  # Used only when existingClaim is empty.
+  size: 1Gi
+  accessMode: ReadWriteOnce
+  # RWX-capable class required for replicaCount > 1 (empty = cluster default).
+  storageClass: ""
+  # Optional seed-lock tuning for slow or contended ReadWriteMany volumes
+  # (multi-replica). All optional; when left null the script defaults apply
+  # (60s timeout, 5min stale, 30s heartbeat). When set, each is passed to the
+  # seed-plugins init container as LUCIA_SEED_LOCK_* env.
+  seedLockTimeoutSeconds: null
+  seedLockStaleMinutes: null
+  seedLockHeartbeatSeconds: null
+
 ## Redis Configuration
 redis:
   # Enable embedded Redis

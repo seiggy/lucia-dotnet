@@ -113,6 +113,55 @@ Restart the AgentHost deployment after rotating the external Secret.
 
 Run chart regressions with `python tests/render_regressions.py`.
 
+### Plugin Persistence
+
+With `plugins.enabled: true` (default), the chart mounts a persistent volume at
+`/app/plugins` so plugins survive pod restarts and image upgrades. Set
+`plugins.existingClaim` to use your own PVC; otherwise the chart creates
+`<release>-plugins` (`plugins.size`, `plugins.accessMode`, `plugins.storageClass`).
+
+A `seed-plugins` init container syncs the bundled plugins baked into the image
+into the volume on every pod start, using a per-plugin `.lucia-seeded` marker:
+
+- **Marked directories (bundled plugins) are image-managed.** They are replaced
+  from the current image on every pod start, so bundled plugin code updates
+  automatically when you ship a new image, and corrupted or partial copies heal
+  themselves. The volume only keeps them *across* restarts; their content always
+  follows the image.
+- **Unmarked directories are never touched.** Plugins installed from a
+  repository or your own store persist exactly as-is, even if one shares a name
+  with a bundled plugin.
+
+Two consequences to know:
+
+1. Edits you make directly inside a bundled plugin's directory on the volume are
+   reset on the next pod start. To keep a modified version, install your own copy
+   under a different name from a repository/store.
+2. Uninstalling a bundled plugin removes it until the next pod start re-seeds it
+  (self-healing by design — the image always ships its bundled plugins). Use the
+  enable/disable toggle in the dashboard if you just want one inactive.
+
+NEVER delete the whole PVC on upgrades: repository- and store-installed plugins
+live there. Disabling `plugins.enabled` during an upgrade never deletes the
+claim — the chart keeps rendering it, so installed plugins survive and
+re-enabling needs no migration. The remaining removal paths are deliberate: a
+manual `kubectl delete pvc <release>-plugins`, or `helm uninstall`. Note that
+`helm uninstall` removes the chart-managed PVC like any other chart resource —
+if you want installed plugins to survive an uninstall, back them up first, or
+annotate the claim before uninstalling (`kubectl annotate pvc
+<release>-plugins helm.sh/resource-policy=keep`).
+
+With more than one replica, use `ReadWriteMany` plus an RWX-capable storage
+class. Concurrent seeders on the shared volume are serialized by a per-plugin
+lock: each holder refreshes a heartbeat in its lock every 30s, so a lock is
+only broken when *every* file in it — the heartbeat included — has gone stale;
+a slow but live seeder keeps its lock. The break itself is a single atomic
+rename, so exactly one pod can ever take a stuck lock away, and a holder that
+notices its lock was taken mid-flight aborts instead of racing the destination
+swap. If your volume is slow, tune the thresholds through values (all optional;
+defaults in parentheses): `plugins.seedLockTimeoutSeconds` (60),
+`plugins.seedLockStaleMinutes` (5), and `plugins.seedLockHeartbeatSeconds`
+(30).
 ### Wyoming Voice Port
 
 The voice image serves the Wyoming protocol (raw TCP, JSONL + PCM) on port 10400.

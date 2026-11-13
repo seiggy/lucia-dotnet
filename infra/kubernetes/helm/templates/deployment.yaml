@@ -23,7 +23,12 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 1
-      maxUnavailable: 0
+      # Single-replica pods cannot attach the ReadWriteOnce plugins PVC while
+      # the previous pod still holds it, so maxUnavailable: 0 deadlocks every
+      # upgrade (new pod waits for the detach; the old pod is held until the
+      # new one is ready). Allow the old pod to terminate first when a single
+      # replica runs; multi-replica (RWX) keeps zero downtime.
+      maxUnavailable: {{ if gt (int .Values.lucia.replicaCount) 1 }}0{{ else }}1{{ end }}
   selector:
     matchLabels:
       {{- include "lucia.selectorLabels" . | nindent 6 }}
@@ -101,6 +106,46 @@ spec:
               done
               echo "PostgreSQL failed to become ready"
               exit 1
+        {{- if .Values.plugins.enabled }}
+        # Seed the persistent plugins volume from the bundled plugins baked into
+        # the image. The script (baked into the image at /usr/local/bin) uses a
+        # per-plugin .lucia-seeded marker: marked dirs are replaced wholesale on
+        # every pod start — so bundled plugin code updates with image upgrades
+        # and corrupted copies self-heal — while unmarked dirs (repository- or
+        # store-installed plugins) are never touched. Mounts the claim at a
+        # separate path so the image's own /app/plugins stays visible as the
+        # copy source. Runs with the app image for identical content/user.
+        - name: seed-plugins
+          image: "{{ .Values.lucia.image.repository }}:{{ .Values.lucia.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.lucia.image.pullPolicy }}
+          command:
+            - /usr/local/bin/seed-plugins.sh
+          {{- if or .Values.plugins.seedLockTimeoutSeconds .Values.plugins.seedLockStaleMinutes .Values.plugins.seedLockHeartbeatSeconds }}
+          # Seed-lock tuning for slow RWX volumes (concurrent seeders); the
+          # script's own defaults apply when these are unset.
+          env:
+            {{- if .Values.plugins.seedLockTimeoutSeconds }}
+            - name: LUCIA_SEED_LOCK_TIMEOUT_SECONDS
+              value: {{ .Values.plugins.seedLockTimeoutSeconds | quote }}
+            {{- end }}
+            {{- if .Values.plugins.seedLockStaleMinutes }}
+            - name: LUCIA_SEED_LOCK_STALE_MINUTES
+              value: {{ .Values.plugins.seedLockStaleMinutes | quote }}
+            {{- end }}
+            {{- if .Values.plugins.seedLockHeartbeatSeconds }}
+            - name: LUCIA_SEED_LOCK_HEARTBEAT_SECONDS
+              value: {{ .Values.plugins.seedLockHeartbeatSeconds | quote }}
+            {{- end }}
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: plugins
+              mountPath: /plugins-data
+        {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.lucia.securityContext }}
@@ -175,6 +220,12 @@ spec:
               mountPath: /etc/ssl/certs
               readOnly: true
             {{- end }}
+            {{- if .Values.plugins.enabled }}
+            # Persistent plugin storage (bundled + repository/store-installed plugins),
+            # synced from the image at startup by the seed-plugins init container.
+            - name: plugins
+              mountPath: /app/plugins
+            {{- end }}
 
       # Volumes for pod
       volumes:
@@ -188,6 +239,13 @@ spec:
         - name: tls-certs
           secret:
             secretName: {{ .Values.lucia.tlsCerts }}
+        {{- end }}
+        {{- if .Values.plugins.enabled }}
+        # Persistent plugin storage. NEVER delete this PVC on upgrades — installed
+        # plugins live here; bundled plugins are re-seeded by the init container.
+        - name: plugins
+          persistentVolumeClaim:
+            claimName: {{ .Values.plugins.existingClaim | default (printf "%s-plugins" (include "lucia.fullname" .)) }}
         {{- end }}
 
       # Termination grace period for graceful shutdown

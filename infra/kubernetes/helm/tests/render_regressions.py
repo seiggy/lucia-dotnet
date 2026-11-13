@@ -71,6 +71,72 @@ for override, message in (
     invalid = render(*postgres, override)
     assert invalid.returncode != 0 and message in invalid.stderr, invalid.stdout + invalid.stderr
 
+# Plugin persistence: with plugins enabled (default) the deployment must run a
+# seed-plugins init container using the marker-based seed script baked into the
+# image, and the chart must render a ReadWriteOnce PVC for /app/plugins. The
+# old inline no-clobber copy could never update or repair an already-seeded
+# bundled plugin, so it must be gone from the rendered output.
+default_documents = default.stdout.split("---")
+default_deployment = next(document for document in default_documents if "\nkind: Deployment\n" in document)
+assert "- name: seed-plugins" in default_deployment
+assert "/usr/local/bin/seed-plugins.sh" in default_deployment
+assert "cp -rn" not in default.stdout
+default_pvc = next(document for document in default_documents if "name: lucia-plugins" in document and "\nkind: PersistentVolumeClaim\n" in document)
+assert "ReadWriteOnce" in default_pvc and 'storage: "1Gi"' in default_pvc
+
+# A supplied existing claim must be mounted without the chart creating a PVC.
+existing_claim = render("plugins.existingClaim=external-claim")
+assert existing_claim.returncode == 0, existing_claim.stderr
+claim_documents = existing_claim.stdout.split("---")
+assert not any("\nkind: PersistentVolumeClaim\n" in document for document in claim_documents), "existingClaim must suppress the chart's PVC"
+claim_deployment = next(document for document in claim_documents if "\nkind: Deployment\n" in document)
+assert "claimName: external-claim" in claim_deployment
+
+# Disabling plugins removes the init container and the mount but KEEPS
+# rendering the chart-managed PVC: if it stopped rendering on disable, a plain
+# `helm upgrade` would delete the claim (and with a Delete reclaim policy,
+# every installed plugin) — exactly what the README warns against. Keeping it
+# rendered also means re-enabling needs no migration step.
+plugins_disabled = render("plugins.enabled=false")
+assert plugins_disabled.returncode == 0, plugins_disabled.stderr
+disabled_documents = plugins_disabled.stdout.split("---")
+disabled_deployment = next(document for document in disabled_documents if "\nkind: Deployment\n" in document)
+assert "- name: seed-plugins" not in disabled_deployment
+assert "mountPath: /app/plugins" not in disabled_deployment
+disabled_pvc = next((document for document in disabled_documents if "name: lucia-plugins" in document and "\nkind: PersistentVolumeClaim\n" in document), None)
+assert disabled_pvc is not None, "disabling plugins must keep rendering the PVC, or an upgrade would delete installed plugins"
+
+# Rollout strategy vs the ReadWriteOnce plugins PVC: a single-replica pod can
+# never attach the volume while the previous pod still holds it, so
+# maxUnavailable: 0 deadlocks every upgrade (new pod waits for detach, old pod
+# is held until the new one is ready). Single replica must allow the old pod to
+# terminate first; multi-replica (RWX) can keep zero downtime.
+assert "maxUnavailable: 1" in default_deployment
+multi = render("lucia.replicaCount=2")
+assert multi.returncode == 0, multi.stderr
+multi_deployment = next(document for document in multi.stdout.split("---") if "\nkind: Deployment\n" in document)
+assert "maxUnavailable: 0" in multi_deployment
+
+# Seed-lock tuning for slow/contended RWX volumes (concurrent seeders): the
+# knobs are optional; unset means no env on the seed init container and the
+# script's own defaults apply, set means each is passed through as a
+# LUCIA_SEED_LOCK_* env.
+assert "LUCIA_SEED_LOCK" not in default_deployment
+seed_tuned = render(
+    "plugins.seedLockTimeoutSeconds=120",
+    "plugins.seedLockStaleMinutes=10",
+    "plugins.seedLockHeartbeatSeconds=45",
+)
+assert seed_tuned.returncode == 0, seed_tuned.stderr
+tuned_deployment = next(document for document in seed_tuned.stdout.split("---") if "\nkind: Deployment\n" in document)
+for name, value in (
+    ("LUCIA_SEED_LOCK_TIMEOUT_SECONDS", "120"),
+    ("LUCIA_SEED_LOCK_STALE_MINUTES", "10"),
+    ("LUCIA_SEED_LOCK_HEARTBEAT_SECONDS", "45"),
+):
+    assert f"- name: {name}" in tuned_deployment and f'value: "{value}"' in tuned_deployment, name
+
+print("Helm render regressions passed: defaults, external secrets, invalid values, and plugin persistence.")
 # Wyoming voice port: its own Service, independent of the HTTP service type;
 # absent by default. When enabled, it renders alongside the matching
 # Deployment container port and the app's Wyoming__Port env var.

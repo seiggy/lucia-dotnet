@@ -1,0 +1,35 @@
+{{- /*
+Persistent Volume Claim for plugin storage (/app/plugins).
+
+Only skipped when an existing claim is supplied. Deliberately rendered even
+while plugins.enabled is false, so that toggling the feature off during a
+helm upgrade never deletes the chart-managed claim (or the installed plugins
+on it) — and re-enabling needs no migration step. The deliberate removal
+paths are `kubectl delete pvc <release>-plugins` or `helm uninstall`.
+The seed-plugins init container syncs the image's bundled plugins into the
+volume on every pod start using per-plugin .lucia-seeded markers: marked
+(bundled) dirs are replaced from the current image each start so plugin code
+updates and corruption repair flow through; unmarked (repository/store- or
+user-installed) dirs are never touched.
+NEVER delete this PVC on upgrades — installed plugins live there.
+With more than one replica the claim must be ReadWriteMany (set plugins.accessMode
+and a RWX-capable plugins.storageClass).
+*/ -}}
+{{- if not .Values.plugins.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-plugins" (include "lucia.fullname" .) }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.plugins.accessMode }}
+  {{- if .Values.plugins.storageClass }}
+  storageClassName: {{ .Values.plugins.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.plugins.size | quote }}
+{{- end }}
